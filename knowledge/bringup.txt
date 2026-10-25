@@ -1,0 +1,60 @@
+Initial Xbox extraction and native CPU bring-up - 2026-10-25
+
+The supplied XISO contains 4,778 files in 43 directories, totaling 2,948,585,603
+file bytes. All files were extracted in one native batch and checked against
+SHA-256 hashes of their disc entries. A repeat run verified and reused all files.
+See source_media.json and disc_summary.json for identity and asset-extension
+counts. The Redump hashes in Verification.txt are supplied provenance claims;
+the original Redump ISO was not available for independent verification.
+
+Default.xbe is 7,143,424 bytes, title SuperMonkeyBallDX, title ID 53450038,
+certificate version 1. Its SHA-256 is pinned in supported_target.json. All 17
+embedded section digests match. Loading checks passed for original bytes, zero
+initialization, section preload behaviour, 115 imports and the 144-byte TLS area.
+
+One Ghidra 12.1.4/Xbox-extension analysis recovered 8,368 function entries and
+indexed 773,425 instructions. Its saved project and full streaming exports remain
+private under build/ghidra and data/local/analysis. SDK pattern recovery named
+363 functions; sdk_symbols.json preserves these research leads. A name alone
+does not verify an API's behaviour or calling convention.
+
+The native decoder independently compared the instruction index with executable
+bytes. It verified 27 cases where Ghidra combines FWAIT with the next instruction.
+Twenty rows remain disputed: Zydis rejects three raw-backed encodings and 17 rows
+lie outside file-backed code. These are recorded, not accepted as verified paths.
+
+The native batch discovered 8,422 candidate function starts and compiled 8,417
+into 64 C++ shards plus fixed native instruction helpers. It translated 690,822
+instructions. Five starts remain blocked: four need a code/data audit, and
+003230E0 contains the privileged WBINVD instruction at 00323434. No decoder or
+interpreter runs inside translated game routines. Missing functions stop with
+their original addresses. Generation remains explicitly partial.
+
+The 4,140 closed-function count describes static CPU control-flow coverage;
+it does not establish that required Xbox services exist. Other translated
+functions retain unresolved indirect flows. No Xbox kernel or platform bindings
+have been implemented. No game boot, rendering, audio or FPS claim is made.
+
+Ten isolated checks passed using original lstrlenA, D3DXMatrixScaling,
+D3DXVec3Normalize and D3DXMatrixMultiply routines. These check returned values,
+memory, stack cleanup and the string routine's exception-chain restoration.
+Expected matrix/vector results are independently calculated. These limited
+checks do not establish complete instruction or gameplay accuracy.
+
+Run tools/Build.ps1 -AllowPartial to reproduce this research build. Omitting
+-AllowPartial enforces failure on analysis disagreement or incomplete generation.
+initial_coverage.json records full counts, rejected rows and remaining blockers.
+Full private per-function reports are in build/generated/batch.json.
+
+Next: audit candidate boundaries and indirect-call targets; verify native Xbox
+service bindings against original bytes and caller ABIs; implement the shared
+SDL3/D3D11 graphics, input and audio paths with offline diagnostics.
+
+Research/tool references:
+https://github.com/XboxDev/ghidra-xbe
+https://github.com/zyantific/zydis
+https://learn.microsoft.com/en-us/windows/win32/direct3d9/d3dxmatrixscaling
+https://learn.microsoft.com/en-us/windows/win32/direct3d9/d3dxvec3normalize
+The D3DX documentation supplies general mathematical contracts. Xbox routines
+and their calling behaviour were checked from this executable, independently of
+the later desktop library version described by those pages.

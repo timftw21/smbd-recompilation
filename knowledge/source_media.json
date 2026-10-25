@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "image": "Super Monkey Ball Deluxe (USA).xiso.iso",
+  "bytes": 2953707520,
+  "sha256": "19C0C8356308E8D96480A1AB8F3DED6C379CC057CFCEFD409DC6F7E6467E5C26",
+  "provenance": {
+    "source": "Local Verification.txt; the original Redump ISO was not supplied or independently hashed",
+    "conversion_tool": "extract-xiso build-202505152050 (32-bit)",
+    "conversion_date": "2026-10-21 09:05:55",
+    "reported_redump_name": "Super Monkey Ball Deluxe (USA).iso",
+    "reported_redump_crc32": "899dbd71",
+    "reported_redump_md5": "7a634a3c9034017be8766d8eb43fbf6a",
+    "reported_redump_sha1": "25876e7a2b9289c275b4f16952cfe35666c20ba4"
+  }
+}

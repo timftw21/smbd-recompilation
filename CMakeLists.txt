@@ -1,0 +1,73 @@
+cmake_minimum_required(VERSION 4.2)
+project(smbd VERSION 0.1.0 LANGUAGES C CXX)
+
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/knowledge/supported_target.json" registry)
+foreach(field IN ITEMS target_id file_size file_sha256)
+    string(JSON SMBD_${field} GET "${registry}" targets 0 ${field})
+endforeach()
+configure_file(cmake/target.h.in generated/target.h @ONLY)
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/knowledge/kernel_imports.json" imports)
+string(JSON import_count LENGTH "${imports}")
+math(EXPR import_last "${import_count} - 1")
+set(kernel_names "")
+foreach(index RANGE ${import_last})
+    string(JSON ordinal GET "${imports}" ${index} ordinal)
+    string(JSON name GET "${imports}" ${index} name)
+    string(APPEND kernel_names "    case ${ordinal}: return \"${name}\";\n")
+endforeach()
+configure_file(cmake/kernel_names.h.in generated/kernel_names.h @ONLY)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    knowledge/supported_target.json knowledge/kernel_imports.json)
+
+include(FetchContent)
+set(ZYDIS_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(ZYDIS_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(ZYDIS_BUILD_DOXYGEN OFF CACHE BOOL "" FORCE)
+set(ZYDIS_FEATURE_ENCODER OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(zydis
+    GIT_REPOSITORY https://github.com/zyantific/zydis.git
+    GIT_TAG a2278f1d254e492f6a6b39f6cb5d1f5d515659dc
+    GIT_SUBMODULES dependencies/zycore)
+FetchContent_MakeAvailable(zydis)
+
+add_library(smbd-core STATIC src/file.cpp src/disc.cpp src/xbe.cpp)
+target_include_directories(smbd-core PUBLIC src PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+if(WIN32)
+    target_compile_definitions(smbd-core PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
+    target_link_libraries(smbd-core PRIVATE bcrypt)
+else()
+    find_package(OpenSSL REQUIRED)
+    target_link_libraries(smbd-core PRIVATE OpenSSL::Crypto)
+endif()
+
+add_executable(smbd-tool src/tool.cpp src/pipeline.cpp src/decoder.cpp src/recompiler.cpp src/batch.cpp)
+target_include_directories(smbd-tool PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+target_link_libraries(smbd-tool PRIVATE smbd-core Zydis)
+if(MSVC)
+    target_compile_options(smbd-core PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:/W4;/utf-8>")
+    target_compile_options(smbd-tool PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:/W4;/utf-8>")
+endif()
+
+set(SMBD_BATCH "" CACHE FILEPATH "Local generated batch .cpp to compile into offline diagnostics")
+if(SMBD_BATCH)
+    if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+        message(FATAL_ERROR "Compiling native CPU batches currently requires Windows x64.")
+    endif()
+    enable_language(ASM_MASM)
+    file(GLOB shards CONFIGURE_DEPENDS "${SMBD_BATCH}.[0-9][0-9].cpp")
+    if(MSVC)
+        # Retain instruction-address labels for debugging generated code.
+        set_source_files_properties(${shards} PROPERTIES COMPILE_OPTIONS /wd4102)
+    endif()
+    # Keep C++ dependency flags out of MASM's command line.
+    add_library(smbd-helpers OBJECT "${SMBD_BATCH}.asm" src/cpu_floating.asm)
+    target_sources(smbd-tool PRIVATE "${SMBD_BATCH}" ${shards}
+        src/cpu.cpp src/floating.cpp src/cpu_diagnostics.cpp)
+    target_link_libraries(smbd-tool PRIVATE smbd-helpers)
+    target_compile_definitions(smbd-tool PRIVATE SMBD_HAS_BATCH=1)
+endif()

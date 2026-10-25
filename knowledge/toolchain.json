@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "ghidra": {
+    "version": "12.1.4",
+    "archive": "ghidra_12.1.4_PUBLIC_20260921.zip",
+    "sha256": "DDAC49F903DA9D5BAC833E5CC79395098B9C33CFD3279BE5F31BD00387D2D4DB",
+    "source": "https://github.com/NationalSecurityAgency/ghidra/releases/tag/Ghidra_12.1.4_build",
+    "heap_limit": "3G",
+    "analysis_threads": 2
+  },
+  "xbox_extension": {
+    "release": "build-202610161023",
+    "archive": "ghidra_12.1.4_PUBLIC_20261016_ghidra-xbe.zip",
+    "sha256": "339B2F67563BBB8B5217740319B7F3EAE9E9BBACF1F3A8AA29151F7ECB7D5152",
+    "source": "https://github.com/XboxDev/ghidra-xbe",
+    "symbols": "Pattern-derived SDK names are research leads, not verified native API bindings."
+  },
+  "decoder": {
+    "name": "Zydis",
+    "revision": "a2278f1d254e492f6a6b39f6cb5d1f5d515659dc",
+    "source": "https://github.com/zyantific/zydis"
+  },
+  "native_source": {
+    "source": "https://github.com/timftw21/burnout2-recompilation",
+    "generic_cpu_base": "2c90673a82da212fd4b933519723515bd28d501c",
+    "file_disc_xbe_mmx_base": "2259fea7d99e16436456ce49467833dd918b1b7c",
+    "adaptation": "Removed Burnout-specific callbacks, API addresses and presentation hooks; retained bounded generic recovery and added SMBD-required SSE/MMX lowering."
+  }
+}

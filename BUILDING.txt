@@ -1,0 +1,47 @@
+Super Monkey Ball Deluxe: extraction and native CPU bring-up
+
+Windows prerequisites: Visual Studio 2026 C++ tools and Windows SDK, CMake 4.2+,
+Git, PowerShell and a JDK 21+. No Python is used. The game is not bootable yet.
+
+Run from the source folder:
+
+  .\tools\Build.ps1 -AllowPartial
+
+An explicit image can be selected with -Disc 'D:\path\game.xiso.iso'.
+The script builds one native tool, extracts/verifies the entire disc, runs one
+Ghidra analysis/export, generates all discovered functions in one batch, builds
+64 native C++ shards and runs isolated original-code diagnostics. Compiler work
+uses one worker. Ghidra uses a 3 GiB heap and two analysis threads.
+
+Ghidra 12.1.4 and its matching Xbox extension are downloaded with pinned SHA-256
+hashes. Completed analysis is reused when the executable and export script match.
+Existing extracted files are hash-checked and preserved; changed files cause an
+error. Unchanged generated files retain their timestamps to avoid recompilation.
+
+-AllowPartial explicitly permits incomplete research output. Missing functions
+stop at their original addresses; there is no interpreter or success fallback.
+Without this switch, analysis disagreements or incomplete generation fail the
+build. The current Ghidra/native disagreements and remaining generation blockers
+are recorded in knowledge/ and in the full private reports below.
+
+Developer commands (after building):
+
+  .\build\windows\Release\smbd-tool.exe --help
+  .\build\windows\Release\smbd-tool.exe verify data/local/default.xbe
+  .\build\windows\Release\smbd-tool.exe check-image data/local/default.xbe
+  .\build\windows\Release\smbd-tool.exe check-cpu data/local/default.xbe
+  .\tools\Analyze.ps1
+
+Private outputs:
+
+  data/local/                  Extracted files, SHA-256 disc inventory and metadata
+  data/local/analysis/         Ghidra functions, ranges, instructions, references,
+                              symbols, computed flows and native-generation seeds
+  build/ghidra/                Saved Ghidra project for further batched research
+  build/generated/batch.json   Complete generation coverage and address-level blockers
+  build/logs/                  Analysis, compilation and validation reports
+
+Only Windows x64 native CPU compilation has been exercised. Extraction tools
+also have POSIX/OpenSSL support; Linux/macOS execution backends, native Xbox
+services, graphics, audio, input, settings and gameplay still need implementation.
+Component diagnostics do not establish gameplay accuracy or frame rate.

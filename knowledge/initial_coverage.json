@@ -1,0 +1,243 @@
+{
+  "schema_version": 1,
+  "validation_date": "2026-10-25",
+  "executable_sha256": "9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2",
+  "stage": "Initial extraction and offline native CPU bring-up; not a bootable game",
+  "ghidra": {
+    "schema_version": 1,
+    "sha256": "9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2",
+    "ghidra_version": "12.1.4",
+    "executable_format": "Xbox Executable Format (XBE)",
+    "language": "x86:LE:32:default",
+    "functions": 8368,
+    "instructions": 773425,
+    "symbols": 126096,
+    "references": 332701,
+    "computed_flow_sites": 2835,
+    "analysis_timed_out": false,
+    "export_script_sha256": "DFDF3C1F9CEEBDCEBFE771FB921104445EDCDCD7D4D1AF6E0290A3E31934D104"
+  },
+  "native_generation": {
+    "complete": false,
+    "functions_discovered": 8422,
+    "functions_compiled": 8417,
+    "closed_functions": 4140,
+    "instructions_discovered": 691397,
+    "instructions_compiled": 690822,
+    "generated_source_bytes": 138289734,
+    "shards": 64,
+    "remaining_blockers": [
+      {
+        "entry": "0x003230E0",
+        "budget_exhausted": false,
+        "error": null,
+        "issues": [
+          {
+            "address": "0x00323434",
+            "bytes": "0F09",
+            "instruction": "wbinvd",
+            "reason": "Instruction has no native lowering yet"
+          }
+        ]
+      },
+      {
+        "entry": "0x003E9999",
+        "budget_exhausted": false,
+        "error": "Invalid or truncated x86 instruction at 0x003E99A2 [FFFFFFFF0000F3AB993F6ADE45BFA0]",
+        "issues": []
+      },
+      {
+        "entry": "0x003F1999",
+        "budget_exhausted": false,
+        "error": "Invalid or truncated x86 instruction at 0x003F199A [FFFFFFFF000075E6883F9087563FD2]",
+        "issues": []
+      },
+      {
+        "entry": "0x00414999",
+        "budget_exhausted": false,
+        "error": null,
+        "issues": [
+          {
+            "address": "0x00414A95",
+            "bytes": "626261",
+            "instruction": "bound esp, qword ptr [edx+0x61]",
+            "reason": "Instruction has no native lowering yet"
+          }
+        ]
+      },
+      {
+        "entry": "0x009F09A9",
+        "budget_exhausted": false,
+        "error": "Address is not executable code: 0x009F09A9",
+        "issues": []
+      }
+    ],
+    "unresolved_flow_functions": 681,
+    "kernel_bindings": 0,
+    "platform_bindings": 0
+  },
+  "instruction_comparison": {
+    "format": "smbd-analysis-check-v1",
+    "sha256": "9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2",
+    "passed": false,
+    "instructions": 773425,
+    "folded_wait_pairs": 27,
+    "failures": 20,
+    "first_issues": [
+      {
+        "address": "0x00190015",
+        "reason": "Invalid or truncated x86 instruction at 0x00190015 [FF7F12899058FFFFFF8990BCFEFFFF]"
+      },
+      {
+        "address": "0x005FB8C5",
+        "reason": "Invalid or truncated x86 instruction at 0x005FB8C5 [FEA5C2D38673BE3EEC193F0000A040]"
+      },
+      {
+        "address": "0x0064342C",
+        "reason": "Invalid or truncated x86 instruction at 0x0064342C [FF7F00004AD10940000000004AD109]"
+      },
+      {
+        "address": "0x009F09A9",
+        "reason": "Address is not executable code: 0x009F09A9"
+      },
+      {
+        "address": "0x009F09AB",
+        "reason": "Address is not executable code: 0x009F09AB"
+      },
+      {
+        "address": "0x009F09AD",
+        "reason": "Address is not executable code: 0x009F09AD"
+      },
+      {
+        "address": "0x009F09AF",
+        "reason": "Address is not executable code: 0x009F09AF"
+      },
+      {
+        "address": "0x009F09B1",
+        "reason": "Address is not executable code: 0x009F09B1"
+      },
+      {
+        "address": "0x009F09B3",
+        "reason": "Address is not executable code: 0x009F09B3"
+      },
+      {
+        "address": "0x009F09B5",
+        "reason": "Address is not executable code: 0x009F09B5"
+      },
+      {
+        "address": "0x009F09B7",
+        "reason": "Address is not executable code: 0x009F09B7"
+      },
+      {
+        "address": "0x009F09B9",
+        "reason": "Address is not executable code: 0x009F09B9"
+      },
+      {
+        "address": "0x009F09BB",
+        "reason": "Address is not executable code: 0x009F09BB"
+      },
+      {
+        "address": "0x009F09BD",
+        "reason": "Address is not executable code: 0x009F09BD"
+      },
+      {
+        "address": "0x009F09BF",
+        "reason": "Address is not executable code: 0x009F09BF"
+      },
+      {
+        "address": "0x009F09C1",
+        "reason": "Address is not executable code: 0x009F09C1"
+      },
+      {
+        "address": "0x009F09C3",
+        "reason": "Address is not executable code: 0x009F09C3"
+      },
+      {
+        "address": "0x009F09C5",
+        "reason": "Address is not executable code: 0x009F09C5"
+      },
+      {
+        "address": "0x009F09C7",
+        "reason": "Address is not executable code: 0x009F09C7"
+      },
+      {
+        "address": "0x009F09C9",
+        "reason": "Address is not executable code: 0x009F09C9"
+      }
+    ]
+  },
+  "image_validation": {
+    "format": "smbd-image-check-v1",
+    "sha256": "9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2",
+    "passed": true,
+    "image_size": 10880160,
+    "loaded_sections": 17,
+    "preloaded_sections": 15,
+    "raw_bytes_compared": 14168992,
+    "zero_bytes_checked": 7582728,
+    "kernel_imports": 115,
+    "tls_template_bytes": 144
+  },
+  "original_routine_validation": {
+    "format": "smbd-cpu-check-v1",
+    "sha256": "9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2",
+    "passed": true,
+    "cases": 10,
+    "failures": 0,
+    "results": [
+      {
+        "name": "original lstrlenA",
+        "address": "0x00308BDE",
+        "passed": true
+      },
+      {
+        "name": "original lstrlenA",
+        "address": "0x00308BDE",
+        "passed": true
+      },
+      {
+        "name": "original lstrlenA",
+        "address": "0x00308BDE",
+        "passed": true
+      },
+      {
+        "name": "original D3DXMatrixScaling",
+        "address": "0x0032E876",
+        "passed": true
+      },
+      {
+        "name": "original D3DXMatrixScaling",
+        "address": "0x0032E876",
+        "passed": true
+      },
+      {
+        "name": "original D3DXMatrixScaling",
+        "address": "0x0032E876",
+        "passed": true
+      },
+      {
+        "name": "original D3DXVec3Normalize",
+        "address": "0x0032EB5A",
+        "passed": true
+      },
+      {
+        "name": "original D3DXVec3Normalize",
+        "address": "0x0032EB5A",
+        "passed": true
+      },
+      {
+        "name": "original D3DXVec3Normalize",
+        "address": "0x0032EB5A",
+        "passed": true
+      },
+      {
+        "name": "original D3DXMatrixMultiply",
+        "address": "0x0032EBD6",
+        "passed": true
+      }
+    ]
+  },
+  "gameplay_validated": false,
+  "graphics_validated": false,
+  "performance_validated": false
+}

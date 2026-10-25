@@ -1,0 +1,142 @@
+{
+  "format": "smbd-disc-preparation-v1",
+  "complete": true,
+  "disc_size": 2953707520,
+  "disc_sha256": "19C0C8356308E8D96480A1AB8F3DED6C379CC057CFCEFD409DC6F7E6467E5C26",
+  "executable_sha256": "9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2",
+  "files": 4778,
+  "directories": 43,
+  "file_bytes": 2948585603,
+  "extensions": [
+    {
+      "extension": "",
+      "files": 1,
+      "bytes": 103
+    },
+    {
+      "extension": ".8001",
+      "files": 12,
+      "bytes": 346404
+    },
+    {
+      "extension": ".8011",
+      "files": 5,
+      "bytes": 131464
+    },
+    {
+      "extension": ".9001",
+      "files": 4,
+      "bytes": 123764
+    },
+    {
+      "extension": ".acx",
+      "files": 17,
+      "bytes": 26600520
+    },
+    {
+      "extension": ".adx",
+      "files": 415,
+      "bytes": 326776302
+    },
+    {
+      "extension": ".arc",
+      "files": 1,
+      "bytes": 126788
+    },
+    {
+      "extension": ".bin",
+      "files": 75,
+      "bytes": 309242534
+    },
+    {
+      "extension": ".gct",
+      "files": 7,
+      "bytes": 1075200
+    },
+    {
+      "extension": ".gma",
+      "files": 928,
+      "bytes": 229961728
+    },
+    {
+      "extension": ".lz",
+      "files": 768,
+      "bytes": 96222933
+    },
+    {
+      "extension": ".mal",
+      "files": 188,
+      "bytes": 471931
+    },
+    {
+      "extension": ".mat",
+      "files": 3,
+      "bytes": 4839
+    },
+    {
+      "extension": ".mta",
+      "files": 231,
+      "bytes": 34266400
+    },
+    {
+      "extension": ".scp",
+      "files": 21,
+      "bytes": 87065
+    },
+    {
+      "extension": ".sfd",
+      "files": 32,
+      "bytes": 1645709312
+    },
+    {
+      "extension": ".ska",
+      "files": 1,
+      "bytes": 24864
+    },
+    {
+      "extension": ".skl",
+      "files": 74,
+      "bytes": 98156
+    },
+    {
+      "extension": ".str",
+      "files": 6,
+      "bytes": 37704
+    },
+    {
+      "extension": ".tpl",
+      "files": 962,
+      "bytes": 269125632
+    },
+    {
+      "extension": ".txt",
+      "files": 1,
+      "bytes": 0
+    },
+    {
+      "extension": ".xbe",
+      "files": 1,
+      "bytes": 7143424
+    },
+    {
+      "extension": ".xbx",
+      "files": 5,
+      "bytes": 32768
+    },
+    {
+      "extension": ".xpr",
+      "files": 2,
+      "bytes": 550912
+    },
+    {
+      "extension": ".xpu",
+      "files": 266,
+      "bytes": 64904
+    },
+    {
+      "extension": ".xvu",
+      "files": 752,
+      "bytes": 359952
+    }
+  ]
+}

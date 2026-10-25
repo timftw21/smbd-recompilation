@@ -1,0 +1,2185 @@
+{
+  "schema_version": 1,
+  "executable_sha256": "9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2",
+  "source": "Ghidra Xbox extension/XbSymbolDatabase pattern recovery; signatures and calling conventions still require verification",
+  "functions": [
+    {
+      "address": "0x00012660",
+      "name": "switchD_00012333::caseD_103",
+      "body_bytes": 566,
+      "thunk": false
+    },
+    {
+      "address": "0x000128A0",
+      "name": "switchD_00012333::caseD_104",
+      "body_bytes": 1388,
+      "thunk": false
+    },
+    {
+      "address": "0x00034B40",
+      "name": "XAPILIB::GetTickCount",
+      "body_bytes": 5,
+      "thunk": true
+    },
+    {
+      "address": "0x00036360",
+      "name": "D3D8::D3DDevice_BlockUntilVerticalBlank",
+      "body_bytes": 5,
+      "thunk": true
+    },
+    {
+      "address": "0x000BA870",
+      "name": "switchD_0012c1ca::caseD_6",
+      "body_bytes": 1,
+      "thunk": false
+    },
+    {
+      "address": "0x000F9310",
+      "name": "switchD_000f9e03::caseD_b3",
+      "body_bytes": 255,
+      "thunk": false
+    },
+    {
+      "address": "0x00108BB0",
+      "name": "switchD_0010885a::caseD_0",
+      "body_bytes": 133,
+      "thunk": false
+    },
+    {
+      "address": "0x00108FB0",
+      "name": "switchD_00108b6a::caseD_0",
+      "body_bytes": 612,
+      "thunk": false
+    },
+    {
+      "address": "0x001136C0",
+      "name": "switchD_0010ee0f::caseD_1",
+      "body_bytes": 123,
+      "thunk": false
+    },
+    {
+      "address": "0x00113DF0",
+      "name": "switchD_0010ee0f::caseD_4",
+      "body_bytes": 101,
+      "thunk": false
+    },
+    {
+      "address": "0x00119200",
+      "name": "switchD_00115a6f::caseD_3",
+      "body_bytes": 1240,
+      "thunk": false
+    },
+    {
+      "address": "0x00119920",
+      "name": "switchD_00115a6f::caseD_2",
+      "body_bytes": 470,
+      "thunk": false
+    },
+    {
+      "address": "0x00119B20",
+      "name": "switchD_00119b0c::caseD_0",
+      "body_bytes": 447,
+      "thunk": false
+    },
+    {
+      "address": "0x00119CE0",
+      "name": "switchD_00119b0c::caseD_4",
+      "body_bytes": 1247,
+      "thunk": false
+    },
+    {
+      "address": "0x0011A1C0",
+      "name": "switchD_00119b0c::caseD_6",
+      "body_bytes": 512,
+      "thunk": false
+    },
+    {
+      "address": "0x0011A3C0",
+      "name": "switchD_00119b0c::caseD_2",
+      "body_bytes": 349,
+      "thunk": false
+    },
+    {
+      "address": "0x00126D60",
+      "name": "switchD_00126d4f::caseD_0",
+      "body_bytes": 743,
+      "thunk": false
+    },
+    {
+      "address": "0x001270E0",
+      "name": "switchD_00126d4f::caseD_c",
+      "body_bytes": 271,
+      "thunk": false
+    },
+    {
+      "address": "0x0012B6E0",
+      "name": "switchD_00126d4f::caseD_2",
+      "body_bytes": 322,
+      "thunk": false
+    },
+    {
+      "address": "0x0012B840",
+      "name": "switchD_00126d4f::caseD_4",
+      "body_bytes": 421,
+      "thunk": false
+    },
+    {
+      "address": "0x0012BA00",
+      "name": "switchD_00126d4f::caseD_6",
+      "body_bytes": 203,
+      "thunk": false
+    },
+    {
+      "address": "0x0012BAF0",
+      "name": "switchD_00126d4f::caseD_8",
+      "body_bytes": 419,
+      "thunk": false
+    },
+    {
+      "address": "0x0012BCA0",
+      "name": "switchD_00126d4f::caseD_a",
+      "body_bytes": 184,
+      "thunk": false
+    },
+    {
+      "address": "0x0012C1E0",
+      "name": "switchD_0012c1ca::caseD_0",
+      "body_bytes": 524,
+      "thunk": false
+    },
+    {
+      "address": "0x0012C860",
+      "name": "switchD_0012c1ca::caseD_2",
+      "body_bytes": 1515,
+      "thunk": false
+    },
+    {
+      "address": "0x0012CE50",
+      "name": "switchD_0012c1ca::caseD_4",
+      "body_bytes": 878,
+      "thunk": false
+    },
+    {
+      "address": "0x0012D1C0",
+      "name": "switchD_0012c1ca::caseD_5",
+      "body_bytes": 201,
+      "thunk": false
+    },
+    {
+      "address": "0x0012D290",
+      "name": "switchD_0012c1ca::caseD_8",
+      "body_bytes": 290,
+      "thunk": false
+    },
+    {
+      "address": "0x0012D470",
+      "name": "switchD_0012c1ca::caseD_a",
+      "body_bytes": 772,
+      "thunk": false
+    },
+    {
+      "address": "0x00137A40",
+      "name": "switchD_00137a12::caseD_5",
+      "body_bytes": 2429,
+      "thunk": false
+    },
+    {
+      "address": "0x001383C0",
+      "name": "switchD_00137a12::caseD_1",
+      "body_bytes": 413,
+      "thunk": false
+    },
+    {
+      "address": "0x00138560",
+      "name": "switchD_00137a12::caseD_7",
+      "body_bytes": 466,
+      "thunk": false
+    },
+    {
+      "address": "0x00138DE0",
+      "name": "switchD_00137a12::caseD_9",
+      "body_bytes": 2149,
+      "thunk": false
+    },
+    {
+      "address": "0x00139760",
+      "name": "switchD_00137a12::caseD_0",
+      "body_bytes": 897,
+      "thunk": false
+    },
+    {
+      "address": "0x00139AF0",
+      "name": "switchD_00137a12::caseD_6",
+      "body_bytes": 219,
+      "thunk": false
+    },
+    {
+      "address": "0x0022FA90",
+      "name": "switchD_00238cec::caseD_3",
+      "body_bytes": 85,
+      "thunk": false
+    },
+    {
+      "address": "0x0022FE00",
+      "name": "switchD_00238cec::caseD_1",
+      "body_bytes": 54,
+      "thunk": false
+    },
+    {
+      "address": "0x002311D0",
+      "name": "switchD_0023b551::caseD_4",
+      "body_bytes": 259,
+      "thunk": false
+    },
+    {
+      "address": "0x00239690",
+      "name": "switchD_00239474::caseD_8",
+      "body_bytes": 284,
+      "thunk": false
+    },
+    {
+      "address": "0x00239C10",
+      "name": "switchD_00239474::caseD_f",
+      "body_bytes": 178,
+      "thunk": false
+    },
+    {
+      "address": "0x00239CD0",
+      "name": "switchD_00239474::caseD_13",
+      "body_bytes": 617,
+      "thunk": false
+    },
+    {
+      "address": "0x0023A2F0",
+      "name": "switchD_00239474::caseD_1",
+      "body_bytes": 193,
+      "thunk": false
+    },
+    {
+      "address": "0x0023A5D0",
+      "name": "switchD_00239474::caseD_7",
+      "body_bytes": 351,
+      "thunk": false
+    },
+    {
+      "address": "0x0023A840",
+      "name": "switchD_00239474::caseD_11",
+      "body_bytes": 397,
+      "thunk": false
+    },
+    {
+      "address": "0x0023A9D0",
+      "name": "switchD_00239474::caseD_12",
+      "body_bytes": 413,
+      "thunk": false
+    },
+    {
+      "address": "0x0023B700",
+      "name": "switchD_0023b551::caseD_2",
+      "body_bytes": 109,
+      "thunk": false
+    },
+    {
+      "address": "0x0023BD00",
+      "name": "switchD_0023b551::caseD_0",
+      "body_bytes": 45,
+      "thunk": false
+    },
+    {
+      "address": "0x0023BD30",
+      "name": "switchD_0023b6ee::caseD_0",
+      "body_bytes": 1080,
+      "thunk": false
+    },
+    {
+      "address": "0x00242C70",
+      "name": "switchD_00240171::caseD_90",
+      "body_bytes": 849,
+      "thunk": false
+    },
+    {
+      "address": "0x002447A0",
+      "name": "switchD_00240171::caseD_89",
+      "body_bytes": 1599,
+      "thunk": false
+    },
+    {
+      "address": "0x00245940",
+      "name": "switchD_00240171::caseD_72",
+      "body_bytes": 82,
+      "thunk": false
+    },
+    {
+      "address": "0x00246520",
+      "name": "switchD_00240171::caseD_95",
+      "body_bytes": 359,
+      "thunk": false
+    },
+    {
+      "address": "0x002469D0",
+      "name": "switchD_00240171::caseD_a1",
+      "body_bytes": 376,
+      "thunk": false
+    },
+    {
+      "address": "0x00253FD0",
+      "name": "switchD_0025360f::caseD_64",
+      "body_bytes": 1073,
+      "thunk": false
+    },
+    {
+      "address": "0x00254FA0",
+      "name": "switchD_0025360f::caseD_56",
+      "body_bytes": 287,
+      "thunk": false
+    },
+    {
+      "address": "0x00255500",
+      "name": "switchD_0025360f::caseD_4b",
+      "body_bytes": 683,
+      "thunk": false
+    },
+    {
+      "address": "0x00256080",
+      "name": "switchD_0025360f::caseD_62",
+      "body_bytes": 564,
+      "thunk": false
+    },
+    {
+      "address": "0x0025D1E0",
+      "name": "switchD_000f9e03::caseD_b6",
+      "body_bytes": 487,
+      "thunk": false
+    },
+    {
+      "address": "0x00276CD0",
+      "name": "switchD_00276a48::caseD_da",
+      "body_bytes": 646,
+      "thunk": false
+    },
+    {
+      "address": "0x002786C0",
+      "name": "switchD_00276a48::caseD_e5",
+      "body_bytes": 532,
+      "thunk": false
+    },
+    {
+      "address": "0x002788E0",
+      "name": "switchD_00276a48::caseD_e6",
+      "body_bytes": 1181,
+      "thunk": false
+    },
+    {
+      "address": "0x0029E7C1",
+      "name": "switchD_0029e7a9::caseD_2",
+      "body_bytes": 17,
+      "thunk": false
+    },
+    {
+      "address": "0x003040F4",
+      "name": "XAPILIB::CloseHandle",
+      "body_bytes": 30,
+      "thunk": false
+    },
+    {
+      "address": "0x00304112",
+      "name": "XAPILIB::ReadFile",
+      "body_bytes": 237,
+      "thunk": false
+    },
+    {
+      "address": "0x003041FF",
+      "name": "XAPILIB::WriteFile",
+      "body_bytes": 214,
+      "thunk": false
+    },
+    {
+      "address": "0x003042D5",
+      "name": "XAPILIB::SetEndOfFile",
+      "body_bytes": 132,
+      "thunk": false
+    },
+    {
+      "address": "0x00304359",
+      "name": "XAPILIB::SetFilePointer",
+      "body_bytes": 250,
+      "thunk": false
+    },
+    {
+      "address": "0x00304453",
+      "name": "XAPILIB::SetFilePointerEx",
+      "body_bytes": 200,
+      "thunk": false
+    },
+    {
+      "address": "0x0030451B",
+      "name": "XAPILIB::FlushFileBuffers",
+      "body_bytes": 39,
+      "thunk": false
+    },
+    {
+      "address": "0x00304542",
+      "name": "XAPILIB::GetFileSizeEx",
+      "body_bytes": 62,
+      "thunk": false
+    },
+    {
+      "address": "0x00304580",
+      "name": "XAPILIB::ReadFileEx",
+      "body_bytes": 81,
+      "thunk": false
+    },
+    {
+      "address": "0x003045D1",
+      "name": "XAPILIB::WriteFileEx",
+      "body_bytes": 81,
+      "thunk": false
+    },
+    {
+      "address": "0x00304622",
+      "name": "XAPILIB::GetFileSize",
+      "body_bytes": 59,
+      "thunk": false
+    },
+    {
+      "address": "0x00304F37",
+      "name": "XAPILIB::XCreateSaveGame",
+      "body_bytes": 611,
+      "thunk": false
+    },
+    {
+      "address": "0x0030519A",
+      "name": "XAPILIB::XDeleteSaveGame",
+      "body_bytes": 208,
+      "thunk": false
+    },
+    {
+      "address": "0x0030526A",
+      "name": "XAPILIB::XFindFirstSaveGame",
+      "body_bytes": 266,
+      "thunk": false
+    },
+    {
+      "address": "0x00305374",
+      "name": "XAPILIB::XFindNextSaveGame",
+      "body_bytes": 71,
+      "thunk": false
+    },
+    {
+      "address": "0x003053BB",
+      "name": "XAPILIB::XFindClose",
+      "body_bytes": 86,
+      "thunk": false
+    },
+    {
+      "address": "0x0030561F",
+      "name": "XAPILIB::MultiByteToWideChar",
+      "body_bytes": 187,
+      "thunk": false
+    },
+    {
+      "address": "0x003056DA",
+      "name": "XAPILIB::WideCharToMultiByte",
+      "body_bytes": 200,
+      "thunk": false
+    },
+    {
+      "address": "0x003057A2",
+      "name": "XAPILIB::XLaunchNewImageA",
+      "body_bytes": 66,
+      "thunk": false
+    },
+    {
+      "address": "0x00305965",
+      "name": "XAPILIB::XapipQueryTimeZoneInformation",
+      "body_bytes": 170,
+      "thunk": false
+    },
+    {
+      "address": "0x00305A0F",
+      "name": "XAPILIB::GetSystemTime",
+      "body_bytes": 100,
+      "thunk": false
+    },
+    {
+      "address": "0x00305A73",
+      "name": "XAPILIB::GetTickCount",
+      "body_bytes": 8,
+      "thunk": false
+    },
+    {
+      "address": "0x00305A7B",
+      "name": "XAPILIB::FileTimeToSystemTime",
+      "body_bytes": 107,
+      "thunk": false
+    },
+    {
+      "address": "0x00305AE6",
+      "name": "XAPILIB::SystemTimeToFileTime",
+      "body_bytes": 117,
+      "thunk": false
+    },
+    {
+      "address": "0x00305D65",
+      "name": "XAPILIB::GetTimeZoneInformation",
+      "body_bytes": 348,
+      "thunk": false
+    },
+    {
+      "address": "0x00305F17",
+      "name": "XAPILIB::FileTimeToLocalFileTime",
+      "body_bytes": 43,
+      "thunk": false
+    },
+    {
+      "address": "0x00305F42",
+      "name": "XAPILIB::QueryPerformanceCounter",
+      "body_bytes": 17,
+      "thunk": false
+    },
+    {
+      "address": "0x00305F53",
+      "name": "XAPILIB::QueryPerformanceFrequency",
+      "body_bytes": 20,
+      "thunk": false
+    },
+    {
+      "address": "0x00305F67",
+      "name": "XAPILIB::VirtualAlloc",
+      "body_bytes": 46,
+      "thunk": false
+    },
+    {
+      "address": "0x00305F95",
+      "name": "XAPILIB::VirtualFree",
+      "body_bytes": 60,
+      "thunk": false
+    },
+    {
+      "address": "0x00305FD1",
+      "name": "XAPILIB::GlobalMemoryStatus",
+      "body_bytes": 79,
+      "thunk": false
+    },
+    {
+      "address": "0x003060F9",
+      "name": "XAPILIB::XSetFileCacheSize",
+      "body_bytes": 44,
+      "thunk": false
+    },
+    {
+      "address": "0x0030873D",
+      "name": "XAPILIB::HeapCreate",
+      "body_bytes": 79,
+      "thunk": false
+    },
+    {
+      "address": "0x0030878C",
+      "name": "XAPILIB::HeapDestroy",
+      "body_bytes": 28,
+      "thunk": false
+    },
+    {
+      "address": "0x003087A8",
+      "name": "XAPILIB::HeapFree",
+      "body_bytes": 23,
+      "thunk": false
+    },
+    {
+      "address": "0x003087C5",
+      "name": "XAPILIB::LocalAlloc",
+      "body_bytes": 29,
+      "thunk": false
+    },
+    {
+      "address": "0x003087E2",
+      "name": "XAPILIB::LocalFree",
+      "body_bytes": 30,
+      "thunk": false
+    },
+    {
+      "address": "0x00308800",
+      "name": "XAPILIB::CreateEventA",
+      "body_bytes": 97,
+      "thunk": false
+    },
+    {
+      "address": "0x00308861",
+      "name": "XAPILIB::WaitForSingleObjectEx",
+      "body_bytes": 68,
+      "thunk": false
+    },
+    {
+      "address": "0x003088A5",
+      "name": "XAPILIB::SleepEx",
+      "body_bytes": 82,
+      "thunk": false
+    },
+    {
+      "address": "0x003088F7",
+      "name": "XAPILIB::WaitForSingleObject",
+      "body_bytes": 18,
+      "thunk": false
+    },
+    {
+      "address": "0x00308909",
+      "name": "XAPILIB::Sleep",
+      "body_bytes": 14,
+      "thunk": false
+    },
+    {
+      "address": "0x00308AE1",
+      "name": "XAPILIB::lstrcpyA",
+      "body_bytes": 49,
+      "thunk": false
+    },
+    {
+      "address": "0x00308B1F",
+      "name": "XAPILIB::lstrcpynA",
+      "body_bytes": 88,
+      "thunk": false
+    },
+    {
+      "address": "0x00308B84",
+      "name": "XAPILIB::lstrcatA",
+      "body_bytes": 77,
+      "thunk": false
+    },
+    {
+      "address": "0x00308BDE",
+      "name": "XAPILIB::lstrlenA",
+      "body_bytes": 51,
+      "thunk": false
+    },
+    {
+      "address": "0x00308C1C",
+      "name": "XAPILIB::OutputDebugStringA",
+      "body_bytes": 46,
+      "thunk": false
+    },
+    {
+      "address": "0x00308C4E",
+      "name": "XAPILIB::XGetGameRegion",
+      "body_bytes": 40,
+      "thunk": false
+    },
+    {
+      "address": "0x00308C76",
+      "name": "XAPILIB::XGetVideoStandard",
+      "body_bytes": 41,
+      "thunk": false
+    },
+    {
+      "address": "0x00308C9F",
+      "name": "XAPILIB::XGetVideoFlags",
+      "body_bytes": 73,
+      "thunk": false
+    },
+    {
+      "address": "0x00308DDC",
+      "name": "XAPILIB::XapiSelectCachePartition",
+      "body_bytes": 587,
+      "thunk": false
+    },
+    {
+      "address": "0x00309027",
+      "name": "XAPILIB::XMountUtilityDrive",
+      "body_bytes": 261,
+      "thunk": false
+    },
+    {
+      "address": "0x003091CB",
+      "name": "XAPILIB::GetLastError",
+      "body_bytes": 40,
+      "thunk": false
+    },
+    {
+      "address": "0x003091F3",
+      "name": "XAPILIB::SetLastError",
+      "body_bytes": 46,
+      "thunk": false
+    },
+    {
+      "address": "0x00309221",
+      "name": "XAPILIB::XapiSetLastNTError",
+      "body_bytes": 23,
+      "thunk": false
+    },
+    {
+      "address": "0x00309238",
+      "name": "XAPILIB::GetOverlappedResult",
+      "body_bytes": 101,
+      "thunk": false
+    },
+    {
+      "address": "0x0030929D",
+      "name": "XAPILIB::XGetLanguage",
+      "body_bytes": 45,
+      "thunk": false
+    },
+    {
+      "address": "0x003092CA",
+      "name": "XAPILIB::XPhysicalAlloc",
+      "body_bytes": 67,
+      "thunk": false
+    },
+    {
+      "address": "0x0030933A",
+      "name": "XAPILIB::XPhysicalFree",
+      "body_bytes": 6,
+      "thunk": true
+    },
+    {
+      "address": "0x003093A7",
+      "name": "XAPILIB::XLoadSectionByHandle",
+      "body_bytes": 33,
+      "thunk": false
+    },
+    {
+      "address": "0x003093C8",
+      "name": "XAPILIB::XFreeSectionByHandle",
+      "body_bytes": 30,
+      "thunk": false
+    },
+    {
+      "address": "0x0030941C",
+      "name": "XAPILIB::XGetSectionSize",
+      "body_bytes": 10,
+      "thunk": false
+    },
+    {
+      "address": "0x0030950C",
+      "name": "XAPILIB::XapiCallThreadNotifyRoutines",
+      "body_bytes": 56,
+      "thunk": false
+    },
+    {
+      "address": "0x00309544",
+      "name": "XAPILIB::SetThreadPriority",
+      "body_bytes": 82,
+      "thunk": false
+    },
+    {
+      "address": "0x00309596",
+      "name": "XAPILIB::GetThreadPriority",
+      "body_bytes": 84,
+      "thunk": false
+    },
+    {
+      "address": "0x003095EA",
+      "name": "XAPILIB::SetThreadPriorityBoost",
+      "body_bytes": 70,
+      "thunk": false
+    },
+    {
+      "address": "0x00309630",
+      "name": "XAPILIB::SuspendThread",
+      "body_bytes": 38,
+      "thunk": false
+    },
+    {
+      "address": "0x00309656",
+      "name": "XAPILIB::ResumeThread",
+      "body_bytes": 38,
+      "thunk": false
+    },
+    {
+      "address": "0x0030967C",
+      "name": "XAPILIB::RaiseException",
+      "body_bytes": 86,
+      "thunk": false
+    },
+    {
+      "address": "0x003096D2",
+      "name": "XAPILIB::SwitchToThread",
+      "body_bytes": 19,
+      "thunk": false
+    },
+    {
+      "address": "0x003096E5",
+      "name": "XAPILIB::ExitThread",
+      "body_bytes": 18,
+      "thunk": false
+    },
+    {
+      "address": "0x003096F7",
+      "name": "XAPILIB::GetExitCodeThread",
+      "body_bytes": 76,
+      "thunk": false
+    },
+    {
+      "address": "0x00309743",
+      "name": "XAPILIB::SetUnhandledExceptionFilter",
+      "body_bytes": 18,
+      "thunk": false
+    },
+    {
+      "address": "0x00309755",
+      "name": "XAPILIB::XRegisterThreadNotifyRoutine",
+      "body_bytes": 73,
+      "thunk": false
+    },
+    {
+      "address": "0x0030979E",
+      "name": "XAPILIB::UnhandledExceptionFilter",
+      "body_bytes": 60,
+      "thunk": false
+    },
+    {
+      "address": "0x00309872",
+      "name": "XAPILIB::CreateThread",
+      "body_bytes": 110,
+      "thunk": false
+    },
+    {
+      "address": "0x003098E0",
+      "name": "XAPILIB::GetCurrentThreadId",
+      "body_bytes": 13,
+      "thunk": false
+    },
+    {
+      "address": "0x003098ED",
+      "name": "XAPILIB::GetSystemTimeAsFileTime",
+      "body_bytes": 6,
+      "thunk": true
+    },
+    {
+      "address": "0x003098F3",
+      "name": "XAPILIB::wvsprintfA",
+      "body_bytes": 23,
+      "thunk": false
+    },
+    {
+      "address": "0x0030990A",
+      "name": "XAPILIB::wsprintfA",
+      "body_bytes": 19,
+      "thunk": false
+    },
+    {
+      "address": "0x0030991D",
+      "name": "XAPILIB::XOpenSoundtrackSong",
+      "body_bytes": 144,
+      "thunk": false
+    },
+    {
+      "address": "0x00309C93",
+      "name": "XAPILIB::XMemAlloc",
+      "body_bytes": 160,
+      "thunk": false
+    },
+    {
+      "address": "0x00309D33",
+      "name": "XAPILIB::XMemFree",
+      "body_bytes": 26,
+      "thunk": false
+    },
+    {
+      "address": "0x0030A442",
+      "name": "XAPILIB::XQueryValue",
+      "body_bytes": 34,
+      "thunk": false
+    },
+    {
+      "address": "0x0030A474",
+      "name": "XAPILIB::XapiFormatObjectAttributes",
+      "body_bytes": 40,
+      "thunk": false
+    },
+    {
+      "address": "0x0030A4CA",
+      "name": "XAPILIB::XGetAVPack",
+      "body_bytes": 8,
+      "thunk": false
+    },
+    {
+      "address": "0x0030A631",
+      "name": "XAPILIB::XapiMapLetterToDirectory",
+      "body_bytes": 820,
+      "thunk": false
+    },
+    {
+      "address": "0x0030A9BA",
+      "name": "XAPILIB::XapiBootToDash",
+      "body_bytes": 101,
+      "thunk": false
+    },
+    {
+      "address": "0x0030AA30",
+      "name": "XAPILIB::XapiInitProcess",
+      "body_bytes": 367,
+      "thunk": false
+    },
+    {
+      "address": "0x0030AEC4",
+      "name": "XAPILIB::_cinit",
+      "body_bytes": 88,
+      "thunk": false
+    },
+    {
+      "address": "0x0030AF1C",
+      "name": "XAPILIB::_rtinit",
+      "body_bytes": 41,
+      "thunk": false
+    },
+    {
+      "address": "0x0030B06E",
+      "name": "XAPILIB::XComputeContentSignatureKey",
+      "body_bytes": 31,
+      "thunk": false
+    },
+    {
+      "address": "0x0030B253",
+      "name": "XAPILIB::XAutoPowerDownResetTimer",
+      "body_bytes": 27,
+      "thunk": false
+    },
+    {
+      "address": "0x0030B2F4",
+      "name": "XAPILIB::XGetParentalControlSetting",
+      "body_bytes": 37,
+      "thunk": false
+    },
+    {
+      "address": "0x0030B413",
+      "name": "xboxkrnl.exe::XcSHAUpdate",
+      "body_bytes": 5,
+      "thunk": true
+    },
+    {
+      "address": "0x0030B492",
+      "name": "xboxkrnl.exe::ExQueryNonVolatileSetting",
+      "body_bytes": 6,
+      "thunk": true
+    },
+    {
+      "address": "0x0030B498",
+      "name": "xboxkrnl.exe::XcSHAFinal",
+      "body_bytes": 6,
+      "thunk": true
+    },
+    {
+      "address": "0x0030B49E",
+      "name": "xboxkrnl.exe::XcSHAUpdate",
+      "body_bytes": 6,
+      "thunk": true
+    },
+    {
+      "address": "0x0030B4A4",
+      "name": "xboxkrnl.exe::XcSHAInit",
+      "body_bytes": 6,
+      "thunk": true
+    },
+    {
+      "address": "0x0030B4AA",
+      "name": "xboxkrnl.exe::XcHMAC",
+      "body_bytes": 6,
+      "thunk": true
+    },
+    {
+      "address": "0x0030B4B0",
+      "name": "xboxkrnl.exe::DbgPrint",
+      "body_bytes": 6,
+      "thunk": true
+    },
+    {
+      "address": "0x003178B7",
+      "name": "XAPILIB::XGetAudioFlags",
+      "body_bytes": 66,
+      "thunk": false
+    },
+    {
+      "address": "0x003178F9",
+      "name": "XAPILIB::IsBadReadPtr",
+      "body_bytes": 90,
+      "thunk": false
+    },
+    {
+      "address": "0x0031795E",
+      "name": "XAPILIB::IsBadWritePtr",
+      "body_bytes": 94,
+      "thunk": false
+    },
+    {
+      "address": "0x003179C7",
+      "name": "XAPILIB::IsBadCodePtr",
+      "body_bytes": 14,
+      "thunk": false
+    },
+    {
+      "address": "0x003179D6",
+      "name": "xboxkrnl.exe::RtlUnwind",
+      "body_bytes": 6,
+      "thunk": true
+    },
+    {
+      "address": "0x0031ABD0",
+      "name": "D3D8::D3D_DestroyResource",
+      "body_bytes": 145,
+      "thunk": false
+    },
+    {
+      "address": "0x0031ACF0",
+      "name": "D3D8::D3DResource_AddRef",
+      "body_bytes": 55,
+      "thunk": false
+    },
+    {
+      "address": "0x0031AD30",
+      "name": "D3D8::D3DResource_Release",
+      "body_bytes": 78,
+      "thunk": false
+    },
+    {
+      "address": "0x0031AD80",
+      "name": "D3D8::D3DResource_GetType",
+      "body_bytes": 138,
+      "thunk": false
+    },
+    {
+      "address": "0x0031AE10",
+      "name": "D3D8::D3DResource_Register",
+      "body_bytes": 40,
+      "thunk": false
+    },
+    {
+      "address": "0x0031AEB0",
+      "name": "D3D8::D3D_AllocContiguousMemory",
+      "body_bytes": 54,
+      "thunk": false
+    },
+    {
+      "address": "0x0031AEF0",
+      "name": "D3D::D3D_FreeContiguousMemory",
+      "body_bytes": 18,
+      "thunk": false
+    },
+    {
+      "address": "0x0031AF10",
+      "name": "D3D8::D3DDevice_Clear",
+      "body_bytes": 713,
+      "thunk": false
+    },
+    {
+      "address": "0x0031B330",
+      "name": "D3D8::D3DDevice_SetRenderState_Simple",
+      "body_bytes": 39,
+      "thunk": false
+    },
+    {
+      "address": "0x0031B360",
+      "name": "D3D8::D3DDevice_SetRenderStateNotInline",
+      "body_bytes": 93,
+      "thunk": false
+    },
+    {
+      "address": "0x0031B3C0",
+      "name": "D3D8::D3DDevice_GetViewportOffsetAndScale",
+      "body_bytes": 290,
+      "thunk": false
+    },
+    {
+      "address": "0x0031B4F0",
+      "name": "D3D8::D3D_UpdateProjectionViewportTransform",
+      "body_bytes": 320,
+      "thunk": false
+    },
+    {
+      "address": "0x0031B630",
+      "name": "D3D8::D3DDevice_SetRenderState_EdgeAntiAlias",
+      "body_bytes": 50,
+      "thunk": false
+    },
+    {
+      "address": "0x0031B6B0",
+      "name": "D3D8::D3DDevice_SetRenderState_FogColor",
+      "body_bytes": 77,
+      "thunk": false
+    },
+    {
+      "address": "0x0031B700",
+      "name": "D3D8::D3DDevice_SetRenderState_CullMode",
+      "body_bytes": 104,
+      "thunk": false
+    },
+    {
+      "address": "0x0031B7F0",
+      "name": "D3D8::D3DDevice_SetRenderState_TextureFactor",
+      "body_bytes": 81,
+      "thunk": false
+    },
+    {
+      "address": "0x0031B850",
+      "name": "D3D8::D3DDevice_SetRenderState_LineWidth",
+      "body_bytes": 101,
+      "thunk": false
+    },
+    {
+      "address": "0x0031B8C0",
+      "name": "D3D8::D3DDevice_SetRenderState_Dxt1NoiseEnable",
+      "body_bytes": 119,
+      "thunk": false
+    },
+    {
+      "address": "0x0031BA20",
+      "name": "D3D8::D3DDevice_SetRenderState_FillMode",
+      "body_bytes": 68,
+      "thunk": false
+    },
+    {
+      "address": "0x0031BBA0",
+      "name": "D3D8::D3DDevice_SetTextureState_TexCoordIndex",
+      "body_bytes": 261,
+      "thunk": false
+    },
+    {
+      "address": "0x0031BCB0",
+      "name": "D3D8::D3DDevice_SetTextureState_BumpEnv",
+      "body_bytes": 99,
+      "thunk": false
+    },
+    {
+      "address": "0x0031BD20",
+      "name": "D3D8::D3DDevice_SetTextureState_BorderColor",
+      "body_bytes": 61,
+      "thunk": false
+    },
+    {
+      "address": "0x0031BD60",
+      "name": "D3D8::D3DDevice_SetTextureState_ColorKeyColor",
+      "body_bytes": 57,
+      "thunk": false
+    },
+    {
+      "address": "0x0031BDA0",
+      "name": "D3D8::D3DDevice_SetTextureStageStateNotInline",
+      "body_bytes": 236,
+      "thunk": false
+    },
+    {
+      "address": "0x0031C150",
+      "name": "D3D8::D3D_CommonSetDebugRegisters",
+      "body_bytes": 206,
+      "thunk": false
+    },
+    {
+      "address": "0x0031C220",
+      "name": "D3D8::D3D_CommonSetMultiSampleModeAndScale",
+      "body_bytes": 853,
+      "thunk": false
+    },
+    {
+      "address": "0x0031C580",
+      "name": "D3D8::D3DDevice_SetRenderState_ZEnable",
+      "body_bytes": 143,
+      "thunk": false
+    },
+    {
+      "address": "0x0031C610",
+      "name": "D3D8::D3DDevice_SetRenderState_StencilEnable",
+      "body_bytes": 152,
+      "thunk": false
+    },
+    {
+      "address": "0x0031CF10",
+      "name": "D3D8::D3DDevice_CreateVertexShader",
+      "body_bytes": 318,
+      "thunk": false
+    },
+    {
+      "address": "0x0031D050",
+      "name": "D3D8::D3DDevice_SetVertexShaderConstant1",
+      "body_bytes": 95,
+      "thunk": false
+    },
+    {
+      "address": "0x0031D0B0",
+      "name": "D3D8::D3DDevice_SetVertexShaderConstant1Fast",
+      "body_bytes": 73,
+      "thunk": false
+    },
+    {
+      "address": "0x0031D100",
+      "name": "D3D8::D3DDevice_SetVertexShaderConstantNotInlineFast",
+      "body_bytes": 208,
+      "thunk": false
+    },
+    {
+      "address": "0x0031D1E0",
+      "name": "D3D8::D3DDevice_SetStreamSource",
+      "body_bytes": 140,
+      "thunk": false
+    },
+    {
+      "address": "0x0031D270",
+      "name": "D3D8::D3DDevice_LoadVertexShader",
+      "body_bytes": 84,
+      "thunk": false
+    },
+    {
+      "address": "0x0031D2D0",
+      "name": "D3D8::D3DDevice_SelectVertexShader",
+      "body_bytes": 156,
+      "thunk": false
+    },
+    {
+      "address": "0x0031D370",
+      "name": "D3D8::D3DDevice_SetShaderConstantMode",
+      "body_bytes": 280,
+      "thunk": false
+    },
+    {
+      "address": "0x0031D5C0",
+      "name": "D3D8::D3DDevice_SetVertexShader",
+      "body_bytes": 355,
+      "thunk": false
+    },
+    {
+      "address": "0x0031D740",
+      "name": "D3D8::D3DDevice_GetDeviceCaps",
+      "body_bytes": 23,
+      "thunk": false
+    },
+    {
+      "address": "0x0031D760",
+      "name": "D3D8::D3DDevice_GetCreationParameters",
+      "body_bytes": 62,
+      "thunk": false
+    },
+    {
+      "address": "0x0031D7A0",
+      "name": "D3D8::D3DDevice_SetTransform",
+      "body_bytes": 280,
+      "thunk": false
+    },
+    {
+      "address": "0x0031D8C0",
+      "name": "D3D8::D3DDevice_GetViewport",
+      "body_bytes": 51,
+      "thunk": false
+    },
+    {
+      "address": "0x0031D900",
+      "name": "D3D8::D3DDevice_GetLightEnable",
+      "body_bytes": 48,
+      "thunk": false
+    },
+    {
+      "address": "0x0031D930",
+      "name": "D3D8::D3D_KickOffAndWaitForIdle",
+      "body_bytes": 5,
+      "thunk": true
+    },
+    {
+      "address": "0x0031D940",
+      "name": "D3D8::D3DDevice_SetVerticalBlankCallback",
+      "body_bytes": 19,
+      "thunk": false
+    },
+    {
+      "address": "0x0031D960",
+      "name": "D3D8::D3DDevice_BlockUntilVerticalBlank",
+      "body_bytes": 36,
+      "thunk": false
+    },
+    {
+      "address": "0x0031D990",
+      "name": "D3D8::D3DDevice_SetFlickerFilter",
+      "body_bytes": 66,
+      "thunk": false
+    },
+    {
+      "address": "0x0031D9E0",
+      "name": "D3D8::D3DDevice_SetSoftDisplayFilter",
+      "body_bytes": 81,
+      "thunk": false
+    },
+    {
+      "address": "0x0031DB30",
+      "name": "D3D8::D3DDevice_GetDisplayMode",
+      "body_bytes": 193,
+      "thunk": false
+    },
+    {
+      "address": "0x0031DC00",
+      "name": "D3D8::D3DDevice_SetRenderTarget",
+      "body_bytes": 628,
+      "thunk": false
+    },
+    {
+      "address": "0x0031DE80",
+      "name": "D3D8::D3DDevice_GetBackBuffer2",
+      "body_bytes": 67,
+      "thunk": false
+    },
+    {
+      "address": "0x0031DED0",
+      "name": "D3D8::D3DDevice_CopyRects",
+      "body_bytes": 797,
+      "thunk": false
+    },
+    {
+      "address": "0x0031E200",
+      "name": "D3D8::D3DDevice_GetRenderTarget2",
+      "body_bytes": 26,
+      "thunk": false
+    },
+    {
+      "address": "0x0031E220",
+      "name": "D3D8::D3DDevice_GetDepthStencilSurface2",
+      "body_bytes": 30,
+      "thunk": false
+    },
+    {
+      "address": "0x0031E240",
+      "name": "D3D8::D3DDevice_SetViewport",
+      "body_bytes": 546,
+      "thunk": false
+    },
+    {
+      "address": "0x0031E470",
+      "name": "D3D8::D3DDevice_GetTexture2",
+      "body_bytes": 36,
+      "thunk": false
+    },
+    {
+      "address": "0x0031E4A0",
+      "name": "D3D8::D3DDevice_SetTexture",
+      "body_bytes": 420,
+      "thunk": false
+    },
+    {
+      "address": "0x0031E650",
+      "name": "D3D8::D3DDevice_IsBusy",
+      "body_bytes": 47,
+      "thunk": false
+    },
+    {
+      "address": "0x0031E680",
+      "name": "D3D8::D3D_SetTileNoWait",
+      "body_bytes": 209,
+      "thunk": false
+    },
+    {
+      "address": "0x0031E760",
+      "name": "D3D8::D3DDevice_SetScissors",
+      "body_bytes": 768,
+      "thunk": false
+    },
+    {
+      "address": "0x0031EA60",
+      "name": "D3D8::D3DDevice_SetScreenSpaceOffset",
+      "body_bytes": 73,
+      "thunk": false
+    },
+    {
+      "address": "0x0031ED00",
+      "name": "D3D8::D3DDevice_DrawVertices",
+      "body_bytes": 148,
+      "thunk": false
+    },
+    {
+      "address": "0x0031EDA0",
+      "name": "D3D8::D3DDevice_SetVertexData2f",
+      "body_bytes": 55,
+      "thunk": false
+    },
+    {
+      "address": "0x0031EDE0",
+      "name": "D3D8::D3DDevice_SetVertexData4f",
+      "body_bytes": 89,
+      "thunk": false
+    },
+    {
+      "address": "0x0031EE40",
+      "name": "D3D8::D3DDevice_SetVertexDataColor",
+      "body_bytes": 76,
+      "thunk": false
+    },
+    {
+      "address": "0x0031EE90",
+      "name": "D3D8::D3DDevice_Begin",
+      "body_bytes": 53,
+      "thunk": false
+    },
+    {
+      "address": "0x0031EED0",
+      "name": "D3D8::D3DDevice_End",
+      "body_bytes": 65,
+      "thunk": false
+    },
+    {
+      "address": "0x0031EF20",
+      "name": "D3D8::D3DDevice_CreatePixelShader",
+      "body_bytes": 72,
+      "thunk": false
+    },
+    {
+      "address": "0x0031EF70",
+      "name": "D3D8::D3DDevice_SetPixelShader",
+      "body_bytes": 499,
+      "thunk": false
+    },
+    {
+      "address": "0x0031F170",
+      "name": "D3D8::D3DDevice_SetPixelShaderConstant",
+      "body_bytes": 702,
+      "thunk": false
+    },
+    {
+      "address": "0x0031F440",
+      "name": "D3D8::D3DDevice_CreateTexture2",
+      "body_bytes": 176,
+      "thunk": false
+    },
+    {
+      "address": "0x0031F4F0",
+      "name": "D3D8::D3DBaseTexture_GetLevelCount",
+      "body_bytes": 14,
+      "thunk": false
+    },
+    {
+      "address": "0x0031F500",
+      "name": "D3D::D3DTexture_GetLevelDesc",
+      "body_bytes": 5,
+      "thunk": true
+    },
+    {
+      "address": "0x0031F510",
+      "name": "D3D8::D3DTexture_GetSurfaceLevel2",
+      "body_bytes": 74,
+      "thunk": false
+    },
+    {
+      "address": "0x0031F560",
+      "name": "D3D8::D3DTexture_LockRect",
+      "body_bytes": 35,
+      "thunk": false
+    },
+    {
+      "address": "0x0031F590",
+      "name": "D3D8::D3DDevice_CreateVertexBuffer2",
+      "body_bytes": 75,
+      "thunk": false
+    },
+    {
+      "address": "0x0031F5E0",
+      "name": "D3D8::D3DVertexBuffer_Lock2",
+      "body_bytes": 75,
+      "thunk": false
+    },
+    {
+      "address": "0x0031F630",
+      "name": "D3D8::D3DPalette_Lock2",
+      "body_bytes": 30,
+      "thunk": false
+    },
+    {
+      "address": "0x0031F650",
+      "name": "D3D::D3DPalette_GetSize",
+      "body_bytes": 12,
+      "thunk": false
+    },
+    {
+      "address": "0x0031F660",
+      "name": "D3D8::D3D_SetPushBufferSize",
+      "body_bytes": 22,
+      "thunk": false
+    },
+    {
+      "address": "0x0031F680",
+      "name": "D3D8::Direct3D_CreateDevice",
+      "body_bytes": 164,
+      "thunk": false
+    },
+    {
+      "address": "0x00320190",
+      "name": "D3D8::D3DDevice_Swap",
+      "body_bytes": 229,
+      "thunk": false
+    },
+    {
+      "address": "0x00320710",
+      "name": "D3D8::D3DDevice_InsertCallback",
+      "body_bytes": 107,
+      "thunk": false
+    },
+    {
+      "address": "0x00320780",
+      "name": "D3D8::D3DDevice_BeginPush_4",
+      "body_bytes": 27,
+      "thunk": false
+    },
+    {
+      "address": "0x003207A0",
+      "name": "D3D8::D3DDevice_EndPush",
+      "body_bytes": 15,
+      "thunk": false
+    },
+    {
+      "address": "0x003207B0",
+      "name": "D3D8::CDevice_KickOff",
+      "body_bytes": 176,
+      "thunk": false
+    },
+    {
+      "address": "0x003208D0",
+      "name": "D3D8::D3D_SetFence",
+      "body_bytes": 184,
+      "thunk": false
+    },
+    {
+      "address": "0x00320990",
+      "name": "D3D8::D3D_BlockOnTime",
+      "body_bytes": 362,
+      "thunk": false
+    },
+    {
+      "address": "0x00320B00",
+      "name": "D3D8::D3D_MakeRequestedSpace_8",
+      "body_bytes": 311,
+      "thunk": false
+    },
+    {
+      "address": "0x00320C40",
+      "name": "D3D8::D3DDevice_MakeSpace",
+      "body_bytes": 15,
+      "thunk": false
+    },
+    {
+      "address": "0x00320C50",
+      "name": "D3D8::D3DDevice_BeginStateBig",
+      "body_bytes": 68,
+      "thunk": false
+    },
+    {
+      "address": "0x00320CA0",
+      "name": "D3D8::D3D_KickOffAndWaitForIdle",
+      "body_bytes": 17,
+      "thunk": false
+    },
+    {
+      "address": "0x00320CC0",
+      "name": "D3D8::D3D_BlockOnResource",
+      "body_bytes": 120,
+      "thunk": false
+    },
+    {
+      "address": "0x00320E10",
+      "name": "D3D8::D3DSurface_GetDesc",
+      "body_bytes": 20,
+      "thunk": false
+    },
+    {
+      "address": "0x00320E30",
+      "name": "D3D8::D3DSurface_LockRect",
+      "body_bytes": 32,
+      "thunk": false
+    },
+    {
+      "address": "0x00320E50",
+      "name": "D3D8::D3D_ClearStateBlockFlags",
+      "body_bytes": 60,
+      "thunk": false
+    },
+    {
+      "address": "0x00320E8C",
+      "name": "D3D8::D3D_RecordStateBlock",
+      "body_bytes": 1071,
+      "thunk": false
+    },
+    {
+      "address": "0x003212BB",
+      "name": "D3D8::D3DDevice_CreateStateBlock",
+      "body_bytes": 299,
+      "thunk": false
+    },
+    {
+      "address": "0x003218B0",
+      "name": "D3D8::Get2DSurfaceDesc",
+      "body_bytes": 177,
+      "thunk": false
+    },
+    {
+      "address": "0x00321BA0",
+      "name": "D3D8::Lock2DSurface",
+      "body_bytes": 155,
+      "thunk": false
+    },
+    {
+      "address": "0x00322A10",
+      "name": "D3D8::CDevice_FreeFrameBuffers",
+      "body_bytes": 303,
+      "thunk": false
+    },
+    {
+      "address": "0x00322B40",
+      "name": "D3D8::CDevice_InitializeFrameBuffers",
+      "body_bytes": 1430,
+      "thunk": false
+    },
+    {
+      "address": "0x0032379C",
+      "name": "D3D8::CMiniport_GetDisplayCapabilities",
+      "body_bytes": 31,
+      "thunk": false
+    },
+    {
+      "address": "0x00323AA0",
+      "name": "D3D8::CMiniport_IsFlipPending",
+      "body_bytes": 17,
+      "thunk": false
+    },
+    {
+      "address": "0x00324822",
+      "name": "D3D8::CMiniport_CreateCtxDmaObject",
+      "body_bytes": 207,
+      "thunk": false
+    },
+    {
+      "address": "0x00324B34",
+      "name": "D3D8::CMiniport_InitHardware",
+      "body_bytes": 354,
+      "thunk": false
+    },
+    {
+      "address": "0x003251B0",
+      "name": "D3D8::D3D_LazySetPointParams",
+      "body_bytes": 357,
+      "thunk": false
+    },
+    {
+      "address": "0x003267F0",
+      "name": "D3D8::CDevice_SetStateVB",
+      "body_bytes": 401,
+      "thunk": false
+    },
+    {
+      "address": "0x0032E11D",
+      "name": "D3DX8::D3DXLoadSurfaceFromMemory",
+      "body_bytes": 522,
+      "thunk": false
+    },
+    {
+      "address": "0x0032E327",
+      "name": "D3DX8::D3DXCheckTextureRequirements",
+      "body_bytes": 447,
+      "thunk": false
+    },
+    {
+      "address": "0x0032E4E6",
+      "name": "D3DX8::D3DXCreateTexture",
+      "body_bytes": 122,
+      "thunk": false
+    },
+    {
+      "address": "0x0032E560",
+      "name": "D3DX8::D3DXLoadSurfaceFromSurface",
+      "body_bytes": 297,
+      "thunk": false
+    },
+    {
+      "address": "0x0032E689",
+      "name": "D3DX8::D3DXFilterTexture",
+      "body_bytes": 339,
+      "thunk": false
+    },
+    {
+      "address": "0x0032E809",
+      "name": "D3DX8::D3DXMatrixTranspose",
+      "body_bytes": 109,
+      "thunk": false
+    },
+    {
+      "address": "0x0032E876",
+      "name": "D3DX8::D3DXMatrixScaling",
+      "body_bytes": 92,
+      "thunk": false
+    },
+    {
+      "address": "0x0032E8D2",
+      "name": "D3DX8::D3DXMatrixTranslation",
+      "body_bytes": 92,
+      "thunk": false
+    },
+    {
+      "address": "0x0032E92E",
+      "name": "D3DX8::D3DXMatrixRotationQuaternion",
+      "body_bytes": 226,
+      "thunk": false
+    },
+    {
+      "address": "0x0032EA10",
+      "name": "D3DX8::D3DXMatrixPerspectiveLH",
+      "body_bytes": 108,
+      "thunk": false
+    },
+    {
+      "address": "0x0032EA7C",
+      "name": "D3DX8::D3DXQuaternionMultiply",
+      "body_bytes": 150,
+      "thunk": false
+    },
+    {
+      "address": "0x0032EB5A",
+      "name": "D3DX8::D3DXVec3Normalize",
+      "body_bytes": 124,
+      "thunk": false
+    },
+    {
+      "address": "0x0032EBD6",
+      "name": "D3DX8::D3DXMatrixMultiply",
+      "body_bytes": 227,
+      "thunk": false
+    },
+    {
+      "address": "0x0032ECB9",
+      "name": "D3DX8::D3DXMatrixLookAtLH",
+      "body_bytes": 244,
+      "thunk": false
+    },
+    {
+      "address": "0x003376A0",
+      "name": "XGRAPHICS::XGWriteSurfaceToFile",
+      "body_bytes": 717,
+      "thunk": false
+    },
+    {
+      "address": "0x0033803E",
+      "name": "XGRAPHC::XGIsSwizzledFormat",
+      "body_bytes": 68,
+      "thunk": false
+    },
+    {
+      "address": "0x00338082",
+      "name": "XGRAPHICS::XGBytesPerPixelFromFormat",
+      "body_bytes": 42,
+      "thunk": false
+    },
+    {
+      "address": "0x003388F4",
+      "name": "XGRAPHC::XGSwizzleRect",
+      "body_bytes": 1661,
+      "thunk": false
+    },
+    {
+      "address": "0x00339045",
+      "name": "XGRAPHC::XGUnswizzleRect",
+      "body_bytes": 1801,
+      "thunk": false
+    },
+    {
+      "address": "0x0033982A",
+      "name": "DSOUND::DSound_CRefCount_Release",
+      "body_bytes": 33,
+      "thunk": false
+    },
+    {
+      "address": "0x00339995",
+      "name": "DSOUND::DirectSoundEnterCriticalSection",
+      "body_bytes": 30,
+      "thunk": false
+    },
+    {
+      "address": "0x003399B3",
+      "name": "DSOUND::IDirectSound_SetCooperativeLevel",
+      "body_bytes": 5,
+      "thunk": false
+    },
+    {
+      "address": "0x003399B8",
+      "name": "DSOUND::IDirectSoundBuffer_Unlock",
+      "body_bytes": 5,
+      "thunk": false
+    },
+    {
+      "address": "0x003399BD",
+      "name": "DSOUND::IDirectSoundBuffer_Release",
+      "body_bytes": 22,
+      "thunk": false
+    },
+    {
+      "address": "0x003399D3",
+      "name": "DSOUND::XAudioCalculatePitch",
+      "body_bytes": 74,
+      "thunk": false
+    },
+    {
+      "address": "0x00339A96",
+      "name": "DSOUND::CDirectSound_DoWork",
+      "body_bytes": 49,
+      "thunk": false
+    },
+    {
+      "address": "0x00339AC7",
+      "name": "DSOUND::CDirectSoundVoiceSettings_SetMixBinVolumes",
+      "body_bytes": 37,
+      "thunk": false
+    },
+    {
+      "address": "0x00339BA7",
+      "name": "DSOUND::CDirectSoundVoice_SetPitch",
+      "body_bytes": 25,
+      "thunk": false
+    },
+    {
+      "address": "0x00339BC0",
+      "name": "DSOUND::CDirectSoundVoice_SetVolume",
+      "body_bytes": 28,
+      "thunk": false
+    },
+    {
+      "address": "0x00339BDC",
+      "name": "DSOUND::CDirectSoundVoice_SetHeadroom",
+      "body_bytes": 35,
+      "thunk": false
+    },
+    {
+      "address": "0x00339BFF",
+      "name": "DSOUND::CDirectSoundVoice_SetMixBinVolumes",
+      "body_bytes": 29,
+      "thunk": false
+    },
+    {
+      "address": "0x00339DB5",
+      "name": "DSOUND::CDirectSoundBuffer_Play",
+      "body_bytes": 81,
+      "thunk": false
+    },
+    {
+      "address": "0x00339E06",
+      "name": "DSOUND::CDirectSoundBuffer_Stop",
+      "body_bytes": 79,
+      "thunk": false
+    },
+    {
+      "address": "0x00339E55",
+      "name": "DSOUND::CDirectSoundBuffer_GetStatus",
+      "body_bytes": 81,
+      "thunk": false
+    },
+    {
+      "address": "0x00339EA6",
+      "name": "DSOUND::CDirectSoundBuffer_GetCurrentPosition",
+      "body_bytes": 85,
+      "thunk": false
+    },
+    {
+      "address": "0x00339EFB",
+      "name": "DSOUND::CDirectSoundBuffer_Lock",
+      "body_bytes": 226,
+      "thunk": false
+    },
+    {
+      "address": "0x00339FDD",
+      "name": "DSOUND::CDirectSoundBuffer_SetCurrentPosition",
+      "body_bytes": 81,
+      "thunk": false
+    },
+    {
+      "address": "0x0033A02E",
+      "name": "DSOUND::CDirectSound3DCalculator_GetVoiceData",
+      "body_bytes": 737,
+      "thunk": false
+    },
+    {
+      "address": "0x0033A32B",
+      "name": "DSOUND::CDirectSoundBuffer_SetVolume",
+      "body_bytes": 78,
+      "thunk": false
+    },
+    {
+      "address": "0x0033A379",
+      "name": "DSOUND::CDirectSoundBuffer_SetHeadroom",
+      "body_bytes": 78,
+      "thunk": false
+    },
+    {
+      "address": "0x0033A3C7",
+      "name": "DSOUND::CDirectSoundBuffer_SetMixBinVolumes",
+      "body_bytes": 78,
+      "thunk": false
+    },
+    {
+      "address": "0x0033A415",
+      "name": "DSOUND::IDirectSoundBuffer_SetVolume",
+      "body_bytes": 28,
+      "thunk": false
+    },
+    {
+      "address": "0x0033A431",
+      "name": "DSOUND::IDirectSoundBuffer_SetHeadroom",
+      "body_bytes": 28,
+      "thunk": false
+    },
+    {
+      "address": "0x0033A44D",
+      "name": "DSOUND::IDirectSoundBuffer_SetMixBinVolumes_8",
+      "body_bytes": 28,
+      "thunk": false
+    },
+    {
+      "address": "0x0033A469",
+      "name": "DSOUND::IDirectSoundBuffer_Play",
+      "body_bytes": 36,
+      "thunk": false
+    },
+    {
+      "address": "0x0033A48D",
+      "name": "DSOUND::IDirectSoundBuffer_Stop",
+      "body_bytes": 24,
+      "thunk": false
+    },
+    {
+      "address": "0x0033A4A5",
+      "name": "DSOUND::IDirectSoundBuffer_GetStatus",
+      "body_bytes": 28,
+      "thunk": false
+    },
+    {
+      "address": "0x0033A4FD",
+      "name": "DSOUND::IDirectSoundBuffer_Lock",
+      "body_bytes": 48,
+      "thunk": false
+    },
+    {
+      "address": "0x0033A7C2",
+      "name": "DSOUND::CDirectSoundVoice_SetFrequency",
+      "body_bytes": 36,
+      "thunk": false
+    },
+    {
+      "address": "0x0033A7E6",
+      "name": "DSOUND::CDirectSoundVoice_SetMixBins",
+      "body_bytes": 29,
+      "thunk": false
+    },
+    {
+      "address": "0x0033A85A",
+      "name": "DSOUND::CDirectSoundBuffer_SetFrequency",
+      "body_bytes": 78,
+      "thunk": false
+    },
+    {
+      "address": "0x0033A8A8",
+      "name": "DSOUND::CDirectSoundBuffer_SetMixBins",
+      "body_bytes": 78,
+      "thunk": false
+    },
+    {
+      "address": "0x0033A8F6",
+      "name": "DSOUND::IDirectSoundBuffer_SetFrequency",
+      "body_bytes": 28,
+      "thunk": false
+    },
+    {
+      "address": "0x0033A912",
+      "name": "DSOUND::IDirectSoundBuffer_SetMixBins",
+      "body_bytes": 28,
+      "thunk": false
+    },
+    {
+      "address": "0x0033AACA",
+      "name": "DSOUND::CDirectSoundBufferSettings_SetBufferData",
+      "body_bytes": 140,
+      "thunk": false
+    },
+    {
+      "address": "0x0033AB56",
+      "name": "DSOUND::CDirectSoundBuffer_SetBufferData",
+      "body_bytes": 174,
+      "thunk": false
+    },
+    {
+      "address": "0x0033AC04",
+      "name": "DSOUND::CDirectSound3DCalculator_Calculate3D",
+      "body_bytes": 576,
+      "thunk": false
+    },
+    {
+      "address": "0x0033AE44",
+      "name": "DSOUND::IDirectSoundBuffer_SetBufferData",
+      "body_bytes": 32,
+      "thunk": false
+    },
+    {
+      "address": "0x0033B181",
+      "name": "DSOUND::CDirectSound_CreateSoundBuffer",
+      "body_bytes": 156,
+      "thunk": false
+    },
+    {
+      "address": "0x0033B238",
+      "name": "DSOUND::IDirectSound_CreateSoundBuffer",
+      "body_bytes": 36,
+      "thunk": false
+    },
+    {
+      "address": "0x0033B402",
+      "name": "DSOUND::DirectSoundCreate",
+      "body_bytes": 71,
+      "thunk": false
+    },
+    {
+      "address": "0x0033B449",
+      "name": "DSOUND::DSound_CMemoryManager_PoolAlloc",
+      "body_bytes": 71,
+      "thunk": false
+    },
+    {
+      "address": "0x0033BCCC",
+      "name": "DSOUND::CMcpxAPU_ServiceDeferredCommandsLow",
+      "body_bytes": 146,
+      "thunk": false
+    },
+    {
+      "address": "0x0033BD95",
+      "name": "DSOUND::CMcpxAPU_SetMixBinHeadroom",
+      "body_bytes": 69,
+      "thunk": false
+    },
+    {
+      "address": "0x0033D52C",
+      "name": "DSOUND::CMcpxVoiceClient_SetFilter",
+      "body_bytes": 330,
+      "thunk": false
+    },
+    {
+      "address": "0x0033D8B0",
+      "name": "DSOUND::CMcpxVoiceClient_SetMixBins",
+      "body_bytes": 193,
+      "thunk": false
+    },
+    {
+      "address": "0x0033D971",
+      "name": "DSOUND::CMcpxVoiceClient_SetVolume",
+      "body_bytes": 152,
+      "thunk": false
+    },
+    {
+      "address": "0x0033DA09",
+      "name": "DSOUND::CMcpxVoiceClient_SetPitch",
+      "body_bytes": 146,
+      "thunk": false
+    },
+    {
+      "address": "0x0033DCBF",
+      "name": "DSOUND::CMcpxVoiceClient_Commit3dSettings",
+      "body_bytes": 133,
+      "thunk": false
+    },
+    {
+      "address": "0x0033E3DF",
+      "name": "DSOUND::CMcpxBuffer_Pause",
+      "body_bytes": 115,
+      "thunk": false
+    },
+    {
+      "address": "0x0033E452",
+      "name": "DSOUND::CMcpxBuffer_GetStatus",
+      "body_bytes": 66,
+      "thunk": false
+    },
+    {
+      "address": "0x0033E494",
+      "name": "DSOUND::CMcpxBuffer_GetCurrentPosition",
+      "body_bytes": 223,
+      "thunk": false
+    },
+    {
+      "address": "0x0033E89E",
+      "name": "DSOUND::CMcpxBuffer_Play",
+      "body_bytes": 176,
+      "thunk": false
+    },
+    {
+      "address": "0x0033E94E",
+      "name": "DSOUND::CMcpxBuffer_Stop",
+      "body_bytes": 144,
+      "thunk": false
+    },
+    {
+      "address": "0x0033E9DE",
+      "name": "DSOUND::CMcpxBuffer_SetCurrentPosition",
+      "body_bytes": 246,
+      "thunk": false
+    },
+    {
+      "address": "0x0033EAF8",
+      "name": "DSOUND::CMcpxBuffer_SetBufferData",
+      "body_bytes": 26,
+      "thunk": false
+    },
+    {
+      "address": "0x003417A3",
+      "name": "XAPILIB::XInitDevices",
+      "body_bytes": 121,
+      "thunk": false
+    },
+    {
+      "address": "0x00341899",
+      "name": "XAPILIB::IUsbInit_GetMaxDeviceTypeCount",
+      "body_bytes": 55,
+      "thunk": false
+    },
+    {
+      "address": "0x00342242",
+      "name": "XAPILIB::XInputOpen",
+      "body_bytes": 86,
+      "thunk": false
+    },
+    {
+      "address": "0x00342298",
+      "name": "XAPILIB::XInputClose",
+      "body_bytes": 12,
+      "thunk": false
+    },
+    {
+      "address": "0x003422A4",
+      "name": "XAPILIB::XInputGetState",
+      "body_bytes": 115,
+      "thunk": false
+    },
+    {
+      "address": "0x00342317",
+      "name": "XAPILIB::XInputSetState",
+      "body_bytes": 51,
+      "thunk": false
+    },
+    {
+      "address": "0x0034236C",
+      "name": "XAPILIB::XInitDevices",
+      "body_bytes": 5,
+      "thunk": true
+    },
+    {
+      "address": "0x00342371",
+      "name": "XAPILIB::XGetDevices",
+      "body_bytes": 34,
+      "thunk": false
+    },
+    {
+      "address": "0x00342393",
+      "name": "XAPILIB::XGetDeviceChanges",
+      "body_bytes": 109,
+      "thunk": false
+    },
+    {
+      "address": "0x00342400",
+      "name": "XAPILIB::GetTypeInformation_8",
+      "body_bytes": 55,
+      "thunk": false
+    },
+    {
+      "address": "0x00342437",
+      "name": "XAPILIB::GetTypeInformation_4",
+      "body_bytes": 43,
+      "thunk": false
+    },
+    {
+      "address": "0x00342C2D",
+      "name": "XAPILIB::XID_fCloseDevice",
+      "body_bytes": 148,
+      "thunk": false
+    }
+  ]
+}

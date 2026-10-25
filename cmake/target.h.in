@@ -1,0 +1,9 @@
+#pragma once
+#include <cstdint>
+#include <string_view>
+
+namespace smbd::target {
+inline constexpr std::string_view id = "@SMBD_target_id@";
+inline constexpr std::uint64_t file_size = @SMBD_file_size@;
+inline constexpr std::string_view sha256 = "@SMBD_file_sha256@";
+}
