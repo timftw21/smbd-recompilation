@@ -1,0 +1,16 @@
+#pragma once
+#include <array>
+#include <cstdint>
+#include <string_view>
+
+namespace smbd {
+struct CallbackAbi {
+    std::uint32_t site, address, ordinal, argument_count;
+    std::string_view prefix;
+    std::array<unsigned, 4> callbacks;
+    std::array<int, 4> offsets;
+    unsigned count;
+};
+inline constexpr std::array callback_abis{
+@callback_abis@};
+}

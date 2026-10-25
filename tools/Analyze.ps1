@@ -12,11 +12,12 @@ if ((Get-FileHash -LiteralPath $Image -Algorithm SHA256).Hash -ne $target.file_s
 }
 $export = Join-Path $root 'tools\ghidra\ExportProgram.java'
 $scriptHash = (Get-FileHash -LiteralPath $export -Algorithm SHA256).Hash
+$evidenceHash = (Get-FileHash -LiteralPath (Join-Path $root 'knowledge\non_code_entries.json') -Algorithm SHA256).Hash
 $output = Join-Path $root 'data\local\analysis'
 $summaryPath = Join-Path $output 'summary.json'
 if (!$Reanalyze -and (Test-Path -LiteralPath $summaryPath)) {
     $summary = Get-Content -LiteralPath $summaryPath -Raw | ConvertFrom-Json
-    if ($summary.sha256 -eq $target.file_sha256 -and $summary.export_script_sha256 -eq $scriptHash) {
+    if ($summary.sha256 -eq $target.file_sha256 -and $summary.export_script_sha256 -eq $scriptHash -and $summary.code_evidence_sha256 -eq $evidenceHash) {
         Write-Host "Reusing verified analysis: $($summary.functions) functions, $($summary.instructions) instructions."
         return
     }
@@ -34,7 +35,8 @@ if (Test-Path -LiteralPath (Join-Path $project 'smbd.gpr')) {
     $arguments += @('-import', $Image, '-loader', 'XbeLoader')
 }
 $arguments += @('-scriptPath', (Join-Path $root 'tools\ghidra'), '-postScript', 'ExportProgram.java',
-    $output, $target.file_sha256, '-analysisTimeoutPerFile', '1800', '-max-cpu', '2',
+    $output, $target.file_sha256, (Join-Path $root 'knowledge\non_code_entries.json'),
+    '-analysisTimeoutPerFile', '1800', '-max-cpu', '2',
     '-log', (Join-Path $logs 'ghidra.log'), '-scriptlog', (Join-Path $logs 'ghidra-scripts.log'))
 $commandLine = '""' + $headless + '" ' + (($arguments | ForEach-Object { '"' + $_ + '"' }) -join ' ') + '"'
 $previousMax = $env:GHIDRA_HEADLESS_MAXMEM
@@ -71,6 +73,7 @@ try {
     $summary = Get-Content -LiteralPath $summaryPath -Raw | ConvertFrom-Json
     if ($summary.sha256 -ne $target.file_sha256 -or $summary.analysis_timed_out) { throw 'Ghidra analysis failed validation.' }
     $summary | Add-Member -NotePropertyName export_script_sha256 -NotePropertyValue $scriptHash -Force
+    $summary | Add-Member -NotePropertyName code_evidence_sha256 -NotePropertyValue $evidenceHash -Force
     $summary | ConvertTo-Json | Set-Content -LiteralPath $summaryPath -Encoding utf8
     Write-Host "Exported $($summary.functions) functions and $($summary.instructions) instructions."
 } finally {

@@ -1,0 +1,430 @@
+{
+  "executable_sha256": "9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2",
+  "tables": [
+    {
+      "site": "0x0030AF39",
+      "proof_address": "0x0030AF1C",
+      "prefix": "5657B820484600BF2C484600",
+      "start": "0x00464820",
+      "end": "0x0046482C",
+      "stride": 4,
+      "evidence": "_rtinit walks [464820,46482C) in four-byte steps, skipping zero and FFFFFFFF. Verified load, comparison and loop in the original function; the table has no write references.",
+      "kind": "call"
+    },
+    {
+      "site": "0x0030AEEC",
+      "proof_address": "0x0030AECF",
+      "prefix": "5657B8A4484600BFB8484600",
+      "start": "0x004648A4",
+      "end": "0x004648B8",
+      "stride": 4,
+      "evidence": "First _cinit initializer loop, bounded by the original immediate endpoints. Zero and FFFFFFFF entries are skipped; no write references to this table.",
+      "kind": "call"
+    },
+    {
+      "site": "0x0030AF10",
+      "proof_address": "0x0030AEF5",
+      "prefix": "BE304846008BC6BFA0484600",
+      "start": "0x00464830",
+      "end": "0x004648A0",
+      "stride": 4,
+      "evidence": "Second _cinit initializer loop, bounded by the original immediate endpoints. Zero and FFFFFFFF entries are skipped; no write references to this table.",
+      "kind": "call"
+    },
+    {
+      "stride": 4,
+      "kind": "jump",
+      "evidence": "Original depth-scale lookup indexes eight formats 2A..31, with two copies of four branch targets followed by INT3 padding. Native code retains the exact branches and rejects targets outside this audited table.",
+      "proof_address": "0x003216F0",
+      "prefix": "8B4424040FB6480D83E92AFF248D38173200",
+      "site": "0x003216FB",
+      "start": "0x00321738",
+      "end": "0x00321758"
+    },
+    {
+      "stride": 4,
+      "start": "0x0032168C",
+      "end": "0x003216B4",
+      "site": "0x003215DF",
+      "prefix": "8B4C24040FB6510D0FB682B5163200FF24858C163200",
+      "kind": "jump",
+      "proof_address": "0x003215D0",
+      "evidence": "Original color-format lookup uses its byte remapping table to select ten code branches. The pointer table ends where the byte-remapping data begins. Native target guards preserve the exact branch set and reject unsupported format values."
+    },
+    {
+      "stride": 4,
+      "start": "0x003291E0",
+      "proof_address": "0x0031B360",
+      "prefix": "568B74240883FE5C",
+      "kind": "call",
+      "site": "0x0031B3B2",
+      "evidence": "The original render-state dispatcher uses table base 328FC0 indexed by states 88..A5. SDK initialization iterates through A5, and the next data begins after this 30-slot table. Handlers receive one value argument; zero slots remain unsupported.",
+      "end": "0x00329258"
+    },
+    {
+      "end": "0x0031B2F8",
+      "start": "0x0031B2D8",
+      "kind": "jump",
+      "site": "0x0031B006",
+      "evidence": "The original clear routine has the same eight depth formats 2A..31 as the depth-scale lookup. Its eight-entry branch table ends before INT3 padding and the next render-state function. Native code preserves the original clear conversions and rejects targets outside that table.",
+      "stride": 4,
+      "prefix": "0FB6530D83EA2AFF2495D8B23100",
+      "proof_address": "0x0031AFFF"
+    },
+    {
+      "site": "0x000167D5",
+      "proof_address": "0x000167C0",
+      "prefix": "8B442404568D3440",
+      "start": "0x00477CF8",
+      "end": "0x00477EF8",
+      "stride": 24,
+      "kind": "call",
+      "evidence": "Original frame-object manager uses 22 records of 24 bytes, bounded by its loop comparison at 16856/1690A. Each record has init, update, and release callbacks at +8/+C/+10. State and name fields are excluded; native dispatch retains the exact nonzero callback set."
+    },
+    {
+      "site": "0x0001684A",
+      "proof_address": "0x00016830",
+      "prefix": "5657BFE87C4700",
+      "start": "0x00477CF8",
+      "end": "0x00477EF8",
+      "stride": 24,
+      "kind": "call",
+      "evidence": "Original frame-object manager uses 22 records of 24 bytes, bounded by its loop comparison at 16856/1690A. Each record has init, update, and release callbacks at +8/+C/+10. State and name fields are excluded; native dispatch retains the exact nonzero callback set."
+    },
+    {
+      "site": "0x00016885",
+      "proof_address": "0x00016870",
+      "prefix": "8B442404568D3440",
+      "start": "0x00477CF8",
+      "end": "0x00477EF8",
+      "stride": 24,
+      "kind": "call",
+      "evidence": "Original frame-object manager uses 22 records of 24 bytes, bounded by its loop comparison at 16856/1690A. Each record has init, update, and release callbacks at +8/+C/+10. State and name fields are excluded; native dispatch retains the exact nonzero callback set."
+    },
+    {
+      "site": "0x00016892",
+      "proof_address": "0x00016870",
+      "prefix": "8B442404568D3440",
+      "start": "0x00477CF0",
+      "end": "0x00477EF8",
+      "stride": 24,
+      "kind": "call",
+      "evidence": "Original frame-object manager uses 22 records of 24 bytes, bounded by its loop comparison at 16856/1690A. Each record has init, update, and release callbacks at +8/+C/+10. State and name fields are excluded; native dispatch retains the exact nonzero callback set."
+    },
+    {
+      "site": "0x000168DC",
+      "proof_address": "0x000168B0",
+      "prefix": "5657BFFC7C4700",
+      "start": "0x00477CF8",
+      "end": "0x00477EF8",
+      "stride": 24,
+      "kind": "call",
+      "evidence": "Original frame-object manager uses 22 records of 24 bytes, bounded by its loop comparison at 16856/1690A. Each record has init, update, and release callbacks at +8/+C/+10. State and name fields are excluded; native dispatch retains the exact nonzero callback set."
+    },
+    {
+      "site": "0x000168E9",
+      "proof_address": "0x000168B0",
+      "prefix": "5657BFFC7C4700",
+      "start": "0x00477CF8",
+      "end": "0x00477EF8",
+      "stride": 24,
+      "kind": "call",
+      "evidence": "Original frame-object manager uses 22 records of 24 bytes, bounded by its loop comparison at 16856/1690A. Each record has init, update, and release callbacks at +8/+C/+10. State and name fields are excluded; native dispatch retains the exact nonzero callback set."
+    },
+    {
+      "site": "0x000168EF",
+      "proof_address": "0x000168B0",
+      "prefix": "5657BFFC7C4700",
+      "start": "0x00477CF0",
+      "end": "0x00477EF8",
+      "stride": 24,
+      "kind": "call",
+      "evidence": "Original frame-object manager uses 22 records of 24 bytes, bounded by its loop comparison at 16856/1690A. Each record has init, update, and release callbacks at +8/+C/+10. State and name fields are excluded; native dispatch retains the exact nonzero callback set."
+    },
+    {
+      "site": "0x000168F5",
+      "proof_address": "0x000168B0",
+      "prefix": "5657BFFC7C4700",
+      "start": "0x00477CF4",
+      "end": "0x00477EF8",
+      "stride": 24,
+      "kind": "call",
+      "evidence": "Original frame-object manager uses 22 records of 24 bytes, bounded by its loop comparison at 16856/1690A. Each record has init, update, and release callbacks at +8/+C/+10. State and name fields are excluded; native dispatch retains the exact nonzero callback set."
+    }
+  ],
+  "entry_tables": [
+    {
+      "end": "0x006C0938",
+      "prefix": "A108DC4500B8D0086C00C3",
+      "start": "0x006C08D0",
+      "evidence": "Original factory returns the matching 104-byte provider interface, ending at the separate sound-backend record. Registration invokes its initializer at +4 with a diagnostic callback and context. The provider schema includes the control operation at +60; all 26 slots are retained.",
+      "owner": "0x002CC850"
+    },
+    {
+      "end": "0x006C08D0",
+      "evidence": "Original factory returns the 104-byte file-provider interface, ending at the next original provider record. Registration invokes its initializer at +4, and the consumer at 2CC349 calls its control operation at +60, which is CBCE0. All 26 pointer slots, including null optional operations, are retained.",
+      "prefix": "B868086C00C3",
+      "start": "0x006C0868",
+      "owner": "0x002CA7D0"
+    },
+    {
+      "start": "0x00463530",
+      "owner": "0x00331F54",
+      "end": "0x0046353C",
+      "prefix": "558BEC83EC10",
+      "evidence": "Original D3DX pixel-converter constructor installs this three-method interface. Its common consumer calls the destructor at +0 and conversion methods at +4/+8. Constructor assignments and method bytes are verified independently."
+    },
+    {
+      "start": "0x0046357C",
+      "owner": "0x0033427A",
+      "end": "0x00463588",
+      "prefix": "566A016A18",
+      "evidence": "Original D3DX pixel-converter constructor installs this three-method interface. Its common consumer calls the destructor at +0 and conversion methods at +4/+8. Constructor assignments and method bytes are verified independently."
+    },
+    {
+      "start": "0x00463588",
+      "owner": "0x00334296",
+      "end": "0x00463594",
+      "prefix": "566A016A20",
+      "evidence": "Original D3DX pixel-converter constructor installs this three-method interface. Its common consumer calls the destructor at +0 and conversion methods at +4/+8. Constructor assignments and method bytes are verified independently."
+    },
+    {
+      "start": "0x00463594",
+      "owner": "0x003342B2",
+      "end": "0x004635A0",
+      "prefix": "566A016A20",
+      "evidence": "Original D3DX pixel-converter constructor installs this three-method interface. Its common consumer calls the destructor at +0 and conversion methods at +4/+8. Constructor assignments and method bytes are verified independently."
+    },
+    {
+      "start": "0x004635A0",
+      "owner": "0x003342CE",
+      "end": "0x004635AC",
+      "prefix": "566A016A10",
+      "evidence": "Original D3DX pixel-converter constructor installs this three-method interface. Its common consumer calls the destructor at +0 and conversion methods at +4/+8. Constructor assignments and method bytes are verified independently."
+    },
+    {
+      "start": "0x004635AC",
+      "owner": "0x0033430B",
+      "end": "0x004635B8",
+      "prefix": "566A016A10",
+      "evidence": "Original D3DX pixel-converter constructor installs this three-method interface. Its common consumer calls the destructor at +0 and conversion methods at +4/+8. Constructor assignments and method bytes are verified independently."
+    },
+    {
+      "start": "0x004635B8",
+      "owner": "0x00334327",
+      "end": "0x004635C4",
+      "prefix": "566A016A10",
+      "evidence": "Original D3DX pixel-converter constructor installs this three-method interface. Its common consumer calls the destructor at +0 and conversion methods at +4/+8. Constructor assignments and method bytes are verified independently."
+    },
+    {
+      "start": "0x004635C4",
+      "owner": "0x00334343",
+      "end": "0x004635D0",
+      "prefix": "566A016A10",
+      "evidence": "Original D3DX pixel-converter constructor installs this three-method interface. Its common consumer calls the destructor at +0 and conversion methods at +4/+8. Constructor assignments and method bytes are verified independently."
+    },
+    {
+      "start": "0x004635D0",
+      "owner": "0x0033435F",
+      "end": "0x004635DC",
+      "prefix": "566A016A08",
+      "evidence": "Original D3DX pixel-converter constructor installs this three-method interface. Its common consumer calls the destructor at +0 and conversion methods at +4/+8. Constructor assignments and method bytes are verified independently."
+    },
+    {
+      "start": "0x004635DC",
+      "owner": "0x0033437B",
+      "end": "0x004635E8",
+      "prefix": "566A026A08",
+      "evidence": "Original D3DX pixel-converter constructor installs this three-method interface. Its common consumer calls the destructor at +0 and conversion methods at +4/+8. Constructor assignments and method bytes are verified independently."
+    },
+    {
+      "start": "0x004635E8",
+      "owner": "0x00334397",
+      "end": "0x004635F4",
+      "prefix": "566A016A08",
+      "evidence": "Original D3DX pixel-converter constructor installs this three-method interface. Its common consumer calls the destructor at +0 and conversion methods at +4/+8. Constructor assignments and method bytes are verified independently."
+    },
+    {
+      "start": "0x004635F4",
+      "owner": "0x003343B3",
+      "end": "0x00463600",
+      "prefix": "566A016A10",
+      "evidence": "Original D3DX pixel-converter constructor installs this three-method interface. Its common consumer calls the destructor at +0 and conversion methods at +4/+8. Constructor assignments and method bytes are verified independently."
+    },
+    {
+      "start": "0x00463600",
+      "owner": "0x003343CF",
+      "end": "0x0046360C",
+      "prefix": "566A036A10",
+      "evidence": "Original D3DX pixel-converter constructor installs this three-method interface. Its common consumer calls the destructor at +0 and conversion methods at +4/+8. Constructor assignments and method bytes are verified independently."
+    },
+    {
+      "start": "0x0046360C",
+      "owner": "0x003343EB",
+      "end": "0x00463618",
+      "prefix": "566A036A10",
+      "evidence": "Original D3DX pixel-converter constructor installs this three-method interface. Its common consumer calls the destructor at +0 and conversion methods at +4/+8. Constructor assignments and method bytes are verified independently."
+    },
+    {
+      "start": "0x00463618",
+      "owner": "0x00334407",
+      "end": "0x00463624",
+      "prefix": "566A036A20",
+      "evidence": "Original D3DX pixel-converter constructor installs this three-method interface. Its common consumer calls the destructor at +0 and conversion methods at +4/+8. Constructor assignments and method bytes are verified independently."
+    },
+    {
+      "start": "0x00463624",
+      "owner": "0x00334423",
+      "end": "0x00463630",
+      "prefix": "566A036A20",
+      "evidence": "Original D3DX pixel-converter constructor installs this three-method interface. Its common consumer calls the destructor at +0 and conversion methods at +4/+8. Constructor assignments and method bytes are verified independently."
+    },
+    {
+      "start": "0x00463630",
+      "owner": "0x003344A4",
+      "end": "0x0046363C",
+      "prefix": "56FF7424088BF1",
+      "evidence": "Original D3DX pixel-converter constructor installs this three-method interface. Its common consumer calls the destructor at +0 and conversion methods at +4/+8. Constructor assignments and method bytes are verified independently."
+    },
+    {
+      "start": "0x00463570",
+      "owner": "0x003344BC",
+      "end": "0x0046357C",
+      "prefix": "56FF7424088BF1",
+      "evidence": "Original D3DX pixel-converter constructor installs this three-method interface. Its common consumer calls the destructor at +0 and conversion methods at +4/+8. Constructor assignments and method bytes are verified independently."
+    },
+    {
+      "owner": "0x000DDAC0",
+      "prefix": "C701343D4000C3",
+      "start": "0x00403D34",
+      "end": "0x00403D3C",
+      "evidence": "Original object constructor installs this two-method interface: scalar deleting destructor DD690 and operation DD680. The next address starts the Fatal Error string. Original consumer E73A7 calls the operation at +4."
+    },
+    {
+      "owner": "0x002CEC70",
+      "prefix": "B838096C00C3",
+      "start": "0x006C0938",
+      "end": "0x006C0950",
+      "evidence": "Original two-instruction factory returns the six-slot sound backend interface. CCE90 invokes +0C with the existing native DirectSound object. The next address is a separately referenced data record at 6C0950."
+    },
+    {
+      "owner": "0x002D2890",
+      "prefix": "33D233C0B9A4F59500",
+      "start": "0x006C0BA0",
+      "end": "0x006C0BD0",
+      "evidence": "Original stream-object constructor writes this 12-slot interface into the returned object. Three leading slots are zero; nine code entries implement the same original stream operations used by the consumer at 2D01E0. Consecutive interfaces are 48 bytes, with the final interface followed by the MARK:lsc_obj string."
+    },
+    {
+      "owner": "0x002D2FC0",
+      "prefix": "33C9B808F1950056",
+      "start": "0x006C0BD0",
+      "end": "0x006C0C00",
+      "evidence": "Original stream-object constructor writes this 12-slot interface into the returned object. Three leading slots are zero; nine code entries implement the same original stream operations used by the consumer at 2D01E0. Consecutive interfaces are 48 bytes, with the final interface followed by the MARK:lsc_obj string."
+    },
+    {
+      "owner": "0x002CE310",
+      "prefix": "83EC14538B5C241C",
+      "start": "0x006C0950",
+      "end": "0x006C09B8",
+      "evidence": "Original sound voice constructor installs this 26-slot interface. The first three slots are zero, and the following 23 entries implement voice operations. 6C09B8 is a separately read buffer-size setting. The original consumer at 2CDDDF calls its +2C operation."
+    },
+    {
+      "owner": "0x002CCEB0",
+      "prefix": "A1F892930085C07531",
+      "start": "0x006C0C48",
+      "end": "0x006C0C60",
+      "evidence": "Original sound-backend shutdown selects this six-slot fallback interface by writing it to global 9392FC. Three leading slots are zero, matching the original active backend interface."
+    },
+    {
+      "owner": "0x002D2890",
+      "prefix": "33D233C0B9A4F59500",
+      "start": "0x002D290E",
+      "end": "0x002D2912",
+      "evidence": "Single original code-pointer immediate: constructor 2D290B stores callback 2D23B0 in returned stream record field +38. This interval covers that four-byte immediate, and the owner prefix identifies its constructor."
+    },
+    {
+      "owner": "0x002D2FC0",
+      "prefix": "33C9B808F1950056",
+      "start": "0x002D3032",
+      "end": "0x002D3036",
+      "evidence": "Single original code-pointer immediate: constructor 2D302F stores callback 2D2D10 in returned stream record field +1C. This interval covers that four-byte immediate, and the owner prefix identifies its constructor."
+    },
+    {
+      "owner": "0x002D9DC0",
+      "prefix": "83EC088B0D3C104600A138104600",
+      "start": "0x004619D8",
+      "end": "0x00461A10",
+      "evidence": "Original Sofdec initialization passes the 15-slot module bank at 460FFC to 2EA200. It contains seven nonzero interfaces. The common interface has 14 operations, as shown by the adjacent 56-byte tables; the interface at 461B70 also has four original extended methods before the next interface. Numeric timing constants between interfaces are excluded. Dispatch at 2EA064 invokes their original initialization operations."
+    },
+    {
+      "owner": "0x002D9DC0",
+      "prefix": "83EC088B0D3C104600A138104600",
+      "start": "0x00461A10",
+      "end": "0x00461A48",
+      "evidence": "Original Sofdec initialization passes the 15-slot module bank at 460FFC to 2EA200. It contains seven nonzero interfaces. The common interface has 14 operations, as shown by the adjacent 56-byte tables; the interface at 461B70 also has four original extended methods before the next interface. Numeric timing constants between interfaces are excluded. Dispatch at 2EA064 invokes their original initialization operations."
+    },
+    {
+      "owner": "0x002D9DC0",
+      "prefix": "83EC088B0D3C104600A138104600",
+      "start": "0x00461A48",
+      "end": "0x00461A80",
+      "evidence": "Original Sofdec initialization passes the 15-slot module bank at 460FFC to 2EA200. It contains seven nonzero interfaces. The common interface has 14 operations, as shown by the adjacent 56-byte tables; the interface at 461B70 also has four original extended methods before the next interface. Numeric timing constants between interfaces are excluded. Dispatch at 2EA064 invokes their original initialization operations."
+    },
+    {
+      "owner": "0x002D9DC0",
+      "prefix": "83EC088B0D3C104600A138104600",
+      "start": "0x00461A9C",
+      "end": "0x00461AD4",
+      "evidence": "Original Sofdec initialization passes the 15-slot module bank at 460FFC to 2EA200. It contains seven nonzero interfaces. The common interface has 14 operations, as shown by the adjacent 56-byte tables; the interface at 461B70 also has four original extended methods before the next interface. Numeric timing constants between interfaces are excluded. Dispatch at 2EA064 invokes their original initialization operations."
+    },
+    {
+      "owner": "0x002D9DC0",
+      "prefix": "83EC088B0D3C104600A138104600",
+      "start": "0x00461AD4",
+      "end": "0x00461B0C",
+      "evidence": "Original Sofdec initialization passes the 15-slot module bank at 460FFC to 2EA200. It contains seven nonzero interfaces. The common interface has 14 operations, as shown by the adjacent 56-byte tables; the interface at 461B70 also has four original extended methods before the next interface. Numeric timing constants between interfaces are excluded. Dispatch at 2EA064 invokes their original initialization operations."
+    },
+    {
+      "owner": "0x002D9DC0",
+      "prefix": "83EC088B0D3C104600A138104600",
+      "start": "0x00461B70",
+      "end": "0x00461BB8",
+      "evidence": "Original Sofdec initialization passes the 15-slot module bank at 460FFC to 2EA200. It contains seven nonzero interfaces. The common interface has 14 operations, as shown by the adjacent 56-byte tables; the interface at 461B70 also has four original extended methods before the next interface. Numeric timing constants between interfaces are excluded. Dispatch at 2EA064 invokes their original initialization operations."
+    },
+    {
+      "owner": "0x002D9DC0",
+      "prefix": "83EC088B0D3C104600A138104600",
+      "start": "0x00461BB8",
+      "end": "0x00461BF0",
+      "evidence": "Original Sofdec initialization passes the 15-slot module bank at 460FFC to 2EA200. It contains seven nonzero interfaces. The common interface has 14 operations, as shown by the adjacent 56-byte tables; the interface at 461B70 also has four original extended methods before the next interface. Numeric timing constants between interfaces are excluded. Dispatch at 2EA064 invokes their original initialization operations."
+    },
+    {
+      "owner": "0x000E7B30",
+      "prefix": "81EC18020000A1B06C6C0057",
+      "start": "0x000E7C7B",
+      "end": "0x000E7C7F",
+      "evidence": "Single original callback pointer immediate at E7C77. The caller builds two local allocation/free pairs, E6220/E6290 and E6280/E6290. It registers them with E2860, which copies the two callbacks to global slots 755F14/755F18. E2CA8 invokes the selected allocator. The second allocator E6280 is a tail thunk to E6220."
+    },
+    {
+      "owner": "0x00015A90",
+      "prefix": "F60518218900017407E852FBFFFF",
+      "start": "0x00476F78",
+      "end": "0x00476FA0",
+      "evidence": "Original main-mode tail dispatcher at 15BE5 uses the table at 476F78. Mode 8 is the transition sentinel, and the table ends at the separate submenu dispatch table at 476FA0; unused slots remain null."
+    },
+    {
+      "owner": "0x00015A90",
+      "prefix": "F60518218900017407E852FBFFFF",
+      "start": "0x00476FA0",
+      "end": "0x004773C4",
+      "evidence": "Original primary submenu dispatch has 265 entries, with sentinel 109h excluded by the mode logic. The last handler pointers end at 4773C4, followed by two null padding words and the main-mode name table at 4773CC. Each nonzero handler is recovered independently."
+    },
+    {
+      "owner": "0x00015A90",
+      "prefix": "F60518218900017407E852FBFFFF",
+      "start": "0x00349518",
+      "end": "0x00349578",
+      "evidence": "Original main-mode initialization indexes eight 12-byte triples at 349518. The game copies all three callback fields through 1FA50 and invokes the initializer at +0. End 349578 begins the separate numeric configuration data."
+    }
+  ]
+}

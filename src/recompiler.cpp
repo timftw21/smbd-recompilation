@@ -1,4 +1,5 @@
 #include "recompiler.h"
+#include "native_apis.h"
 
 #include <algorithm>
 #include <format>
@@ -305,6 +306,15 @@ public:
             body << "    if(smbd::checkpoint_due(cpu)) { commit(); smbd::checkpoint(cpu," << constant(instruction.address) << "); }\n";
         bool terminator = false;
         switch (ins.mnemonic) {
+        case ZYDIS_MNEMONIC_WBINVD:
+            // Guest storage is coherent host RAM. The host publishes pending
+            // native graphics uploads; no privileged device instruction runs.
+            calls = true;
+            body << "    commit();\n    memory.publish_writes();\n"
+                 << "    if(!cpu.kernel || !cpu.kernel->publish_memory) throw smbd::NativeBoundary("
+                 << constant(instruction.address) << ",\"native memory publication service is unbound\");\n"
+                 << "    { smbd::HostFloatingScope host(cpu.floating); cpu.kernel->publish_memory(cpu.kernel->context); }\n";
+            break;
         case ZYDIS_MNEMONIC_SAHF:
             uses_flags=writes_flags=true;
             body << "    flags=(flags&~0xD5U)|((" << read_reg(ZYDIS_REGISTER_EAX) << ">>8)&0xD5U);\n";
@@ -556,7 +566,11 @@ public:
         case ZYDIS_MNEMONIC_JZ: case ZYDIS_MNEMONIC_JNZ: case ZYDIS_MNEMONIC_JB: case ZYDIS_MNEMONIC_JNB:
         case ZYDIS_MNEMONIC_JBE: case ZYDIS_MNEMONIC_JNBE: case ZYDIS_MNEMONIC_JL: case ZYDIS_MNEMONIC_JNL:
         case ZYDIS_MNEMONIC_JLE: case ZYDIS_MNEMONIC_JNLE:
-            body << "    if (" << condition(ins.mnemonic) << ") goto " << label(*instruction.target()) << ";\n";
+            if(instruction.tail_target) {
+                calls=restores=returns=true;
+                body << "    if (" << condition(ins.mnemonic) << ") { commit(); guest_" << std::format("{:08X}",*instruction.tail_target)
+                    << "(cpu,memory); restore(); goto done; }\n";
+            } else body << "    if (" << condition(ins.mnemonic) << ") goto " << label(*instruction.target()) << ";\n";
             break;
         case ZYDIS_MNEMONIC_JMP:
             if(operands[0].type==ZYDIS_OPERAND_TYPE_POINTER) {
@@ -575,6 +589,9 @@ public:
                 for(const auto target : targets) body << "    case " << constant(target) << ": goto " << label(target) << ";\n";
                 body << "    default: commit(); cpu.eip=" << constant(instruction.address)
                     << "; throw std::runtime_error(\"Guest jump table target is outside its recovered set\");\n    }\n";
+            } else if(instruction.tail_target) {
+                calls=restores=returns=true;
+                body << "    commit();\n    guest_" << std::format("{:08X}",*instruction.tail_target) << "(cpu,memory);\n    restore();\n    goto done;\n";
             } else if (instruction.target()) body << "    goto " << label(*instruction.target()) << ";\n";
             else {
                 calls=restores=returns=true;
@@ -624,7 +641,12 @@ public:
                  << ");\n    commit();\n    cpu.eip = " << constant(instruction.target().value_or(instruction.address)) << ";\n    ";
             if (instruction.kernel_ordinal) body << "smbd::call_kernel<" << *instruction.kernel_ordinal << ">(cpu,memory);\n";
             else if (instruction.target()) body << "guest_" << std::format("{:08X}", *instruction.target()) << "(cpu, memory);\n";
-            else body << "smbd::invoke_native(cpu,memory,target);\n";
+            else if(!instruction.jump_targets.empty()) {
+                body << "switch(target) {\n";
+                const std::set<std::uint32_t> targets(instruction.jump_targets.begin(),instruction.jump_targets.end());
+                for(auto target:targets) body << "    case " << constant(target) << ": guest_" << std::format("{:08X}",target) << "(cpu,memory); break;\n";
+                body << "    default: throw smbd::NativeBoundary(target,\"call target is outside its verified table\");\n    }\n";
+            } else body << "smbd::invoke_native(cpu,memory,target);\n";
             body << "    if (cpu.eip != " << constant(next)
                  << ") throw std::runtime_error(\"Unexpected return from call at " << hex32(instruction.address) << "\");\n"
                  << "    restore();\n";
@@ -833,6 +855,29 @@ public:
 
 LoweredFunction lower(const Function& function) {
     LoweredFunction result;
+    const auto api=std::ranges::find(native_apis,function.entry,&NativeApi::address);
+    if(api!=native_apis.end()) {
+        std::string prefix;
+        auto pc=function.entry;
+        while(prefix.size()<api->prefix.size() && function.instructions.contains(pc)) {
+            const auto& instruction=function.instructions.at(pc);
+            prefix+=hex_bytes(Bytes(instruction.bytes).first(instruction.decoded.length));
+            pc+=instruction.decoded.length;
+        }
+        if(!prefix.starts_with(api->prefix)) throw std::runtime_error("Native API signature differs at "+hex32(function.entry));
+        unsigned returns=0;
+        for(const auto& [address,instruction]:function.instructions) if(instruction.decoded.mnemonic==ZYDIS_MNEMONIC_RET) {
+            const auto cleanup=instruction.decoded.operand_count_visible?instruction.operands[0].imm.value.u:0;
+            if(cleanup!=api->cleanup) throw std::runtime_error("Native API return ABI differs at "+hex32(address));
+            ++returns;
+        }
+        if(!returns) throw std::runtime_error("Native API lacks a verified return ABI");
+        result.native_api=api->name;
+        result.source=std::format("void native_platform(Cpu&,Memory&,std::uint32_t);\nvoid guest_{:08X}(Cpu& cpu,Memory& memory) {{\n"
+            "    if(smbd::checkpoint_due(cpu)) smbd::checkpoint(cpu,0x{:08X}U);\n"
+            "    native_platform(cpu,memory,0x{:08X}U);\n}}\n",function.entry,function.entry,function.entry);
+        return result;
+    }
     Emitter emitter;
     for(const auto& edge : function.edges)
         if(edge.to && (edge.kind=="jump" || edge.kind=="conditional" || edge.kind=="table-jump") && *edge.to<=edge.from)
@@ -890,7 +935,7 @@ std::string recompile(Xbe& image, std::uint32_t address, std::uint32_t instructi
         const auto& issue = generated.issues.front();
         throw std::runtime_error(hex32(issue.address) + " [" + issue.bytes + "]: " + issue.instruction + ": " + issue.reason);
     }
-    if (std::ranges::any_of(function.edges, [](const Edge& edge) { return edge.kind == "call"; }))
+    if (std::ranges::any_of(function.edges, [](const Edge& edge) { return edge.kind == "call" || edge.kind=="tail-call"; }))
         throw std::runtime_error("This function calls other functions; use batch recompilation to recover its dependencies");
     if (generated.floating) throw std::runtime_error("Floating-point functions require batch generation of their native helpers");
     return "// Generated from XBE SHA256 " + image.sha256 + "\n#include \"cpu.h\"\nnamespace smbd {\n" + generated.source +

@@ -1,0 +1,10 @@
+{
+  "executable_sha256": "9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2",
+  "entries": [
+    {"address": "0x003E9999", "kind": "numeric data", "references": ["0x006820CC"]},
+    {"address": "0x003F1999", "kind": "numeric data", "references": ["0x00574C94", "0x00574CCF", "0x00574E38"]},
+    {"address": "0x00414999", "kind": "inside NOCOLI_MOT_MATO_LV4Z_B string", "references": ["0x00424CB8", "0x00424CF4"]},
+    {"address": "0x009F09A9", "kind": "zero-initialized storage without file-backed instructions", "references": ["0x0068093D"]}
+  ],
+  "proof": "All references above originate in orphan disassembly, outside every recovered function. The references are bytes of numeric or pointer tables, not reachable calls. Confirmed with Ghidra ReferenceManager and bounded original-byte reads; raw project data is retained. Export fails if an excluded entry acquires a reference from a retained function."
+}

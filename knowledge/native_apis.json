@@ -1,0 +1,222 @@
+{
+  "executable_sha256": "9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2",
+  "apis": [
+    {
+      "address": "0x00309027",
+      "name": "XMountUtilityDrive",
+      "prefix": "558BEC81EC14010000",
+      "stack_cleanup": 4,
+      "evidence": "Original XAPI routine, 261 recovered bytes, one BOOLEAN argument and RET 4. Its physical cache-partition selection is replaced by a per-title native cache directory and Z: symbolic link, with bounded title-only cleanup."
+    },
+    {
+      "prefix": "558D6C249081ECB4000000",
+      "stack_cleanup": 8,
+      "name": "XInitDevices",
+      "address": "0x3417A3",
+      "evidence": "Original entry bytes and return stack cleanup are independently checked during native lowering. Native service implementation preserves the SDK-visible state; original USB/GPU hardware initialization is replaced by SDL3/D3D11."
+    },
+    {
+      "prefix": "558BEC51",
+      "stack_cleanup": 16,
+      "name": "XInputOpen",
+      "address": "0x342242",
+      "evidence": "Original entry bytes and return stack cleanup are independently checked during native lowering. Native service implementation preserves the SDK-visible state; original USB/GPU hardware initialization is replaced by SDL3/D3D11."
+    },
+    {
+      "prefix": "8B4C2404E88C090000C20400",
+      "stack_cleanup": 4,
+      "name": "XInputClose",
+      "address": "0x342298",
+      "evidence": "Original entry bytes and return stack cleanup are independently checked during native lowering. Native service implementation preserves the SDK-visible state; original USB/GPU hardware initialization is replaced by SDL3/D3D11."
+    },
+    {
+      "prefix": "535633DB",
+      "stack_cleanup": 8,
+      "name": "XInputGetState",
+      "address": "0x3422A4",
+      "evidence": "Original entry bytes and return stack cleanup are independently checked during native lowering. Native service implementation preserves the SDK-visible state; original USB/GPU hardware initialization is replaced by SDL3/D3D11."
+    },
+    {
+      "prefix": "8B4C24048D81A30000008B10",
+      "stack_cleanup": 8,
+      "name": "XInputSetState",
+      "address": "0x342317",
+      "evidence": "Original entry bytes and return stack cleanup are independently checked during native lowering. Native service implementation preserves the SDK-visible state; original USB/GPU hardware initialization is replaced by SDL3/D3D11."
+    },
+    {
+      "prefix": "56FF15047634008B542408",
+      "stack_cleanup": 4,
+      "name": "XGetDevices",
+      "address": "0x342371",
+      "evidence": "Original entry bytes and return stack cleanup are independently checked during native lowering. Native service implementation preserves the SDK-visible state; original USB/GPU hardware initialization is replaced by SDL3/D3D11."
+    },
+    {
+      "prefix": "558BEC56",
+      "stack_cleanup": 12,
+      "name": "XGetDeviceChanges",
+      "address": "0x342393",
+      "evidence": "Original entry bytes and return stack cleanup are independently checked during native lowering. Native service implementation preserves the SDK-visible state; original USB/GPU hardware initialization is replaced by SDL3/D3D11."
+    },
+    {
+      "prefix": "81EC640100005368000080AC",
+      "stack_cleanup": 4,
+      "name": "D3D_Initialize",
+      "address": "0x3230E0",
+      "evidence": "Original entry bytes and return stack cleanup are independently checked during native lowering. Native service implementation preserves the SDK-visible state; original USB/GPU hardware initialization is replaced by SDL3/D3D11."
+    },
+    {
+      "prefix": "568BF18B4608",
+      "stack_cleanup": 0,
+      "name": "D3D_KickOff",
+      "address": "0x3207B0",
+      "evidence": "Original entry bytes and return stack cleanup are independently checked during native lowering. Native service implementation preserves the SDK-visible state; original USB/GPU hardware initialization is replaced by SDL3/D3D11."
+    },
+    {
+      "prefix": "51568B35A8B63200",
+      "stack_cleanup": 8,
+      "name": "D3D_ReserveSpace",
+      "address": "0x00320B00",
+      "evidence": "Original entry bytes and return stack cleanup are independently checked during native lowering. Native service implementation preserves the SDK-visible state; original USB/GPU hardware initialization is replaced by SDL3/D3D11."
+    },
+    {
+      "prefix": "A1A8B632008B80340900008B8840320000",
+      "stack_cleanup": 0,
+      "name": "D3D_IsBusy",
+      "address": "0x31E650",
+      "evidence": "Original entry bytes and return stack cleanup are independently checked during native lowering. Native service implementation preserves the SDK-visible state; original USB/GPU hardware initialization is replaced by SDL3/D3D11."
+    },
+    {
+      "prefix": "568B35A8B632008B4630",
+      "stack_cleanup": 8,
+      "name": "D3D_BlockOnTime",
+      "address": "0x320990",
+      "evidence": "Original entry bytes and return stack cleanup are independently checked during native lowering. Native service implementation preserves the SDK-visible state; original USB/GPU hardware initialization is replaced by SDL3/D3D11."
+    },
+    {
+      "prefix": "83EC1C8B44242485C0",
+      "stack_cleanup": 8,
+      "name": "D3D_SetTileNoWait",
+      "address": "0x31E680",
+      "evidence": "Original entry bytes and return stack cleanup are independently checked during native lowering. Native service implementation preserves the SDK-visible state; original USB/GPU hardware initialization is replaced by SDL3/D3D11."
+    },
+    {
+      "prefix": "A1A8B632006A006A00",
+      "stack_cleanup": 0,
+      "name": "D3D_BlockUntilVerticalBlank",
+      "address": "0x31D960",
+      "evidence": "Original entry bytes and return stack cleanup are independently checked during native lowering. Native service implementation preserves the SDK-visible state; original USB/GPU hardware initialization is replaced by SDL3/D3D11."
+    },
+    {
+      "address": "0x0033B402",
+      "name": "DirectSoundCreate",
+      "prefix": "558BEC51",
+      "stack_cleanup": 12,
+      "evidence": "Original SDK entry, first instruction bytes and RET cleanup verified. Public operations use the native SDL mixer; object layouts follow SMB Deluxe constructors 339A3F, 33A6E6, 33B09A and buffer data/region helpers 33AACA/33A803."
+    },
+    {
+      "address": "0x0033B238",
+      "name": "IDirectSound_CreateSoundBuffer",
+      "prefix": "FF7424108B442408FF742410",
+      "stack_cleanup": 16,
+      "evidence": "Original SDK entry, first instruction bytes and RET cleanup verified. Public operations use the native SDL mixer; object layouts follow SMB Deluxe constructors 339A3F, 33A6E6, 33B09A and buffer data/region helpers 33AACA/33A803."
+    },
+    {
+      "address": "0x003399BD",
+      "name": "IDirectSoundBuffer_Release",
+      "prefix": "8B4424048D48E4F7D8",
+      "stack_cleanup": 4,
+      "evidence": "Original SDK entry, first instruction bytes and RET cleanup verified. Public operations use the native SDL mixer; object layouts follow SMB Deluxe constructors 339A3F, 33A6E6, 33B09A and buffer data/region helpers 33AACA/33A803."
+    },
+    {
+      "address": "0x0033A469",
+      "name": "IDirectSoundBuffer_Play",
+      "prefix": "FF7424108B442408FF742410",
+      "stack_cleanup": 16,
+      "evidence": "Original SDK entry, first instruction bytes and RET cleanup verified. Public operations use the native SDL mixer; object layouts follow SMB Deluxe constructors 339A3F, 33A6E6, 33B09A and buffer data/region helpers 33AACA/33A803."
+    },
+    {
+      "address": "0x0033A48D",
+      "name": "IDirectSoundBuffer_Stop",
+      "prefix": "8B4424048BC883C0E4",
+      "stack_cleanup": 4,
+      "evidence": "Original SDK entry, first instruction bytes and RET cleanup verified. Public operations use the native SDL mixer; object layouts follow SMB Deluxe constructors 339A3F, 33A6E6, 33B09A and buffer data/region helpers 33AACA/33A803."
+    },
+    {
+      "address": "0x0033A4A5",
+      "name": "IDirectSoundBuffer_GetStatus",
+      "prefix": "8B442404FF7424088BC8",
+      "stack_cleanup": 8,
+      "evidence": "Original SDK entry, first instruction bytes and RET cleanup verified. Public operations use the native SDL mixer; object layouts follow SMB Deluxe constructors 339A3F, 33A6E6, 33B09A and buffer data/region helpers 33AACA/33A803."
+    },
+    {
+      "address": "0x0033A4C1",
+      "name": "IDirectSoundBuffer_GetCurrentPosition",
+      "prefix": "8B442404FF74240C8BC8",
+      "stack_cleanup": 12,
+      "evidence": "Original SDK entry, first instruction bytes and RET cleanup verified. Public operations use the native SDL mixer; object layouts follow SMB Deluxe constructors 339A3F, 33A6E6, 33B09A and buffer data/region helpers 33AACA/33A803."
+    },
+    {
+      "address": "0x0033A4E1",
+      "name": "IDirectSoundBuffer_SetCurrentPosition",
+      "prefix": "8B442404FF7424088BC8",
+      "stack_cleanup": 8,
+      "evidence": "Original SDK entry, first instruction bytes and RET cleanup verified. Public operations use the native SDL mixer; object layouts follow SMB Deluxe constructors 339A3F, 33A6E6, 33B09A and buffer data/region helpers 33AACA/33A803."
+    },
+    {
+      "address": "0x0033A4FD",
+      "name": "IDirectSoundBuffer_Lock",
+      "prefix": "558BECFF7524",
+      "stack_cleanup": 32,
+      "evidence": "Original SDK entry, first instruction bytes and RET cleanup verified. Public operations use the native SDL mixer; object layouts follow SMB Deluxe constructors 339A3F, 33A6E6, 33B09A and buffer data/region helpers 33AACA/33A803."
+    },
+    {
+      "address": "0x0033AE44",
+      "name": "IDirectSoundBuffer_SetBufferData",
+      "prefix": "8B442404FF74240C8BC8",
+      "stack_cleanup": 12,
+      "evidence": "Original SDK entry, first instruction bytes and RET cleanup verified. Public operations use the native SDL mixer; object layouts follow SMB Deluxe constructors 339A3F, 33A6E6, 33B09A and buffer data/region helpers 33AACA/33A803."
+    },
+    {
+      "address": "0x0033A415",
+      "name": "IDirectSoundBuffer_SetVolume",
+      "prefix": "8B442404FF7424088BC8",
+      "stack_cleanup": 8,
+      "evidence": "Original SDK entry, first instruction bytes and RET cleanup verified. Public operations use the native SDL mixer; object layouts follow SMB Deluxe constructors 339A3F, 33A6E6, 33B09A and buffer data/region helpers 33AACA/33A803."
+    },
+    {
+      "address": "0x0033A431",
+      "name": "IDirectSoundBuffer_SetHeadroom",
+      "prefix": "8B442404FF7424088BC8",
+      "stack_cleanup": 8,
+      "evidence": "Original SDK entry, first instruction bytes and RET cleanup verified. Public operations use the native SDL mixer; object layouts follow SMB Deluxe constructors 339A3F, 33A6E6, 33B09A and buffer data/region helpers 33AACA/33A803."
+    },
+    {
+      "address": "0x0033A44D",
+      "name": "IDirectSoundBuffer_SetMixBinVolumes",
+      "prefix": "8B442404FF7424088BC8",
+      "stack_cleanup": 8,
+      "evidence": "Original SDK entry, first instruction bytes and RET cleanup verified. Public operations use the native SDL mixer; object layouts follow SMB Deluxe constructors 339A3F, 33A6E6, 33B09A and buffer data/region helpers 33AACA/33A803."
+    },
+    {
+      "address": "0x0033A8F6",
+      "name": "IDirectSoundBuffer_SetFrequency",
+      "prefix": "8B442404FF7424088BC8",
+      "stack_cleanup": 8,
+      "evidence": "Original SDK entry, first instruction bytes and RET cleanup verified. Public operations use the native SDL mixer; object layouts follow SMB Deluxe constructors 339A3F, 33A6E6, 33B09A and buffer data/region helpers 33AACA/33A803."
+    },
+    {
+      "address": "0x0033A912",
+      "name": "IDirectSoundBuffer_SetMixBins",
+      "prefix": "8B442404FF7424088BC8",
+      "stack_cleanup": 8,
+      "evidence": "Original SDK entry, first instruction bytes and RET cleanup verified. Public operations use the native SDL mixer; object layouts follow SMB Deluxe constructors 339A3F, 33A6E6, 33B09A and buffer data/region helpers 33AACA/33A803."
+    },
+    {
+      "address": "0x00339A96",
+      "name": "CDirectSound_DoWork",
+      "prefix": "56E8F9FEFFFF833D080C340000",
+      "stack_cleanup": 4,
+      "evidence": "Original SDK entry, first instruction bytes and RET cleanup verified. Public operations use the native SDL mixer; object layouts follow SMB Deluxe constructors 339A3F, 33A6E6, 33B09A and buffer data/region helpers 33AACA/33A803."
+    }
+  ]
+}

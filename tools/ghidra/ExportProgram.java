@@ -13,6 +13,8 @@ import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolIterator;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import java.util.HashSet;
 import java.io.BufferedWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -31,13 +33,27 @@ public class ExportProgram extends HeadlessScript {
     }
     @Override public void run() throws Exception {
         String[] args = getScriptArgs();
-        if (args.length != 2) throw new IllegalArgumentException("OUTPUT_DIRECTORY EXPECTED_SHA256");
+        if (args.length != 3) throw new IllegalArgumentException("OUTPUT_DIRECTORY EXPECTED_SHA256 NON_CODE_ENTRIES.json");
         if (!currentProgram.getExecutableSHA256().equalsIgnoreCase(args[1]))
             throw new IllegalStateException("Executable SHA-256 differs from supported target");
         if (analysisTimeoutOccurred()) throw new IllegalStateException("Ghidra analysis timed out");
         Path directory = Path.of(args[0]);
         Files.createDirectories(directory);
-        long functions = 0, instructions = 0, symbols = 0, references = 0, computed = 0;
+        var excluded = new HashSet<Long>();
+        var evidence = JsonParser.parseString(Files.readString(Path.of(args[2]))).getAsJsonObject();
+        if (!evidence.get("executable_sha256").getAsString().equalsIgnoreCase(args[1]))
+            throw new IllegalStateException("Code/data evidence belongs to another executable");
+        for (var item : evidence.getAsJsonArray("entries"))
+            excluded.add(Long.decode(item.getAsJsonObject().get("address").getAsString()));
+        for (long location : excluded) {
+            var incoming = currentProgram.getReferenceManager().getReferencesTo(toAddr(location));
+            while (incoming.hasNext()) {
+                var source = getFunctionContaining(incoming.next().getFromAddress());
+                if (source != null && !excluded.contains(source.getEntryPoint().getUnsignedOffset()))
+                    throw new IllegalStateException("A retained function references rejected code at " + Long.toHexString(location));
+            }
+        }
+        long functions = 0, instructions = 0, symbols = 0, references = 0, computed = 0, orphanInstructions = 0;
         try (var entries = writer(directory, "functions.tsv");
              var ranges = writer(directory, "function-ranges.tsv");
              var seeds = writer(directory, "seeds.txt")) {
@@ -50,6 +66,7 @@ public class ExportProgram extends HeadlessScript {
                 Function function = iterator.next();
                 Address entry = function.getEntryPoint();
                 if (function.isExternal() || getInstructionAt(entry) == null) continue;
+                if (excluded.contains(entry.getUnsignedOffset())) continue;
                 entries.write(address(entry) + "\t" + text(function.getName(true)) + "\t" +
                     function.getBody().getNumAddresses() + "\t" + function.isThunk() + "\n");
                 seeds.write(address(entry) + "\n");
@@ -72,6 +89,11 @@ public class ExportProgram extends HeadlessScript {
             while (iterator.hasNext()) {
                 monitor.checkCancelled();
                 Instruction instruction = iterator.next();
+                Function owner = getFunctionContaining(instruction.getAddress());
+                if (owner == null || excluded.contains(owner.getEntryPoint().getUnsignedOffset())) {
+                    ++orphanInstructions;
+                    continue;
+                }
                 var bytes = new StringBuilder(instruction.getLength() * 2);
                 for (byte value : instruction.getBytes()) bytes.append(String.format("%02X", value & 255));
                 String location = address(instruction.getAddress());
@@ -116,6 +138,8 @@ public class ExportProgram extends HeadlessScript {
         summary.addProperty("language", currentProgram.getLanguageID().toString());
         summary.addProperty("functions", functions);
         summary.addProperty("instructions", instructions);
+        summary.addProperty("orphan_or_rejected_instructions", orphanInstructions);
+        summary.addProperty("rejected_function_entries", excluded.size());
         summary.addProperty("symbols", symbols);
         summary.addProperty("references", references);
         summary.addProperty("computed_flow_sites", computed);

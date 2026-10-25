@@ -29,10 +29,34 @@ try {
         'build/generated/game.cpp', '--replace', '--shards', '64', '--report', 'build/generated/batch.json')
     if ($AllowPartial) { $batchArguments += '--allow-partial' }
     Invoke-Checked $tool $batchArguments
+    # Shader compilation is also one offline batch. Reuse it only when every
+    # shader input, generator source and generated bank still matches.
+    $shaderBank = Join-Path $root 'build\generated\shader_bank.cpp'
+    $shaderCache = Join-Path $root 'build\generated\shader-cache.json'
+    $shaderInputs = @('src\shaders.cpp', 'src\vertex_program.cpp', 'src\shader_compiler.cpp', 'data\local\default.xbe')
+    $shaderInputs += @(Get-ChildItem -LiteralPath 'data/local/media' -Filter '*.xvu' -Recurse -File | ForEach-Object FullName)
+    $recipe = ($shaderInputs | Sort-Object | ForEach-Object {
+        [IO.Path]::GetRelativePath($root, [IO.Path]::GetFullPath($_)) + ':' + (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash
+    }) -join "`n"
+    $fingerprint = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($recipe)))
+    $reuseShaders = $false
+    if ((Test-Path -LiteralPath $shaderCache) -and (Test-Path -LiteralPath $shaderBank)) {
+        $cachedShaders = Get-Content -LiteralPath $shaderCache -Raw | ConvertFrom-Json
+        $reuseShaders = $cachedShaders.inputs -eq $fingerprint -and
+            $cachedShaders.output -eq (Get-FileHash -LiteralPath $shaderBank -Algorithm SHA256).Hash
+    }
+    if (!$reuseShaders) {
+        & $tool compile-shaders 'data/local/default.xbe' $shaderBank > 'build/logs/shaders.json'
+        if ($LASTEXITCODE -ne 0) { throw 'Offline shader compilation failed; see build/logs/shaders.json.' }
+        @{inputs=$fingerprint;output=(Get-FileHash -LiteralPath $shaderBank -Algorithm SHA256).Hash} |
+            ConvertTo-Json | Set-Content -LiteralPath $shaderCache -Encoding utf8
+    } else { Write-Host 'Reusing verified offline shader bank.' }
     Invoke-Checked cmake @('-S', '.', '-B', 'build/windows', '-G', 'Visual Studio 18 2026', '-A', 'x64',
-        "-DSMBD_BATCH=$root/build/generated/game.cpp")
-    Invoke-Checked cmake @('--build', 'build/windows', '--config', 'Release', '--target', 'smbd-tool', '--parallel', '1')
+        "-DSMBD_BATCH=$root/build/generated/game.cpp", "-DSMBD_SHADER_BANK=$shaderBank")
+    Invoke-Checked cmake @('--build', 'build/windows', '--config', 'Release', '--target', 'smbd-tool', 'smbd', '--parallel', '1')
     Invoke-Checked (Join-Path $root 'build\windows\Release\smbd-tool.exe') @('check-cpu', 'data/local/default.xbe')
+    Invoke-Checked (Join-Path $root 'build\windows\Release\smbd-tool.exe') @('check-input')
+    Invoke-Checked (Join-Path $root 'build\windows\Release\smbd-tool.exe') @('check-audio')
 } finally {
     Pop-Location
 }

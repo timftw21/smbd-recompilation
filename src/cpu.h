@@ -1,6 +1,7 @@
 #pragma once
 #include "floating.h"
 #include <array>
+#include <atomic>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
@@ -30,6 +31,7 @@ struct KernelServices {
     std::array<void (*)(void*, Cpu&, Memory&), 512> entries{};
     std::uint32_t (*read_port)(void*,std::uint16_t,unsigned) = nullptr;
     void (*write_port)(void*,std::uint16_t,unsigned,std::uint32_t) = nullptr;
+    void (*publish_memory)(void*) = nullptr;
 };
 struct GuestClock {
     void* context = nullptr;
@@ -128,6 +130,7 @@ public:
         regions_[region_count_++]={base,bytes};
     }
     void* access(std::uint32_t address, std::size_t size) const { return pointer(address,size); }
+    void publish_writes() const { std::atomic_thread_fence(std::memory_order_seq_cst); }
     template<int Hint = _MM_HINT_NTA> void prefetch(std::uint32_t address) const {
         if(address>=base_ && static_cast<std::uint64_t>(address)-base_<bytes_.size())
             _mm_prefetch(reinterpret_cast<const char*>(bytes_.data()+address-base_),Hint);

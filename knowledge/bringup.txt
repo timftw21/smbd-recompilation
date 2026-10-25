@@ -1,5 +1,7 @@
 Initial Xbox extraction and native CPU bring-up - 2026-10-25
 
+Historical snapshot. Current execution progress is recorded in runtime_progress.json.
+
 The supplied XISO contains 4,778 files in 43 directories, totaling 2,948,585,603
 file bytes. All files were extracted in one native batch and checked against
 SHA-256 hashes of their disc entries. A repeat run verified and reused all files.

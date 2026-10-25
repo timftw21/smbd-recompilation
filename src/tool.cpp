@@ -1,6 +1,9 @@
 #include "batch.h"
 #include "disc.h"
 #include "pipeline.h"
+#ifdef SMBD_HAS_SHADERS
+#include "shaders.h"
+#endif
 #include <charconv>
 #include <chrono>
 #include <format>
@@ -9,6 +12,11 @@
 #include <sstream>
 #ifdef _WIN32
 #include <Windows.h>
+#endif
+#ifdef SMBD_HAS_BATCH
+#include "xbox.h"
+#include "input.h"
+#include "audio.h"
 #endif
 
 namespace {
@@ -29,11 +37,17 @@ constexpr auto usage =
     "  smbd-tool extract ISO DISC_PATH OUTPUT\n"
     "  smbd-tool inspect|verify|check-image XBE\n"
     "  smbd-tool verify-analysis XBE INSTRUCTIONS.tsv\n"
+#ifdef SMBD_HAS_SHADERS
+    "  smbd-tool compile-shaders XBE OUTPUT.cpp\n"
+#endif
     "  smbd-tool data|decode|analyse XBE ADDRESS LIMIT\n"
     "  smbd-tool recompile XBE ADDRESS LIMIT OUTPUT.cpp [--replace]\n"
     "  smbd-tool batch XBE SEEDS.txt FUNCTION_LIMIT INSTRUCTION_LIMIT OUTPUT.cpp [--replace] [--allow-partial] [--shards COUNT] [--report REPORT.json]\n"
 #ifdef SMBD_HAS_BATCH
     "  smbd-tool check-cpu XBE\n"
+    "  smbd-tool check-input\n"
+    "  smbd-tool check-audio\n"
+    "  smbd-tool boot XBE ISO CHECKPOINT_BUDGET OUTPUT.json [FRAME.png]\n"
 #endif
     "Addresses accept decimal or hexadecimal. Decode/data: 64 KiB; analysis: 8192 instructions.\n"
     "Batch: 65536 functions, 2097152 total instructions, 256 MiB source, 1..512 shards.\n"
@@ -52,6 +66,11 @@ int tool_main(int argc, char** argv) {
         const auto started = std::chrono::steady_clock::now();
         int result = 0;
         std::string output;
+#ifdef SMBD_HAS_SHADERS
+        if(command=="compile-shaders" && argc==4) {
+            output=smbd::compile_shaders(paths[2],paths[3],true);
+        } else
+#endif
         if (command == "prepare" && (argc == 4 || (argc == 5 && std::string_view(argv[4]) == "--extract-all"))) {
             output = smbd::prepare_disc(paths[2], paths[3], argc == 5);
         } else if (command == "verify-analysis" && argc == 4) {
@@ -59,6 +78,16 @@ int tool_main(int argc, char** argv) {
             output = smbd::verify_analysis(image, paths[3]);
             if (output.find("\"passed\":false") != std::string::npos) result = 3;
 #ifdef SMBD_HAS_BATCH
+        } else if(command=="check-input" && argc==2) {
+            output=smbd::check_input();
+        } else if(command=="check-audio" && argc==2) {
+            output=smbd::check_audio();
+        } else if (command == "boot" && (argc == 6 || argc == 7)) {
+            smbd::Xbe image(paths[2]);
+            const auto report = smbd::check_boot(image, paths[3], number(argv[4]),argc==7?paths[6]:std::filesystem::path{});
+            smbd::write_text(paths[5],report+'\n',true);
+            output = report;
+            if(report.find("\"passed\":false")!=std::string::npos) result=3;
         } else if (command == "check-cpu" && argc == 3) {
             smbd::Xbe image(paths[2]);
             output = smbd::check_cpu(image);

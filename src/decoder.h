@@ -14,6 +14,7 @@ struct Instruction {
     std::string text;
     std::optional<std::uint32_t> kernel_ordinal;
     std::vector<std::uint32_t> jump_targets;
+    std::optional<std::uint32_t> tail_target;
     std::optional<std::uint32_t> target() const;
     std::string report() const;
 };

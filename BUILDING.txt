@@ -1,47 +1,64 @@
-Super Monkey Ball Deluxe: extraction and native CPU bring-up
+Super Monkey Ball Deluxe: native recompilation and bring-up
 
 Windows prerequisites: Visual Studio 2026 C++ tools and Windows SDK, CMake 4.2+,
-Git, PowerShell and a JDK 21+. No Python is used. The game is not bootable yet.
+Git, PowerShell and JDK 21+. No Python is used. Gameplay is not yet verified.
 
 Run from the source folder:
 
   .\tools\Build.ps1 -AllowPartial
 
-An explicit image can be selected with -Disc 'D:\path\game.xiso.iso'.
-The script builds one native tool, extracts/verifies the entire disc, runs one
-Ghidra analysis/export, generates all discovered functions in one batch, builds
-64 native C++ shards and runs isolated original-code diagnostics. Compiler work
-uses one worker. Ghidra uses a 3 GiB heap and two analysis threads.
+Use -Disc 'D:\path\game.xiso.iso' to select a different image location.
+The script verifies/extracts the whole disc, reuses indexed Ghidra analysis,
+generates 64 native C++ shards, compiles shaders offline, builds the game and
+its diagnostic tool, and checks isolated original CPU routines. Compiler work
+uses one worker; Ghidra has a 3 GiB heap and two analysis threads.
 
-Ghidra 12.1.4 and its matching Xbox extension are downloaded with pinned SHA-256
-hashes. Completed analysis is reused when the executable and export script match.
-Existing extracted files are hash-checked and preserved; changed files cause an
-error. Unchanged generated files retain their timestamps to avoid recompilation.
+Tools and dependencies are pinned. Unchanged analysis, generated sources and
+shader banks are reused after checking their inputs. Original media, extracted
+files, generated output and local storage remain ignored by Git.
 
--AllowPartial explicitly permits incomplete research output. Missing functions
-stop at their original addresses; there is no interpreter or success fallback.
-Without this switch, analysis disagreements or incomplete generation fail the
-build. The current Ghidra/native disagreements and remaining generation blockers
-are recorded in knowledge/ and in the full private reports below.
+-AllowPartial permits research output with unresolved control flow. Missing
+functions and services stop explicitly at their original addresses. There is no
+runtime CPU decoder or interpreter. The strict build rejects incomplete batches.
+The initial coverage report is historical; knowledge/runtime_progress.json
+records later milestones and the private reports contain current details.
 
-Developer commands (after building):
+Developer commands:
 
   .\build\windows\Release\smbd-tool.exe --help
-  .\build\windows\Release\smbd-tool.exe verify data/local/default.xbe
   .\build\windows\Release\smbd-tool.exe check-image data/local/default.xbe
   .\build\windows\Release\smbd-tool.exe check-cpu data/local/default.xbe
+  .\build\windows\Release\smbd-tool.exe boot data/local/default.xbe 'Super Monkey Ball Deluxe/Super Monkey Ball Deluxe (USA).xiso.iso' 1000000 build/logs/boot.json build/logs/frame.png
   .\tools\Analyze.ps1
+
+Boot diagnostics return 3 for unexpected boundaries and save the failure,
+original register/stack history, services, file activity and graphics counters.
+Reaching a requested execution budget is an expected diagnostic stop; it does
+not establish playable gameplay. A frame is saved only if requested and a native
+graphics device has been created.
+
+The native game executable is build/windows/Release/smbd.exe. Run it from the
+source folder. --frames COUNT, --seconds COUNT, --capture FRAME.png and --hidden
+support bounded game automation. --input TIMELINE.txt connects an SDL virtual
+controller. Each line is FRAME BUTTON [LEFT_X LEFT_Y], with increasing frames;
+buttons are a, b, x, y, start, back, up, down, left, right or none. A state lasts
+until the next line. Stick values are -1..1, with positive Y pointing up.
+For example, "120 start" followed by "122 none" presses Start for two frames.
+The current frontend is for development; settings and the
+complete playable path remain in progress.
 
 Private outputs:
 
-  data/local/                  Extracted files, SHA-256 disc inventory and metadata
-  data/local/analysis/         Ghidra functions, ranges, instructions, references,
-                              symbols, computed flows and native-generation seeds
-  build/ghidra/                Saved Ghidra project for further batched research
-  build/generated/batch.json   Complete generation coverage and address-level blockers
-  build/logs/                  Analysis, compilation and validation reports
+  data/local/                 Extracted media, disc inventory and executable
+  data/local/analysis/        Ghidra indexes and native-generation seeds
+  data/user/                  Native title storage and utility cache
+  build/ghidra/               Saved Ghidra project
+  build/generated/            CPU/shader sources and coverage report
+  build/logs/                 Analysis, build and execution diagnostics
 
-Only Windows x64 native CPU compilation has been exercised. Extraction tools
-also have POSIX/OpenSSL support; Linux/macOS execution backends, native Xbox
-services, graphics, audio, input, settings and gameplay still need implementation.
-Component diagnostics do not establish gameplay accuracy or frame rate.
+Only Windows x64 execution has been exercised. Native Xbox services, D3D11 and
+SDL3 input/audio are being brought up against the original program. The SEGA
+startup screen renders. CPU checks (10), controller checks (47), and mixer checks
+(37) pass. Menus, gameplay, settings, complete audio behaviour, Linux/macOS,
+visual parity and performance require further work. See runtime_progress.json
+in knowledge for the current execution boundary; initial_coverage.json is historical.

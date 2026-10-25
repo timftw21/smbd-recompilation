@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "executable_sha256": "9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2",
+  "validation_date": "2026-10-25",
+  "stage": "Verified textured startup screen; menu and gameplay investigation",
+  "original_translation_blockers": {
+    "rejected_data_entries": 4,
+    "remaining": 0,
+    "cache_publication_lowered": true
+  },
+  "native_generation": {
+    "functions": 8840,
+    "compiled": 8840,
+    "closed_functions": 4456,
+    "native_platform_functions": 31,
+    "unresolved_indirect_sites": 1370
+  },
+  "shaders": {
+    "builtin_programs": 25,
+    "runtime_compiler": false,
+    "unique_programs": 571,
+    "title_assets": 752
+  },
+  "verified_startup": {
+    "main_reached": true,
+    "checkpoints": 9176546,
+    "threads": 6,
+    "frames": 10,
+    "draws": 5,
+    "vertices": 20,
+    "rendering_verified": true,
+    "scene": "Presented by SEGA startup screen, 640x480; capture inspected",
+    "menu_verified": false,
+    "playable": false,
+    "last_boundary": "Native boundary at 0x000B8068: function is absent from the fixed native table"
+  },
+  "evidence": "Initial coverage is retained as a historical snapshot. Current detailed reports stay private under build/logs and build/generated. Code/data exclusions and API/callback contracts are recorded separately in knowledge.",
+  "diagnostics": {
+    "cpu_cases": 10,
+    "cpu_failures": 0,
+    "controller_cases": 47,
+    "audio_mixer_cases": 37,
+    "native_game_virtual_controller": true
+  }
+}

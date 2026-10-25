@@ -1,0 +1,365 @@
+{
+  "executable_sha256": "9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2",
+  "contracts": [
+    {
+      "name": "PsCreateSystemThreadEx",
+      "address": "0",
+      "ordinal": 255,
+      "argument_count": 10,
+      "prefix": "",
+      "callbacks": [
+        5,
+        9
+      ],
+      "site": "0",
+      "offsets": [
+        -1,
+        -1
+      ]
+    },
+    {
+      "name": "KeInitializeDpc",
+      "address": "0",
+      "ordinal": 107,
+      "argument_count": 3,
+      "prefix": "",
+      "callbacks": [
+        1
+      ],
+      "site": "0",
+      "offsets": [
+        -1
+      ]
+    },
+    {
+      "name": "XAPILIB::CreateThread",
+      "address": "0x00309872",
+      "ordinal": 0,
+      "argument_count": 6,
+      "prefix": "558BEC8B450C85C07505",
+      "callbacks": [
+        2
+      ],
+      "site": "0",
+      "offsets": [
+        -1
+      ]
+    },
+    {
+      "name": "D3DDevice_SetVerticalBlankCallback",
+      "ordinal": 0,
+      "argument_count": 1,
+      "address": "0x0031D940",
+      "prefix": "8B442404",
+      "callbacks": [
+        0
+      ],
+      "site": "0",
+      "offsets": [
+        -1
+      ]
+    },
+    {
+      "argument_count": 2,
+      "callbacks": [
+        1
+      ],
+      "ordinal": 0,
+      "prefix": "A108D945008B44240485C0",
+      "name": "Plugin registration factory",
+      "address": "0x002CC7A0",
+      "site": "0",
+      "offsets": [
+        -1
+      ]
+    },
+    {
+      "address": "0x002CC300",
+      "prefix": "8B44240433C93BC1",
+      "argument_count": 2,
+      "ordinal": 0,
+      "name": "Plug-in diagnostic registration",
+      "site": "0",
+      "callbacks": [
+        0
+      ],
+      "evidence": "Original routine stores the supplied diagnostic callback and its context at 9392E0/9392E4.",
+      "offsets": [
+        -1
+      ]
+    },
+    {
+      "address": "0",
+      "prefix": "FFD0",
+      "argument_count": 2,
+      "ordinal": 0,
+      "name": "Plug-in initializer",
+      "site": "0x002CC83F",
+      "callbacks": [
+        0
+      ],
+      "evidence": "The original indirect initializer call pushes zero context and callback 2CBE20. Both known plug-in initializers consume that same two-argument contract.",
+      "offsets": [
+        -1
+      ]
+    },
+    {
+      "site": "0",
+      "prefix": "8B4424048B4C2408A340A39300",
+      "callbacks": [
+        0
+      ],
+      "name": "Directory visitor registration",
+      "ordinal": 0,
+      "address": "0x002D65A0",
+      "evidence": "The original routine stores callback/context at 93A340/93A344. Directory enumeration at 2D65C0 invokes that callback with each original directory entry.",
+      "argument_count": 2,
+      "offsets": [
+        -1
+      ]
+    },
+    {
+      "prefix": "56BE80426C0056",
+      "site": "0",
+      "argument_count": 2,
+      "address": "0x00309755",
+      "callbacks": [
+        0
+      ],
+      "name": "XRegisterThreadNotifyRoutine",
+      "offsets": [
+        8
+      ],
+      "ordinal": 0,
+      "evidence": "Original registration links the supplied 12-byte record. XapiCallThreadNotifyRoutines calls its function at +8 with the thread-creation flag. CRT initialization writes callback 3141D9 to record field 9546DC before registering 9546D4."
+    },
+    {
+      "address": "0x002479D0",
+      "name": "C++ array constructor iterator",
+      "evidence": "Original helper consumes base, element size, count and constructor, ending in RET 10h. It calls argument 3 for each element with ECX set to that element.",
+      "offsets": [
+        -1
+      ],
+      "argument_count": 4,
+      "site": "0",
+      "ordinal": 0,
+      "prefix": "8B44240C487826",
+      "callbacks": [
+        3
+      ]
+    },
+    {
+      "name": "C++ exception-safe array constructor iterator",
+      "address": "0x0030C576",
+      "ordinal": 0,
+      "argument_count": 5,
+      "prefix": "6A1068B8374600",
+      "callbacks": [
+        3,
+        4
+      ],
+      "site": "0",
+      "offsets": [
+        -1,
+        -1
+      ],
+      "evidence": "Original named CRT helper ??_L consumes base, element size, count, constructor and destructor, ending in RET 14h. The loop at 30C58D calls argument 3 with ECX set to each element. Its cleanup at 30C5C0 forwards argument 4 to __ArrayUnwind."
+    },
+    {
+      "name": "C++ array unwind destructor iterator",
+      "address": "0x0030C5D8",
+      "ordinal": 0,
+      "argument_count": 4,
+      "prefix": "6A1468C8374600",
+      "callbacks": [
+        3
+      ],
+      "site": "0",
+      "offsets": [
+        -1
+      ],
+      "evidence": "Original named __ArrayUnwind helper decrements the element count, subtracts the size, and calls argument 3 with ECX set to that element. It ends in RET 10h."
+    },
+    {
+      "site": "0x002C8BA2",
+      "address": "0",
+      "ordinal": 0,
+      "name": "Sound worker thread factory",
+      "argument_count": 6,
+      "prefix": "FFD0",
+      "callbacks": [
+        2
+      ],
+      "offsets": [
+        -1
+      ],
+      "evidence": "Original 2C8FC0 installs factory 2C8F90 into slot 938D9C. That factory forwards the six CreateThread arguments without modification to 309872. The three calls in 2C8B80 pass the original vertical-blank, sound, and streaming worker routines."
+    },
+    {
+      "site": "0x002C8BDB",
+      "address": "0",
+      "ordinal": 0,
+      "name": "Sound worker thread factory",
+      "argument_count": 6,
+      "prefix": "FF159C8D9300",
+      "callbacks": [
+        2
+      ],
+      "offsets": [
+        -1
+      ],
+      "evidence": "Original 2C8FC0 installs factory 2C8F90 into slot 938D9C. That factory forwards the six CreateThread arguments without modification to 309872. The three calls in 2C8B80 pass the original vertical-blank, sound, and streaming worker routines."
+    },
+    {
+      "site": "0x002C8C18",
+      "address": "0",
+      "ordinal": 0,
+      "name": "Sound worker thread factory",
+      "argument_count": 6,
+      "prefix": "FF159C8D9300",
+      "callbacks": [
+        2
+      ],
+      "offsets": [
+        -1
+      ],
+      "evidence": "Original 2C8FC0 installs factory 2C8F90 into slot 938D9C. That factory forwards the six CreateThread arguments without modification to 309872. The three calls in 2C8B80 pass the original vertical-blank, sound, and streaming worker routines."
+    },
+    {
+      "address": "0x002D3570",
+      "site": "0",
+      "ordinal": 0,
+      "name": "Scheduler enter callback",
+      "argument_count": 2,
+      "callbacks": [
+        0
+      ],
+      "offsets": [
+        -1
+      ],
+      "prefix": "8B4424048B4C2408A3E4989300",
+      "evidence": "Original registration stores the supplied callback and its context for later invocation. The scheduler worker registration takes channel, callback, and context and writes one of six records for that channel; its dispatch at 2D35D0 passes the matching context."
+    },
+    {
+      "address": "0x002D3590",
+      "site": "0",
+      "ordinal": 0,
+      "name": "Scheduler leave callback",
+      "argument_count": 2,
+      "callbacks": [
+        0
+      ],
+      "offsets": [
+        -1
+      ],
+      "prefix": "8B4424048B4C2408A3EC989300",
+      "evidence": "Original registration stores the supplied callback and its context for later invocation. The scheduler worker registration takes channel, callback, and context and writes one of six records for that channel; its dispatch at 2D35D0 passes the matching context."
+    },
+    {
+      "address": "0x002D3730",
+      "site": "0",
+      "ordinal": 0,
+      "name": "Scheduler event callback",
+      "argument_count": 1,
+      "callbacks": [
+        0
+      ],
+      "offsets": [
+        -1
+      ],
+      "prefix": "A1E098930085C07403",
+      "evidence": "Original registration stores the supplied callback and its context for later invocation. The scheduler worker registration takes channel, callback, and context and writes one of six records for that channel; its dispatch at 2D35D0 passes the matching context."
+    },
+    {
+      "address": "0x002D37A0",
+      "site": "0",
+      "ordinal": 0,
+      "name": "Scheduler worker callback",
+      "argument_count": 3,
+      "callbacks": [
+        1
+      ],
+      "offsets": [
+        -1
+      ],
+      "prefix": "A1E498930085C0742C",
+      "evidence": "Original registration stores the supplied callback and its context for later invocation. The scheduler worker registration takes channel, callback, and context and writes one of six records for that channel; its dispatch at 2D35D0 passes the matching context."
+    },
+    {
+      "address": "0x002D67E0",
+      "site": "0",
+      "ordinal": 0,
+      "name": "Streaming diagnostic callback",
+      "argument_count": 2,
+      "callbacks": [
+        0
+      ],
+      "offsets": [
+        -1
+      ],
+      "prefix": "8B44240433C93BC1",
+      "evidence": "Original registration stores the supplied callback and its context for later invocation. The scheduler worker registration takes channel, callback, and context and writes one of six records for that channel; its dispatch at 2D35D0 passes the matching context."
+    },
+    {
+      "address": "0x002E2D30",
+      "site": "0",
+      "ordinal": 0,
+      "name": "Sofdec service callback registration",
+      "argument_count": 3,
+      "callbacks": [
+        1
+      ],
+      "offsets": [
+        -1
+      ],
+      "prefix": "8B44240C8B4C240856",
+      "evidence": "Original service registration forwards a callback/context to the common scheduler or retains that pair for the movie service. Movie setup at 2D9BF0 supplies the three original callbacks 2E3280, 2E3430 and 2E3470."
+    },
+    {
+      "address": "0x002E2D60",
+      "site": "0",
+      "ordinal": 0,
+      "name": "Sofdec service callback registration",
+      "argument_count": 2,
+      "callbacks": [
+        0
+      ],
+      "offsets": [
+        -1
+      ],
+      "prefix": "8B4424088B4C240450",
+      "evidence": "Original service registration forwards a callback/context to the common scheduler or retains that pair for the movie service. Movie setup at 2D9BF0 supplies the three original callbacks 2E3280, 2E3430 and 2E3470."
+    },
+    {
+      "address": "0x002E2D80",
+      "site": "0",
+      "ordinal": 0,
+      "name": "Sofdec service callback registration",
+      "argument_count": 2,
+      "callbacks": [
+        0
+      ],
+      "offsets": [
+        -1
+      ],
+      "prefix": "8B4424088B4C240450",
+      "evidence": "Original service registration forwards a callback/context to the common scheduler or retains that pair for the movie service. Movie setup at 2D9BF0 supplies the three original callbacks 2E3280, 2E3430 and 2E3470."
+    },
+    {
+      "address": "0x000E1CC0",
+      "site": "0",
+      "ordinal": 0,
+      "name": "Asynchronous game resource load completion",
+      "argument_count": 5,
+      "callbacks": [
+        4
+      ],
+      "offsets": [
+        -1
+      ],
+      "prefix": "515355",
+      "evidence": "Original five-argument resource loader copies argument 4 to request record +28 at E1E76..E1E7E. Completion at E2277 calls that callback with result and request. Original synchronous adapter 23360 supplies completion 232B0 and waits through the same scheduler."
+    }
+  ],
+  "evidence": "The kernel parameter layouts match the native host service contracts. The XAPI routine was checked from 00309872 through RET 18h; it forwards argument 2 as the start routine to PsCreateSystemThreadEx, with system entry 003097DA. The original entry pushes user routine 00309426. Only literal callback values proven in the contiguous argument-building block are recovered."
+}

@@ -76,10 +76,13 @@ Batch recompile_batch(Xbe& image, std::span<const std::uint32_t> seeds,
                 if(called_slots.contains(slot)) schedule(callback);
             }
             for(auto slot:unit.indirect_slots) {
-                called_slots.insert(slot);
+                if(called_slots.insert(slot).second) try {
+                    const auto initial=u32(image.data(slot,4),0);
+                    if(initial) {image.code_section(initial);schedule(initial);}
+                } catch(const std::exception&) {}
                 if(installed_callbacks.contains(slot)) for(auto callback:installed_callbacks.at(slot)) schedule(callback);
             }
-            for (const auto& edge : function.edges) if (edge.kind == "call" && edge.to) {
+            for (const auto& edge : function.edges) if ((edge.kind == "call" || edge.kind=="tail-call") && edge.to) {
                 unit.calls.push_back(*edge.to);
                 schedule(*edge.to);
             }
@@ -192,7 +195,7 @@ Batch recompile_batch(Xbe& image, std::span<const std::uint32_t> seeds,
             helpers.insert(unit.native_helpers.begin(),unit.native_helpers.end());
             if(unit.floating) destination << "void entry_" << std::format("{:08X}",address)
                 << "(Cpu& cpu,Memory& memory) { FloatingScope scope(cpu.floating); " << symbol(address) << "(cpu,memory); }\n";
-            ready_instructions += unit.instruction_count;
+            if(unit.native_api.empty()) ready_instructions += unit.instruction_count;
         }
         for(const auto address : missing) {
             source << "void " << symbol(address) << "(Cpu& cpu,[[maybe_unused]] Memory& memory) { cpu.eip="
@@ -221,6 +224,8 @@ Batch recompile_batch(Xbe& image, std::span<const std::uint32_t> seeds,
            << ",\"function_limit\":" << function_limit << ",\"instruction_limit_per_function\":" << instruction_limit
            << ",\"total_instruction_limit\":" << total_instruction_limit << ",\"functions_discovered\":" << units.size()
            << ",\"instructions_discovered\":" << instruction_count << ",\"functions_compiled\":" << emitted_count
+           << ",\"native_platform_functions\":" << std::ranges::count_if(units,[](const auto& pair){return pair.second.emit && !pair.second.native_api.empty();})
+           << ",\"translated_functions\":" << std::ranges::count_if(units,[](const auto& pair){return pair.second.emit && pair.second.native_api.empty();})
            << ",\"closed_functions\":" << ready_count << ",\"shard_count\":" << shard_count
            << ",\"instructions_compiled\":" << ready_instructions << ",\"pending_functions\":[";
     bool first = true;

@@ -1,0 +1,16 @@
+#pragma once
+#include <cstdint>
+#include <string_view>
+namespace smbd {
+struct StaticCallTable {
+    std::uint32_t site, proof_address;
+    std::string_view prefix;
+    std::uint32_t start, end, stride;
+    bool jump;
+};
+inline constexpr StaticCallTable static_call_tables[] = {
+@static_call_tables@};
+struct EntryTable {std::uint32_t owner;std::string_view prefix;std::uint32_t start,end;};
+inline constexpr EntryTable entry_tables[] = {
+@entry_tables@};
+}

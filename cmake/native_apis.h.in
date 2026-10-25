@@ -1,0 +1,10 @@
+#pragma once
+#include <array>
+#include <cstdint>
+#include <string_view>
+
+namespace smbd {
+struct NativeApi { std::uint32_t address; std::string_view name,prefix; unsigned cleanup; };
+inline constexpr std::array native_apis{
+@native_apis@};
+}
