@@ -20,7 +20,7 @@ std::string compare_images(const std::filesystem::path& actual,
 
 // NV097 color-format codes. DXT blocks are already in row-major block order.
 enum class TextureFormat : std::uint32_t {
-    rgb565 = 0x05, argb8 = 0x06, xrgb8 = 0x07,
+    argb4 = 0x04, rgb565 = 0x05, argb8 = 0x06, xrgb8 = 0x07,
     dxt1 = 0x0C, dxt3 = 0x0E, dxt5 = 0x0F,
     argb8_linear = 0x12, xrgb8_linear = 0x1E
 };

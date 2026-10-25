@@ -102,6 +102,139 @@ std::optional<std::uint32_t> constant_before(const Function& function,std::uint3
     }
     return {};
 }
+std::optional<std::uint32_t> stack_callback_before(const Function& function,std::uint32_t call,
+    const Instruction& argument,std::uint32_t field) {
+    const auto& pointer=argument.operands[0];
+    if(pointer.type!=ZYDIS_OPERAND_TYPE_REGISTER || pointer.size!=32) return {};
+    struct Store {std::int64_t first,last;std::optional<std::uint32_t> value;};
+    std::vector<Store> stores;
+    std::int64_t delta=0;
+    std::optional<std::int64_t> slot;
+    int wanted=-1;
+    auto pc=call;
+    for(unsigned steps=0;steps<128;++steps) {
+        if(std::ranges::any_of(function.edges,[&](const Edge& edge){return edge.to==pc &&
+            (edge.kind=="jump" || edge.kind=="conditional" || edge.kind=="table-jump");})) return {};
+        const auto* instruction=previous(function,pc);
+        if(!instruction) return {};
+        const auto& ins=instruction->decoded;
+        const auto& operands=instruction->operands;
+        if(ins.meta.category==ZYDIS_CATEGORY_CALL || ins.meta.category==ZYDIS_CATEGORY_COND_BR ||
+           ins.meta.category==ZYDIS_CATEGORY_UNCOND_BR || ins.meta.category==ZYDIS_CATEGORY_RET) return {};
+        bool changes_stack=false;
+        for(unsigned i=0;i<ins.operand_count;++i) changes_stack |= operands[i].type==ZYDIS_OPERAND_TYPE_REGISTER &&
+            general(operands[i].reg.value)==4 && (operands[i].actions&ZYDIS_OPERAND_ACTION_MASK_WRITE);
+        if(ins.mnemonic==ZYDIS_MNEMONIC_PUSH && ins.operand_width==32) {
+            delta+=4;
+            stores.push_back({delta-4,delta,constant_before(function,instruction->address,operands[0])});
+        }
+        else if(ins.mnemonic==ZYDIS_MNEMONIC_POP && ins.operand_width==32) delta-=4;
+        else if(changes_stack) {
+            if((ins.mnemonic!=ZYDIS_MNEMONIC_ADD && ins.mnemonic!=ZYDIS_MNEMONIC_SUB) ||
+               operands[0].type!=ZYDIS_OPERAND_TYPE_REGISTER || operands[0].reg.value!=ZYDIS_REGISTER_ESP ||
+               operands[1].type!=ZYDIS_OPERAND_TYPE_IMMEDIATE || operands[1].imm.value.u>65536) return {};
+            const auto amount=static_cast<std::int64_t>(operands[1].imm.value.u);
+            delta+=ins.mnemonic==ZYDIS_MNEMONIC_SUB?amount:-amount;
+        }
+        if(delta < -65536 || delta>65536) return {};
+        for(unsigned i=0;i<ins.operand_count_visible;++i) {
+            const auto& operand=operands[i];
+            if(operand.type!=ZYDIS_OPERAND_TYPE_MEMORY || !(operand.actions&ZYDIS_OPERAND_ACTION_MASK_WRITE)) continue;
+            // Unknown aliases or partial writes cannot prove a record field.
+            if(operand.mem.base!=ZYDIS_REGISTER_ESP || operand.mem.index!=ZYDIS_REGISTER_NONE) return {};
+            const auto start=delta+operand.mem.disp.value;
+            const auto value=ins.mnemonic==ZYDIS_MNEMONIC_MOV && i==0 && operand.size==32?
+                constant_before(function,instruction->address,operands[1]):std::nullopt;
+            stores.push_back({start,start+(operand.size+7)/8,value});
+        }
+        if(instruction->address==argument.address) wanted=general(pointer.reg.value);
+        else if(wanted>=0) {
+            bool written=false;
+            for(unsigned i=0;i<ins.operand_count;++i) written |= operands[i].type==ZYDIS_OPERAND_TYPE_REGISTER &&
+                general(operands[i].reg.value)==wanted && (operands[i].actions&ZYDIS_OPERAND_ACTION_MASK_WRITE);
+            if(written) {
+                if(operands[0].type!=ZYDIS_OPERAND_TYPE_REGISTER || general(operands[0].reg.value)!=wanted || operands[0].size!=32) return {};
+                if(ins.mnemonic==ZYDIS_MNEMONIC_MOV && operands[1].type==ZYDIS_OPERAND_TYPE_REGISTER && operands[1].size==32)
+                    wanted=general(operands[1].reg.value);
+                else if(ins.mnemonic==ZYDIS_MNEMONIC_LEA && operands[1].type==ZYDIS_OPERAND_TYPE_MEMORY &&
+                        operands[1].mem.base==ZYDIS_REGISTER_ESP && operands[1].mem.index==ZYDIS_REGISTER_NONE) {
+                    slot=delta+operands[1].mem.disp.value+field;
+                    wanted=-1;
+                } else return {};
+            }
+        }
+        if(slot) for(const auto& store:stores) if(store.first<*slot+4 && store.last>*slot)
+            return store.first==*slot && store.last==*slot+4?store.value:std::nullopt;
+        pc=instruction->address;
+    }
+    return {};
+}
+void factory_callbacks(Xbe& image,Function& function) {
+    const auto factory_at=[](const Instruction& instruction) {
+        if(instruction.decoded.meta.category==ZYDIS_CATEGORY_CALL)
+            for(unsigned i=0;i<callback_factories.size();++i)
+                if(instruction.target()==callback_factories[i].address) return i+1;
+        return 0U;
+    };
+    bool used=false;
+    for(const auto& [pc,instruction]:function.instructions) if(const auto index=factory_at(instruction)) {
+        const auto& factory=callback_factories[index-1];
+        if(factory.count>factory.fields.size() || hex_bytes(image.data(factory.address,factory.prefix.size()/2))!=factory.prefix)
+            throw std::runtime_error("Callback object factory differs at "+hex32(factory.address));
+        used=true;
+    }
+    if(!used) return;
+    // Track only exact returned-object aliases. Other calls and register writes
+    // discard them; joins keep a type only when every incoming path agrees.
+    using State=std::array<unsigned,8>;
+    std::map<std::uint32_t,State> states;
+    std::deque<std::uint32_t> pending;
+    const auto update=[&](std::uint32_t pc,const State& value) {
+        if(!function.instructions.contains(pc)) return;
+        const auto [found,inserted]=states.emplace(pc,value);
+        bool changed=inserted;
+        if(!inserted) for(unsigned i=0;i<value.size();++i)
+            if(found->second[i] && found->second[i]!=value[i]) {found->second[i]=0;changed=true;}
+        if(changed) pending.push_back(pc);
+    };
+    update(function.entry,State{});
+    unsigned iterations=0;
+    while(!pending.empty() && ++iterations<=function.instructions.size()*16) {
+        const auto pc=pending.front();pending.pop_front();
+        const auto& instruction=function.instructions.at(pc);
+        const auto& ins=instruction.decoded;const auto& operands=instruction.operands;
+        auto state=states.at(pc);const auto original=state;
+        for(unsigned i=0;i<ins.operand_count;++i) if(operands[i].type==ZYDIS_OPERAND_TYPE_REGISTER &&
+            (operands[i].actions&ZYDIS_OPERAND_ACTION_MASK_WRITE)) {
+            const auto reg=general(operands[i].reg.value);if(reg>=0) state[reg]=0;
+        }
+        if(ins.mnemonic==ZYDIS_MNEMONIC_MOV && operands[0].type==ZYDIS_OPERAND_TYPE_REGISTER && operands[0].size==32 &&
+           operands[1].type==ZYDIS_OPERAND_TYPE_REGISTER && operands[1].size==32) {
+            const auto target=general(operands[0].reg.value),source=general(operands[1].reg.value);
+            if(target>=0 && source>=0) state[target]=original[source];
+        }
+        const auto next=pc+ins.length;const auto target=instruction.target();
+        if(ins.meta.category==ZYDIS_CATEGORY_CALL) {state={};state[0]=factory_at(instruction);update(next,state);}
+        else if(ins.meta.category==ZYDIS_CATEGORY_COND_BR) {update(next,state);if(target) update(*target,state);}
+        else if(ins.meta.category==ZYDIS_CATEGORY_UNCOND_BR) {
+            if(target) update(*target,state);else for(auto address:instruction.jump_targets) update(address,state);
+        } else if(ins.meta.category!=ZYDIS_CATEGORY_RET && ins.meta.category!=ZYDIS_CATEGORY_INTERRUPT &&
+                  ins.mnemonic!=ZYDIS_MNEMONIC_INT3 && ins.mnemonic!=ZYDIS_MNEMONIC_HLT) update(next,state);
+    }
+    if(!pending.empty()) return;
+    for(const auto& [pc,instruction]:function.instructions) {
+        if(!states.contains(pc) || instruction.decoded.mnemonic!=ZYDIS_MNEMONIC_MOV) continue;
+        const auto& field=instruction.operands[0];
+        if(field.type!=ZYDIS_OPERAND_TYPE_MEMORY || field.size!=32 || field.mem.index!=ZYDIS_REGISTER_NONE ||
+           field.mem.segment!=ZYDIS_REGISTER_DS) continue;
+        const auto base=general(field.mem.base);
+        if(base<0 || !states.at(pc)[base]) continue;
+        const auto& factory=callback_factories[states.at(pc)[base]-1];
+        if(!std::ranges::contains(std::span(factory.fields).first(factory.count),field.mem.disp.value)) continue;
+        const auto target=constant_before(function,pc,instruction.operands[1]);
+        if(target && *target) {image.code_section(*target);function.static_callbacks.push_back(*target);}
+    }
+}
 Range filter_range(Range range,ZydisMnemonic branch,std::uint32_t bound,bool taken) {
     if(branch!=ZYDIS_MNEMONIC_JB && branch!=ZYDIS_MNEMONIC_JBE && branch!=ZYDIS_MNEMONIC_JNB &&
        branch!=ZYDIS_MNEMONIC_JNBE && branch!=ZYDIS_MNEMONIC_JZ && branch!=ZYDIS_MNEMONIC_JNZ) return range;
@@ -265,6 +398,34 @@ std::optional<TableGuard> table_guard(Xbe& image, const Function& function, cons
         operand.mem.scale != 4 || operand.mem.segment != ZYDIS_REGISTER_DS || !operand.mem.disp.has_displacement)
         return {};
     const auto* branch = previous(function, jump.address);
+    // Scheduling can place independent saves, loads and SIMD operations anywhere
+    // between CMP, its branch, remapping and dispatch. Check their actual flag
+    // and register writes rather than requiring adjacent instruction spellings.
+    const auto preserves=[](const Instruction& instruction,ZydisRegister index) {
+        const auto& decoded=instruction.decoded;
+        const auto category=decoded.meta.category;
+        if(decoded.mnemonic!=ZYDIS_MNEMONIC_PUSH && decoded.mnemonic!=ZYDIS_MNEMONIC_MOV &&
+           decoded.mnemonic!=ZYDIS_MNEMONIC_LEA && category!=ZYDIS_CATEGORY_DATAXFER &&
+           category!=ZYDIS_CATEGORY_SSE && category!=ZYDIS_CATEGORY_LOGICAL_FP &&
+           category!=ZYDIS_CATEGORY_CONVERT && category!=ZYDIS_CATEGORY_MMX && category!=ZYDIS_CATEGORY_NOP) return false;
+        if(decoded.cpu_flags && (decoded.cpu_flags->modified || decoded.cpu_flags->set_0 ||
+           decoded.cpu_flags->set_1 || decoded.cpu_flags->undefined)) return false;
+        for(unsigned i=0;i<decoded.operand_count;++i) {
+            const auto& changed=instruction.operands[i];
+            if(changed.type==ZYDIS_OPERAND_TYPE_REGISTER && (changed.actions&ZYDIS_OPERAND_ACTION_MASK_WRITE) &&
+               ZydisRegisterGetLargestEnclosing(ZYDIS_MACHINE_MODE_LEGACY_32,changed.reg.value)==index) return false;
+        }
+        return true;
+    };
+    unsigned saved=0;
+    const auto skip_saves=[&](const Instruction* instruction,ZydisRegister index) {
+        unsigned skipped=0;
+        while(instruction && preserves(*instruction,index) && skipped++<8) {
+            ++saved;instruction=previous(function,instruction->address);
+        }
+        return instruction;
+    };
+    branch=skip_saves(branch,operand.mem.index);
     const ZydisDecodedOperand* lookup = nullptr;
     auto compared_register=operand.mem.index;
     if (branch && branch->decoded.mnemonic == ZYDIS_MNEMONIC_MOVZX &&
@@ -274,31 +435,21 @@ std::optional<TableGuard> table_guard(Xbe& image, const Function& function, cons
         branch->operands[1].mem.segment == ZYDIS_REGISTER_DS && branch->operands[1].mem.disp.has_displacement) {
         lookup = &branch->operands[1];
         compared_register=lookup->mem.base;
-        branch = previous(function, branch->address);
+        branch = skip_saves(previous(function, branch->address),compared_register);
     }
+    if(saved && compared_register==ZYDIS_REGISTER_ESP) return {};
     if (!branch || (branch->decoded.mnemonic != ZYDIS_MNEMONIC_JNBE && branch->decoded.mnemonic != ZYDIS_MNEMONIC_JNB)) return {};
-    const auto* compare = previous(function, branch->address);
-    // Compilers may save registers between CMP and its branch. Only permit
-    // instructions proven to preserve flags and the complete index register.
-    for (unsigned skipped = 0; compare && compare->decoded.mnemonic != ZYDIS_MNEMONIC_CMP && skipped < 8; ++skipped) {
-        const auto& decoded = compare->decoded;
-        if (decoded.mnemonic != ZYDIS_MNEMONIC_PUSH && decoded.mnemonic != ZYDIS_MNEMONIC_MOV && decoded.mnemonic != ZYDIS_MNEMONIC_LEA)
-            return {};
-        if (decoded.cpu_flags && (decoded.cpu_flags->modified || decoded.cpu_flags->set_0 || decoded.cpu_flags->set_1 || decoded.cpu_flags->undefined)) return {};
-        for (unsigned i = 0; i < decoded.operand_count; ++i) {
-            const auto& changed = compare->operands[i];
-            if (changed.type == ZYDIS_OPERAND_TYPE_REGISTER && (changed.actions & ZYDIS_OPERAND_ACTION_MASK_WRITE) &&
-                ZydisRegisterGetLargestEnclosing(ZYDIS_MACHINE_MODE_LEGACY_32, changed.reg.value) == compared_register) return {};
-        }
-        compare = previous(function, compare->address);
-    }
+    const auto* compare = skip_saves(previous(function, branch->address),compared_register);
     if (!compare || compare->decoded.mnemonic != ZYDIS_MNEMONIC_CMP ||
         compare->operands[0].type != ZYDIS_OPERAND_TYPE_REGISTER || compare->operands[0].size != 32 ||
         compare->operands[0].reg.value != compared_register || compare->operands[1].type != ZYDIS_OPERAND_TYPE_IMMEDIATE)
         return {};
     const auto bound = compare->operands[1].imm.value.u;
     auto count = bound + (branch->decoded.mnemonic == ZYDIS_MNEMONIC_JNBE ? 1 : 0);
-    if (!count || count > 256 || (function.entry > compare->address && function.entry <= jump.address)) return {};
+    // A byte remap may consume a wider guarded range while still producing at
+    // most 256 dispatch slots (the video VLC tables use 512 input entries).
+    if (!count || count > (lookup ? 65536U : 256U) ||
+        (function.entry > compare->address && function.entry <= jump.address)) return {};
     if (lookup) {
         const auto remap = image.data(static_cast<std::uint32_t>(lookup->mem.disp.value), static_cast<std::size_t>(count));
         count = std::to_integer<unsigned char>(*std::ranges::max_element(remap)) + 1U;
@@ -498,7 +649,7 @@ Function recover(Xbe& image, std::uint32_t address, std::uint32_t instruction_bu
         auto found = function.instructions.find(table.site);
         if (found == function.instructions.end()) continue;
         auto& call = found->second;
-        if (call.decoded.meta.category != ZYDIS_CATEGORY_CALL || call.target() || call.kernel_ordinal ||
+        if (call.decoded.meta.category != (table.tail?ZYDIS_CATEGORY_UNCOND_BR:ZYDIS_CATEGORY_CALL) || call.target() || call.kernel_ordinal ||
             hex_bytes(image.data(table.proof_address,table.prefix.size()/2)) != table.prefix)
             throw std::runtime_error("Static call proof differs at " + hex32(table.site));
         if (table.end <= table.start || table.end-table.start > 128*1024 || table.stride < 4 || table.stride % 4)
@@ -511,8 +662,10 @@ Function recover(Xbe& image, std::uint32_t address, std::uint32_t instruction_bu
             function.static_callbacks.push_back(target);
         }
         if(call.jump_targets.empty()) throw std::runtime_error("Static call table has no targets");
-        std::erase_if(function.edges,[&](const Edge& edge) {return edge.from==table.site && edge.kind=="call" && !edge.to;});
-        for(auto target:call.jump_targets) function.edges.push_back({table.site,"call",target});
+        call.tail_dispatch=table.tail;
+        std::erase_if(function.edges,[&](const Edge& edge) {return edge.from==table.site &&
+            (edge.kind=="call" || edge.kind=="jump") && !edge.to;});
+        for(auto target:call.jump_targets) function.edges.push_back({table.site,table.tail?"tail-call":"call",target});
     }
     for(const auto& table:entry_tables) if(function.entry==table.owner) {
         if(hex_bytes(image.data(table.owner,table.prefix.size()/2))!=table.prefix ||
@@ -570,17 +723,19 @@ Function recover(Xbe& image, std::uint32_t address, std::uint32_t instruction_bu
             for (unsigned i=0;i<abi.count;++i) {
                 const auto* argument=arguments.at(abi.callbacks[i]);
                 auto target=constant_before(function,argument->address,argument->operands[0]);
-                if(!target || !*target) continue;
                 if(abi.offsets[i]>=0) {
-                    const auto slot=*target+static_cast<std::uint32_t>(abi.offsets[i]);
-                    if(slot<*target || slot<image.base || slot-image.base>=image.image_size)
-                        throw std::runtime_error("Callback record leaves the supported image");
-                    function.indirect_slots.push_back(slot);
-                    // A zero-filled record can be populated by another original
-                    // function. The batch joins this use with proven stores.
-                    try {target=u32(image.data(slot,4),0);} catch(const std::exception&) {continue;}
-                    if(!*target) continue;
+                    if(!target) target=stack_callback_before(function,pc,*argument,static_cast<std::uint32_t>(abi.offsets[i]));
+                    else if(*target) {
+                        const auto slot=*target+static_cast<std::uint32_t>(abi.offsets[i]);
+                        if(slot<*target || slot<image.base || slot-image.base>=image.image_size)
+                            throw std::runtime_error("Callback record leaves the supported image");
+                        function.indirect_slots.push_back(slot);
+                        // A zero-filled record can be populated by another original
+                        // function. The batch joins this use with proven stores.
+                        try {target=u32(image.data(slot,4),0);} catch(const std::exception&) {continue;}
+                    }
                 }
+                if(!target || !*target) continue;
                 image.code_section(*target);
                 function.static_callbacks.push_back(*target);
             }
@@ -607,6 +762,7 @@ Function recover(Xbe& image, std::uint32_t address, std::uint32_t instruction_bu
         if(!value || !*value) continue;
         try {image.code_section(*value);function.callback_stores.emplace_back(slot,*value);} catch(const std::exception&) {}
     }
+    factory_callbacks(image,function);
     std::ranges::sort(function.static_callbacks);
     function.static_callbacks.erase(std::unique(function.static_callbacks.begin(),function.static_callbacks.end()),function.static_callbacks.end());
     return function;

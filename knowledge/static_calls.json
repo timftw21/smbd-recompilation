@@ -150,6 +150,446 @@
       "stride": 24,
       "kind": "call",
       "evidence": "Original frame-object manager uses 22 records of 24 bytes, bounded by its loop comparison at 16856/1690A. Each record has init, update, and release callbacks at +8/+C/+10. State and name fields are excluded; native dispatch retains the exact nonzero callback set."
+    },
+    {
+      "site": "0x0023EED0",
+      "proof_address": "0x0023EEC0",
+      "prefix": "A1881E89008B0485F03E680085C0",
+      "start": "0x00683EF0",
+      "end": "0x00683F00",
+      "stride": 4,
+      "kind": "jump",
+      "evidence": "Original controller connection state at 891E88 selects one of four handlers from 683EF0. Initialization sets state 0, F280 selects 2, F2A0 selects 3 or zero, and the two short helpers implement the remaining transitions. Four function pointers precede null padding and a separate byte-mapping table. Tail dispatch preserves the original caller stack."
+    },
+    {
+      "site": "0x002E3E2F",
+      "proof_address": "0x002E3DE0",
+      "prefix": "8B4C24048B018B1485481E4600",
+      "start": "0x00461E70",
+      "end": "0x00461EB8",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original timestamp conversion selects a callback from the two-column table at 0x00461E70 using rate index and format. The table ends at 0x00461EB8, the next SUD library banner. Null entries are rejected by the original branch. Each nonzero entry is a conversion routine; the numeric rate table immediately before it is excluded."
+    },
+    {
+      "site": "0x0031A74E",
+      "proof_address": "0x0031A74E",
+      "prefix": "FF9618130000",
+      "start": "0x002ECC2C",
+      "end": "0x002ECC30",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original coefficient decoder calls object +0x1318. Its initializer 0x002ECB70 assigns either 0x002F6A70 or 0x002FA4B0 through ECX/EDX, selected by field +0x1314. The referenced intervals contain those original pointer immediates. Both complete routines have bounded VLC dispatch and native return paths."
+    },
+    {
+      "site": "0x0031A74E",
+      "proof_address": "0x0031A74E",
+      "prefix": "FF9618130000",
+      "start": "0x002ECC31",
+      "end": "0x002ECC35",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original coefficient decoder calls object +0x1318. Its initializer 0x002ECB70 assigns either 0x002F6A70 or 0x002FA4B0 through ECX/EDX, selected by field +0x1314. The referenced intervals contain those original pointer immediates. Both complete routines have bounded VLC dispatch and native return paths."
+    },
+    {
+      "site": "0x0031A761",
+      "proof_address": "0x0031A761",
+      "prefix": "FF9618130000",
+      "start": "0x002ECC2C",
+      "end": "0x002ECC30",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original coefficient decoder calls object +0x1318. Its initializer 0x002ECB70 assigns either 0x002F6A70 or 0x002FA4B0 through ECX/EDX, selected by field +0x1314. The referenced intervals contain those original pointer immediates. Both complete routines have bounded VLC dispatch and native return paths."
+    },
+    {
+      "site": "0x0031A761",
+      "proof_address": "0x0031A761",
+      "prefix": "FF9618130000",
+      "start": "0x002ECC31",
+      "end": "0x002ECC35",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original coefficient decoder calls object +0x1318. Its initializer 0x002ECB70 assigns either 0x002F6A70 or 0x002FA4B0 through ECX/EDX, selected by field +0x1314. The referenced intervals contain those original pointer immediates. Both complete routines have bounded VLC dispatch and native return paths."
+    },
+    {
+      "site": "0x0031A775",
+      "proof_address": "0x0031A775",
+      "prefix": "FF9618130000",
+      "start": "0x002ECC2C",
+      "end": "0x002ECC30",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original coefficient decoder calls object +0x1318. Its initializer 0x002ECB70 assigns either 0x002F6A70 or 0x002FA4B0 through ECX/EDX, selected by field +0x1314. The referenced intervals contain those original pointer immediates. Both complete routines have bounded VLC dispatch and native return paths."
+    },
+    {
+      "site": "0x0031A775",
+      "proof_address": "0x0031A775",
+      "prefix": "FF9618130000",
+      "start": "0x002ECC31",
+      "end": "0x002ECC35",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original coefficient decoder calls object +0x1318. Its initializer 0x002ECB70 assigns either 0x002F6A70 or 0x002FA4B0 through ECX/EDX, selected by field +0x1314. The referenced intervals contain those original pointer immediates. Both complete routines have bounded VLC dispatch and native return paths."
+    },
+    {
+      "site": "0x0031A789",
+      "proof_address": "0x0031A789",
+      "prefix": "FF9618130000",
+      "start": "0x002ECC2C",
+      "end": "0x002ECC30",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original coefficient decoder calls object +0x1318. Its initializer 0x002ECB70 assigns either 0x002F6A70 or 0x002FA4B0 through ECX/EDX, selected by field +0x1314. The referenced intervals contain those original pointer immediates. Both complete routines have bounded VLC dispatch and native return paths."
+    },
+    {
+      "site": "0x0031A789",
+      "proof_address": "0x0031A789",
+      "prefix": "FF9618130000",
+      "start": "0x002ECC31",
+      "end": "0x002ECC35",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original coefficient decoder calls object +0x1318. Its initializer 0x002ECB70 assigns either 0x002F6A70 or 0x002FA4B0 through ECX/EDX, selected by field +0x1314. The referenced intervals contain those original pointer immediates. Both complete routines have bounded VLC dispatch and native return paths."
+    },
+    {
+      "site": "0x0031A7AF",
+      "proof_address": "0x0031A7AF",
+      "prefix": "FF9618130000",
+      "start": "0x002ECC2C",
+      "end": "0x002ECC30",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original coefficient decoder calls object +0x1318. Its initializer 0x002ECB70 assigns either 0x002F6A70 or 0x002FA4B0 through ECX/EDX, selected by field +0x1314. The referenced intervals contain those original pointer immediates. Both complete routines have bounded VLC dispatch and native return paths."
+    },
+    {
+      "site": "0x0031A7AF",
+      "proof_address": "0x0031A7AF",
+      "prefix": "FF9618130000",
+      "start": "0x002ECC31",
+      "end": "0x002ECC35",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original coefficient decoder calls object +0x1318. Its initializer 0x002ECB70 assigns either 0x002F6A70 or 0x002FA4B0 through ECX/EDX, selected by field +0x1314. The referenced intervals contain those original pointer immediates. Both complete routines have bounded VLC dispatch and native return paths."
+    },
+    {
+      "site": "0x0031A7CC",
+      "proof_address": "0x0031A7CC",
+      "prefix": "FF9618130000",
+      "start": "0x002ECC2C",
+      "end": "0x002ECC30",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original coefficient decoder calls object +0x1318. Its initializer 0x002ECB70 assigns either 0x002F6A70 or 0x002FA4B0 through ECX/EDX, selected by field +0x1314. The referenced intervals contain those original pointer immediates. Both complete routines have bounded VLC dispatch and native return paths."
+    },
+    {
+      "site": "0x0031A7CC",
+      "proof_address": "0x0031A7CC",
+      "prefix": "FF9618130000",
+      "start": "0x002ECC31",
+      "end": "0x002ECC35",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original coefficient decoder calls object +0x1318. Its initializer 0x002ECB70 assigns either 0x002F6A70 or 0x002FA4B0 through ECX/EDX, selected by field +0x1314. The referenced intervals contain those original pointer immediates. Both complete routines have bounded VLC dispatch and native return paths."
+    },
+    {
+      "site": "0x0031A841",
+      "proof_address": "0x0031A841",
+      "prefix": "FF961C130000",
+      "start": "0x002ECC8E",
+      "end": "0x002ECC92",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original non-intra coefficient adapter calls object +0x131C. Both successful 8-bit initialization paths in 0x002ECB70 install 0x002FDF30 in this field. This interval contains that pointer immediate in the first branch."
+    },
+    {
+      "site": "0x0031A396",
+      "proof_address": "0x0031A396",
+      "prefix": "FF542434",
+      "start": "0x002F6961",
+      "end": "0x002F6965",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original sampling helper 0x0031A2C0 selects reconstruction operations from the eight-entry table at 0x00953FA8. Initializer 0x002F6960 fills all eight slots with four distinct routines (0x0031AAF0, 0x0031AA50, 0x0031A9A0, 0x0031A880). The referenced intervals are their original pointer immediates; the helper preserves the selected callback in its stack/EDI across six block operations."
+    },
+    {
+      "site": "0x0031A396",
+      "proof_address": "0x0031A396",
+      "prefix": "FF542434",
+      "start": "0x002F6966",
+      "end": "0x002F696A",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original sampling helper 0x0031A2C0 selects reconstruction operations from the eight-entry table at 0x00953FA8. Initializer 0x002F6960 fills all eight slots with four distinct routines (0x0031AAF0, 0x0031AA50, 0x0031A9A0, 0x0031A880). The referenced intervals are their original pointer immediates; the helper preserves the selected callback in its stack/EDI across six block operations."
+    },
+    {
+      "site": "0x0031A396",
+      "proof_address": "0x0031A396",
+      "prefix": "FF542434",
+      "start": "0x002F696B",
+      "end": "0x002F696F",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original sampling helper 0x0031A2C0 selects reconstruction operations from the eight-entry table at 0x00953FA8. Initializer 0x002F6960 fills all eight slots with four distinct routines (0x0031AAF0, 0x0031AA50, 0x0031A9A0, 0x0031A880). The referenced intervals are their original pointer immediates; the helper preserves the selected callback in its stack/EDI across six block operations."
+    },
+    {
+      "site": "0x0031A396",
+      "proof_address": "0x0031A396",
+      "prefix": "FF542434",
+      "start": "0x002F6986",
+      "end": "0x002F698A",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original sampling helper 0x0031A2C0 selects reconstruction operations from the eight-entry table at 0x00953FA8. Initializer 0x002F6960 fills all eight slots with four distinct routines (0x0031AAF0, 0x0031AA50, 0x0031A9A0, 0x0031A880). The referenced intervals are their original pointer immediates; the helper preserves the selected callback in its stack/EDI across six block operations."
+    },
+    {
+      "site": "0x0031A3BE",
+      "proof_address": "0x0031A3BE",
+      "prefix": "FF542438",
+      "start": "0x002F6961",
+      "end": "0x002F6965",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original sampling helper 0x0031A2C0 selects reconstruction operations from the eight-entry table at 0x00953FA8. Initializer 0x002F6960 fills all eight slots with four distinct routines (0x0031AAF0, 0x0031AA50, 0x0031A9A0, 0x0031A880). The referenced intervals are their original pointer immediates; the helper preserves the selected callback in its stack/EDI across six block operations."
+    },
+    {
+      "site": "0x0031A3BE",
+      "proof_address": "0x0031A3BE",
+      "prefix": "FF542438",
+      "start": "0x002F6966",
+      "end": "0x002F696A",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original sampling helper 0x0031A2C0 selects reconstruction operations from the eight-entry table at 0x00953FA8. Initializer 0x002F6960 fills all eight slots with four distinct routines (0x0031AAF0, 0x0031AA50, 0x0031A9A0, 0x0031A880). The referenced intervals are their original pointer immediates; the helper preserves the selected callback in its stack/EDI across six block operations."
+    },
+    {
+      "site": "0x0031A3BE",
+      "proof_address": "0x0031A3BE",
+      "prefix": "FF542438",
+      "start": "0x002F696B",
+      "end": "0x002F696F",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original sampling helper 0x0031A2C0 selects reconstruction operations from the eight-entry table at 0x00953FA8. Initializer 0x002F6960 fills all eight slots with four distinct routines (0x0031AAF0, 0x0031AA50, 0x0031A9A0, 0x0031A880). The referenced intervals are their original pointer immediates; the helper preserves the selected callback in its stack/EDI across six block operations."
+    },
+    {
+      "site": "0x0031A3BE",
+      "proof_address": "0x0031A3BE",
+      "prefix": "FF542438",
+      "start": "0x002F6986",
+      "end": "0x002F698A",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original sampling helper 0x0031A2C0 selects reconstruction operations from the eight-entry table at 0x00953FA8. Initializer 0x002F6960 fills all eight slots with four distinct routines (0x0031AAF0, 0x0031AA50, 0x0031A9A0, 0x0031A880). The referenced intervals are their original pointer immediates; the helper preserves the selected callback in its stack/EDI across six block operations."
+    },
+    {
+      "site": "0x0031A3F2",
+      "proof_address": "0x0031A3F2",
+      "prefix": "FFD7",
+      "start": "0x002F6961",
+      "end": "0x002F6965",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original sampling helper 0x0031A2C0 selects reconstruction operations from the eight-entry table at 0x00953FA8. Initializer 0x002F6960 fills all eight slots with four distinct routines (0x0031AAF0, 0x0031AA50, 0x0031A9A0, 0x0031A880). The referenced intervals are their original pointer immediates; the helper preserves the selected callback in its stack/EDI across six block operations."
+    },
+    {
+      "site": "0x0031A3F2",
+      "proof_address": "0x0031A3F2",
+      "prefix": "FFD7",
+      "start": "0x002F6966",
+      "end": "0x002F696A",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original sampling helper 0x0031A2C0 selects reconstruction operations from the eight-entry table at 0x00953FA8. Initializer 0x002F6960 fills all eight slots with four distinct routines (0x0031AAF0, 0x0031AA50, 0x0031A9A0, 0x0031A880). The referenced intervals are their original pointer immediates; the helper preserves the selected callback in its stack/EDI across six block operations."
+    },
+    {
+      "site": "0x0031A3F2",
+      "proof_address": "0x0031A3F2",
+      "prefix": "FFD7",
+      "start": "0x002F696B",
+      "end": "0x002F696F",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original sampling helper 0x0031A2C0 selects reconstruction operations from the eight-entry table at 0x00953FA8. Initializer 0x002F6960 fills all eight slots with four distinct routines (0x0031AAF0, 0x0031AA50, 0x0031A9A0, 0x0031A880). The referenced intervals are their original pointer immediates; the helper preserves the selected callback in its stack/EDI across six block operations."
+    },
+    {
+      "site": "0x0031A3F2",
+      "proof_address": "0x0031A3F2",
+      "prefix": "FFD7",
+      "start": "0x002F6986",
+      "end": "0x002F698A",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original sampling helper 0x0031A2C0 selects reconstruction operations from the eight-entry table at 0x00953FA8. Initializer 0x002F6960 fills all eight slots with four distinct routines (0x0031AAF0, 0x0031AA50, 0x0031A9A0, 0x0031A880). The referenced intervals are their original pointer immediates; the helper preserves the selected callback in its stack/EDI across six block operations."
+    },
+    {
+      "site": "0x0031A413",
+      "proof_address": "0x0031A413",
+      "prefix": "FFD7",
+      "start": "0x002F6961",
+      "end": "0x002F6965",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original sampling helper 0x0031A2C0 selects reconstruction operations from the eight-entry table at 0x00953FA8. Initializer 0x002F6960 fills all eight slots with four distinct routines (0x0031AAF0, 0x0031AA50, 0x0031A9A0, 0x0031A880). The referenced intervals are their original pointer immediates; the helper preserves the selected callback in its stack/EDI across six block operations."
+    },
+    {
+      "site": "0x0031A413",
+      "proof_address": "0x0031A413",
+      "prefix": "FFD7",
+      "start": "0x002F6966",
+      "end": "0x002F696A",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original sampling helper 0x0031A2C0 selects reconstruction operations from the eight-entry table at 0x00953FA8. Initializer 0x002F6960 fills all eight slots with four distinct routines (0x0031AAF0, 0x0031AA50, 0x0031A9A0, 0x0031A880). The referenced intervals are their original pointer immediates; the helper preserves the selected callback in its stack/EDI across six block operations."
+    },
+    {
+      "site": "0x0031A413",
+      "proof_address": "0x0031A413",
+      "prefix": "FFD7",
+      "start": "0x002F696B",
+      "end": "0x002F696F",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original sampling helper 0x0031A2C0 selects reconstruction operations from the eight-entry table at 0x00953FA8. Initializer 0x002F6960 fills all eight slots with four distinct routines (0x0031AAF0, 0x0031AA50, 0x0031A9A0, 0x0031A880). The referenced intervals are their original pointer immediates; the helper preserves the selected callback in its stack/EDI across six block operations."
+    },
+    {
+      "site": "0x0031A413",
+      "proof_address": "0x0031A413",
+      "prefix": "FFD7",
+      "start": "0x002F6986",
+      "end": "0x002F698A",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original sampling helper 0x0031A2C0 selects reconstruction operations from the eight-entry table at 0x00953FA8. Initializer 0x002F6960 fills all eight slots with four distinct routines (0x0031AAF0, 0x0031AA50, 0x0031A9A0, 0x0031A880). The referenced intervals are their original pointer immediates; the helper preserves the selected callback in its stack/EDI across six block operations."
+    },
+    {
+      "site": "0x0031A441",
+      "proof_address": "0x0031A441",
+      "prefix": "FFD7",
+      "start": "0x002F6961",
+      "end": "0x002F6965",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original sampling helper 0x0031A2C0 selects reconstruction operations from the eight-entry table at 0x00953FA8. Initializer 0x002F6960 fills all eight slots with four distinct routines (0x0031AAF0, 0x0031AA50, 0x0031A9A0, 0x0031A880). The referenced intervals are their original pointer immediates; the helper preserves the selected callback in its stack/EDI across six block operations."
+    },
+    {
+      "site": "0x0031A441",
+      "proof_address": "0x0031A441",
+      "prefix": "FFD7",
+      "start": "0x002F6966",
+      "end": "0x002F696A",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original sampling helper 0x0031A2C0 selects reconstruction operations from the eight-entry table at 0x00953FA8. Initializer 0x002F6960 fills all eight slots with four distinct routines (0x0031AAF0, 0x0031AA50, 0x0031A9A0, 0x0031A880). The referenced intervals are their original pointer immediates; the helper preserves the selected callback in its stack/EDI across six block operations."
+    },
+    {
+      "site": "0x0031A441",
+      "proof_address": "0x0031A441",
+      "prefix": "FFD7",
+      "start": "0x002F696B",
+      "end": "0x002F696F",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original sampling helper 0x0031A2C0 selects reconstruction operations from the eight-entry table at 0x00953FA8. Initializer 0x002F6960 fills all eight slots with four distinct routines (0x0031AAF0, 0x0031AA50, 0x0031A9A0, 0x0031A880). The referenced intervals are their original pointer immediates; the helper preserves the selected callback in its stack/EDI across six block operations."
+    },
+    {
+      "site": "0x0031A441",
+      "proof_address": "0x0031A441",
+      "prefix": "FFD7",
+      "start": "0x002F6986",
+      "end": "0x002F698A",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original sampling helper 0x0031A2C0 selects reconstruction operations from the eight-entry table at 0x00953FA8. Initializer 0x002F6960 fills all eight slots with four distinct routines (0x0031AAF0, 0x0031AA50, 0x0031A9A0, 0x0031A880). The referenced intervals are their original pointer immediates; the helper preserves the selected callback in its stack/EDI across six block operations."
+    },
+    {
+      "site": "0x0031A45D",
+      "proof_address": "0x0031A45D",
+      "prefix": "FFD7",
+      "start": "0x002F6961",
+      "end": "0x002F6965",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original sampling helper 0x0031A2C0 selects reconstruction operations from the eight-entry table at 0x00953FA8. Initializer 0x002F6960 fills all eight slots with four distinct routines (0x0031AAF0, 0x0031AA50, 0x0031A9A0, 0x0031A880). The referenced intervals are their original pointer immediates; the helper preserves the selected callback in its stack/EDI across six block operations."
+    },
+    {
+      "site": "0x0031A45D",
+      "proof_address": "0x0031A45D",
+      "prefix": "FFD7",
+      "start": "0x002F6966",
+      "end": "0x002F696A",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original sampling helper 0x0031A2C0 selects reconstruction operations from the eight-entry table at 0x00953FA8. Initializer 0x002F6960 fills all eight slots with four distinct routines (0x0031AAF0, 0x0031AA50, 0x0031A9A0, 0x0031A880). The referenced intervals are their original pointer immediates; the helper preserves the selected callback in its stack/EDI across six block operations."
+    },
+    {
+      "site": "0x0031A45D",
+      "proof_address": "0x0031A45D",
+      "prefix": "FFD7",
+      "start": "0x002F696B",
+      "end": "0x002F696F",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original sampling helper 0x0031A2C0 selects reconstruction operations from the eight-entry table at 0x00953FA8. Initializer 0x002F6960 fills all eight slots with four distinct routines (0x0031AAF0, 0x0031AA50, 0x0031A9A0, 0x0031A880). The referenced intervals are their original pointer immediates; the helper preserves the selected callback in its stack/EDI across six block operations."
+    },
+    {
+      "site": "0x0031A45D",
+      "proof_address": "0x0031A45D",
+      "prefix": "FFD7",
+      "start": "0x002F6986",
+      "end": "0x002F698A",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original sampling helper 0x0031A2C0 selects reconstruction operations from the eight-entry table at 0x00953FA8. Initializer 0x002F6960 fills all eight slots with four distinct routines (0x0031AAF0, 0x0031AA50, 0x0031A9A0, 0x0031A880). The referenced intervals are their original pointer immediates; the helper preserves the selected callback in its stack/EDI across six block operations."
+    },
+    {
+      "site": "0x002D734B",
+      "proof_address": "0x002D734B",
+      "prefix": "FF5678",
+      "start": "0x002D74C1",
+      "end": "0x002D74C5",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "The stream constructor installs 0x002D6AE0 in +0x78. The sole registration caller at 0x002CFC10 replaces it with 0x002CF560 through 0x002D6D20. This transition invokes that field with context and output parameters. The intervals contain the two original callback pointer immediates."
+    },
+    {
+      "site": "0x002D734B",
+      "proof_address": "0x002D734B",
+      "prefix": "FF5678",
+      "start": "0x002CFC0B",
+      "end": "0x002CFC0F",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "The stream constructor installs 0x002D6AE0 in +0x78. The sole registration caller at 0x002CFC10 replaces it with 0x002CF560 through 0x002D6D20. This transition invokes that field with context and output parameters. The intervals contain the two original callback pointer immediates."
+    },
+    {
+      "site": "0x000BAE3E",
+      "proof_address": "0x000BAE3E",
+      "prefix": "FF148538565700",
+      "start": "0x00575638",
+      "end": "0x005756E8",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Background-scene state uses three adjacent tables of 44 slots for setup (0x00575638), update (0x005756E8), and cleanup (0x00575798). Their starts are encoded in the original dispatchers. Unused and padding slots are null. The update dispatcher has no local stack frame and tail-calls a standalone update routine; callbacks retain the caller return address."
+    },
+    {
+      "site": "0x000BAF14",
+      "proof_address": "0x000BAF14",
+      "prefix": "FF2485E8565700",
+      "start": "0x005756E8",
+      "end": "0x00575798",
+      "stride": 4,
+      "kind": "tail",
+      "evidence": "Background-scene state uses three adjacent tables of 44 slots for setup (0x00575638), update (0x005756E8), and cleanup (0x00575798). Their starts are encoded in the original dispatchers. Unused and padding slots are null. The update dispatcher has no local stack frame and tail-calls a standalone update routine; callbacks retain the caller return address."
+    },
+    {
+      "site": "0x000BAF31",
+      "proof_address": "0x000BAF31",
+      "prefix": "FF148598575700",
+      "start": "0x00575798",
+      "end": "0x00575848",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Background-scene state uses three adjacent tables of 44 slots for setup (0x00575638), update (0x005756E8), and cleanup (0x00575798). Their starts are encoded in the original dispatchers. Unused and padding slots are null. The update dispatcher has no local stack frame and tail-calls a standalone update routine; callbacks retain the caller return address."
     }
   ],
   "entry_tables": [
@@ -425,6 +865,153 @@
       "start": "0x00349518",
       "end": "0x00349578",
       "evidence": "Original main-mode initialization indexes eight 12-byte triples at 349518. The game copies all three callback fields through 1FA50 and invokes the initializer at +0. End 349578 begins the separate numeric configuration data."
+    },
+    {
+      "owner": "0x002DBB70",
+      "prefix": "83EC20538B5C2428",
+      "start": "0x006C0ED8",
+      "end": "0x006C0F20",
+      "evidence": "Original Sofdec player constructor installs the 18-slot interface at 6C0ED8, including three leading null entries and a final optional null entry. The next address begins a separate data record pointing to a descriptive string. The game invokes the +20 time-query operation at E5F6A; the original release routine restores the same interface before returning the object to its pool."
+    },
+    {
+      "owner": "0x002EF0C0",
+      "prefix": "576A4033FF",
+      "start": "0x002EF145",
+      "end": "0x002EF149",
+      "evidence": "Single original callback pointer immediate: initializer 2EF13F writes stream operation 2F0790 into record field +D4. The common stream consumer invokes that field at 2EF348 with context, source and result arguments. The surrounding pointer fields are initialized to zero."
+    },
+    {
+      "owner": "0x002D73F0",
+      "prefix": "5633F6B858739500",
+      "start": "0x002D74C1",
+      "end": "0x002D74C5",
+      "evidence": "Single original callback pointer immediate in 0x002D74BE: mov dword ptr [esi+0x78], 0x2D6AE0. These Sofdec stream and decoder initializers install operation or completion callbacks in object records. The original consumers invoke the stored fields; each target is independently recovered as native code."
+    },
+    {
+      "owner": "0x002D73F0",
+      "prefix": "5633F6B858739500",
+      "start": "0x002D74CE",
+      "end": "0x002D74D2",
+      "evidence": "Single original callback pointer immediate in 0x002D74C8: mov dword ptr [esi+0x80], 0x2D6B20. These Sofdec stream and decoder initializers install operation or completion callbacks in object records. The original consumers invoke the stored fields; each target is independently recovered as native code."
+    },
+    {
+      "owner": "0x002DD0F0",
+      "prefix": "8B0D64A5930083EC4055",
+      "start": "0x002DD145",
+      "end": "0x002DD149",
+      "evidence": "Single original callback pointer immediate in 0x002DD142: mov dword ptr [eax+0x3C], 0x2DCD60. These Sofdec stream and decoder initializers install operation or completion callbacks in object records. The original consumers invoke the stored fields; each target is independently recovered as native code."
+    },
+    {
+      "owner": "0x002DD9E0",
+      "prefix": "558B6C241456",
+      "start": "0x002DDA4B",
+      "end": "0x002DDA4F",
+      "evidence": "Single original callback pointer immediate in 0x002DDA48: mov dword ptr [edx+0x3C], 0x2DD7F0. These Sofdec stream and decoder initializers install operation or completion callbacks in object records. The original consumers invoke the stored fields; each target is independently recovered as native code."
+    },
+    {
+      "owner": "0x002DDC50",
+      "prefix": "568B7424088BCE",
+      "start": "0x002DDC9C",
+      "end": "0x002DDCA0",
+      "evidence": "Single original callback pointer immediate in 0x002DDC99: mov dword ptr [esi+0x3C], 0x2DDA80. These Sofdec stream and decoder initializers install operation or completion callbacks in object records. The original consumers invoke the stored fields; each target is independently recovered as native code."
+    },
+    {
+      "owner": "0x002DDCC0",
+      "prefix": "568B7424086A06",
+      "start": "0x002DDD5F",
+      "end": "0x002DDD63",
+      "evidence": "Single original callback pointer immediate in 0x002DDD5C: mov dword ptr [ecx+0x04], 0x2DCB50. These Sofdec stream and decoder initializers install operation or completion callbacks in object records. The original consumers invoke the stored fields; each target is independently recovered as native code."
+    },
+    {
+      "owner": "0x002DDCC0",
+      "prefix": "568B7424086A06",
+      "start": "0x002DDD66",
+      "end": "0x002DDD6A",
+      "evidence": "Single original callback pointer immediate in 0x002DDD63: mov dword ptr [ecx+0x08], 0x2DCB70. These Sofdec stream and decoder initializers install operation or completion callbacks in object records. The original consumers invoke the stored fields; each target is independently recovered as native code."
+    },
+    {
+      "owner": "0x002DDCC0",
+      "prefix": "568B7424086A06",
+      "start": "0x002DDD6D",
+      "end": "0x002DDD71",
+      "evidence": "Single original callback pointer immediate in 0x002DDD6A: mov dword ptr [ecx+0x0C], 0x2DCB90. These Sofdec stream and decoder initializers install operation or completion callbacks in object records. The original consumers invoke the stored fields; each target is independently recovered as native code."
+    },
+    {
+      "owner": "0x002DDCC0",
+      "prefix": "568B7424086A06",
+      "start": "0x002DDD74",
+      "end": "0x002DDD78",
+      "evidence": "Single original callback pointer immediate in 0x002DDD71: mov dword ptr [ecx+0x10], 0x2DCBB0. These Sofdec stream and decoder initializers install operation or completion callbacks in object records. The original consumers invoke the stored fields; each target is independently recovered as native code."
+    },
+    {
+      "owner": "0x002DDCC0",
+      "prefix": "568B7424086A06",
+      "start": "0x002DDD7B",
+      "end": "0x002DDD7F",
+      "evidence": "Single original callback pointer immediate in 0x002DDD78: mov dword ptr [ecx+0x14], 0x2DCBD0. These Sofdec stream and decoder initializers install operation or completion callbacks in object records. The original consumers invoke the stored fields; each target is independently recovered as native code."
+    },
+    {
+      "owner": "0x002EC670",
+      "prefix": "83EC0C8B44241453",
+      "start": "0x00462884",
+      "end": "0x00462898",
+      "evidence": "Original decoder setup selects its packet-parser callback from 0x00462884 and stores it at object +0x2C0; 0x002ED021 calls that field. Five slots, first null; the following STCCODE label at 0x00462898 is excluded."
+    },
+    {
+      "owner": "0x002EC670",
+      "prefix": "83EC0C8B44241453",
+      "start": "0x002EC949",
+      "end": "0x002EC94D",
+      "evidence": "Original decoder setup installs 0x0031A700 at object +0x2C8; the packet parser at 0x00318327 calls this field."
+    },
+    {
+      "owner": "0x002EC670",
+      "prefix": "83EC0C8B44241453",
+      "start": "0x002EC956",
+      "end": "0x002EC95A",
+      "evidence": "Original decoder setup installs 0x0031A7F0 at object +0x2CC; paired with the adjacent coefficient parser callback."
+    },
+    {
+      "owner": "0x002EC1B0",
+      "prefix": "33C0A338E39400A33CE39400",
+      "start": "0x002EC27C",
+      "end": "0x002EC280",
+      "evidence": "Original decoder CPU setup publishes transform callback 0x0031A240 into tables 0x0094E2EC and 0x0094E314. Decoder setup selects these entries for object +0x2D0; packet parser 0x0031832E calls that field."
+    },
+    {
+      "owner": "0x002EC1B0",
+      "prefix": "33C0A338E39400A33CE39400",
+      "start": "0x002EC2B5",
+      "end": "0x002EC2B9",
+      "evidence": "Original decoder CPU setup publishes transform callback 0x0031A530 into its reconstruction tables."
+    },
+    {
+      "owner": "0x002EC1B0",
+      "prefix": "33C0A338E39400A33CE39400",
+      "start": "0x002EC2D7",
+      "end": "0x002EC2DB",
+      "evidence": "Original decoder CPU setup publishes coefficient callback 0x0031A470 into slot 0x0094E340."
+    },
+    {
+      "owner": "0x002EC1B0",
+      "prefix": "33C0A338E39400A33CE39400",
+      "start": "0x002EC2E1",
+      "end": "0x002EC2E5",
+      "evidence": "Original decoder CPU setup publishes coefficient callback 0x0031A4E0 into slot 0x0094E344."
+    },
+    {
+      "owner": "0x002EC1B0",
+      "prefix": "33C0A338E39400A33CE39400",
+      "start": "0x002EC2F5",
+      "end": "0x002EC2F9",
+      "evidence": "Original decoder CPU setup publishes reconstruction callback 0x0031A5C0 into slot 0x0094E2CC."
+    },
+    {
+      "owner": "0x002EC1B0",
+      "prefix": "33C0A338E39400A33CE39400",
+      "start": "0x002EC2FF",
+      "end": "0x002EC303",
+      "evidence": "Original decoder CPU setup publishes reconstruction callback 0x0031A650 into slot 0x0094E2A4."
     }
   ]
 }

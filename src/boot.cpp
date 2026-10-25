@@ -23,6 +23,7 @@ std::string check_boot(Xbe& image,const std::filesystem::path& disc,std::uint32_
            << ",\"boundary\":" << json(result.boundary) << ",\"eip\":" << json(hex32(result.cpu.eip))
            << ",\"active_thread\":" << result.active_thread << ",\"threads_created\":" << result.threads_created
            << ",\"checkpoints\":" << result.diagnostic.visits
+           << ",\"apcs_delivered\":" << result.apcs_delivered
            << ",\"graphics\":{\"adapter\":" << json(result.adapter) << ",\"draws\":" << result.draws
            << ",\"frames\":" << result.frames << ",\"submissions\":" << result.submissions << ",\"vertices\":" << result.vertices
            << ",\"capture_written\":" << (result.capture_written?"true":"false") << ",\"capture_error\":" << json(result.capture_error) << "},\"registers\":[";

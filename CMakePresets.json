@@ -1,0 +1,25 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "windows",
+      "generator": "Ninja Multi-Config",
+      "binaryDir": "${sourceDir}/build/windows",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang-cl",
+        "CMAKE_CXX_COMPILER": "clang-cl",
+        "CMAKE_LINKER_TYPE": "LLD"
+      }
+    },
+    {
+      "name": "tools",
+      "inherits": "windows",
+      "binaryDir": "${sourceDir}/build/tools",
+      "cacheVariables": { "SMBD_BATCH": "", "SMBD_SHADER_BANK": "" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "release", "configurePreset": "windows", "configuration": "Release", "jobs": 1, "targets": ["smbd-tool", "smbd"] },
+    { "name": "tools-release", "configurePreset": "tools", "configuration": "Release", "jobs": 1, "targets": ["smbd-tool"] }
+  ]
+}

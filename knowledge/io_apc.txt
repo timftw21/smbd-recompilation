@@ -1,0 +1,29 @@
+Xbox user I/O completion research - 2026-10-25
+XBE SHA256: 9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2
+
+Original ReadFileEx at 304580 and WriteFileEx at 3045D1 pass their fifth
+argument as APC context, their OVERLAPPED pointer as the status block, and
+NtUserIoApcDispatcher (ordinal 232) as the APC routine. Each wrapper returns
+with RET 14h. The original SleepEx wrapper tests status C0h for completion.
+
+An I/O completion belongs to its issuing thread. An alertable user-mode wait
+may deliver queued user APCs; a kernel-mode wait does not deliver them. An
+alertable wait with no queued completion still performs its normal wait.
+The native provider retains the real I/O result and byte count before queuing
+the callback. Object waits return timeout or a satisfied object when no APC
+interrupts them; an elapsed delay returns success.
+
+NtUserIoApcDispatcher receives the callback, status-block pointer, and reserved
+argument. It calls the Win32 completion routine with error, transferred bytes,
+and OVERLAPPED. The status block starts at OVERLAPPED+0; its byte count is +4.
+The callback has three stdcall arguments. Native calls check the original
+return convention. Callback execution uses the actual thread CPU so nested
+waits and scheduler preemption retain its stack. Queues and delivery work are
+bounded; no kernel instruction stream is interpreted.
+
+API references, checked alongside original wrapper bytes:
+https://raw.githubusercontent.com/XboxDev/nxdk/master/lib/xboxkrnl/xboxkrnl.h
+https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/waits-and-apcs
+https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-kedelayexecutionthread
+https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntreadfile
+https://learn.microsoft.com/en-us/windows/win32/api/minwinbase/nc-minwinbase-lpoverlapped_completion_routine

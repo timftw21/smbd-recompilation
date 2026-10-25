@@ -62,10 +62,17 @@ std::uint32_t file_error(DWORD error) {
     default:throw std::runtime_error(std::format("Unmapped native file error {}",error));
     }
 }
+std::uint32_t dos_error(std::uint32_t status) {
+    using Convert=ULONG(WINAPI*)(LONG);
+    static const auto convert=reinterpret_cast<Convert>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"RtlNtStatusToDosError"));
+    if(!convert) throw std::runtime_error("Native NTSTATUS conversion is unavailable");
+    return convert(static_cast<LONG>(status));
+}
 }
 struct Xbox::State {
     enum class ThreadState { ready,running,waiting,ended };
     enum class WaitKind { none,critical,objects,delay };
+    struct IoApc {std::uint32_t routine,context,status;};
     struct Thread {
         State* host=nullptr;
         Cpu cpu;
@@ -80,7 +87,14 @@ struct Xbox::State {
         std::array<std::uint32_t,64> wait_objects{};
         std::uint32_t wait_count=0;
         bool wait_all=false;
+        bool alertable=false;
+        std::deque<IoApc> apcs;
         std::chrono::steady_clock::time_point due=std::chrono::steady_clock::time_point::max();
+    };
+    struct AlertableWait {
+        Thread& thread;bool prior;
+        AlertableWait(Thread& value,bool enabled):thread(value),prior(value.alertable){thread.alertable=enabled;}
+        ~AlertableWait(){thread.alertable=prior;}
     };
     enum class AllocationKind { pool,virtual_memory,stack,cache };
     struct Allocation {
@@ -110,6 +124,8 @@ struct Xbox::State {
         std::shared_ptr<OpenFile> file;
         HANDLE native=INVALID_HANDLE_VALUE;
         std::uint32_t file_object=0,event=0,status=0,ordinal=0,callsite=0,requested=0,buffer=0;
+        Thread* issuer=nullptr;
+        std::uint32_t apc_routine=0,apc_context=0;
         std::uint64_t offset=0;
         bool active=false;
         ~PendingIo() {if(overlap.hEvent) CloseHandle(overlap.hEvent);}
@@ -152,6 +168,7 @@ struct Xbox::State {
     GuestClock clock;
     ExecutionDiagnostic diagnostic;
     std::array<std::uint64_t,512> service_calls{};
+    std::uint64_t apcs_delivered=0;
     std::deque<BootIo> io_trace;
     std::map<std::uint32_t,Allocation> allocations;
     std::array<std::uint32_t,5> last_failed_allocation{};
@@ -218,7 +235,7 @@ struct Xbox::State {
         bind<126>(); bind<127>(); bind<128>(); bind<143>(); bind<99>(); bind<238>(); bind<49>(); bind<47>();
         bind<107>(); bind<108>(); bind<112>(); bind<113>(); bind<119>(); bind<137>(); bind<149>(); bind<150>(); bind<97>();
         bind<145>(); bind<159>(); bind<158>(); bind<189>(); bind<193>(); bind<225>(); bind<186>(); bind<222>();
-        bind<233>(); bind<234>(); bind<246>(); bind<250>(); bind<24>(); bind<289>(); bind<279>(); bind<269>();
+        bind<232>();bind<233>(); bind<234>(); bind<246>(); bind<250>(); bind<24>(); bind<289>(); bind<279>(); bind<269>();
         bind<304>(); bind<305>();
         bind<67>(); bind<69>(); bind<190>(); bind<196>(); bind<198>(); bind<202>(); bind<203>();
         bind<207>(); bind<210>(); bind<211>(); bind<215>(); bind<218>(); bind<219>(); bind<226>(); bind<236>();
@@ -460,7 +477,46 @@ struct Xbox::State {
         if(type==1 || type==9) memory.store<std::uint32_t>(address+4,0);
         else if(type==5) memory.store<std::uint32_t>(address+4,memory.load<std::uint32_t>(address+4)-1);
     }
+    bool apc_ready(const Thread& thread) {
+        return thread.alertable && !thread.apcs.empty() && !memory.load<std::uint8_t>(thread.tib+0x24);
+    }
+    void queue_apc(Thread& thread,std::uint32_t routine,std::uint32_t context,std::uint32_t status) {
+        if(!routine || thread.state==ThreadState::ended) return;
+        if(thread.apcs.size()>=1024) throw NativeBoundary(current?current->cpu.eip:image.entry,"native user APC queue exceeds 1024 callbacks");
+        thread.apcs.push_back({routine,context,status});
+    }
+    void user_callback(Cpu& cpu,std::uint32_t routine,std::span<const std::uint32_t> arguments) {
+        const auto saved=cpu;
+        const auto bytes=0x100+static_cast<std::uint32_t>(arguments.size()*4);
+        if(cpu.registers[esp]<current->stack+bytes) throw NativeBoundary(routine,"user callback exhausted its guest stack");
+        const auto stack=cpu.registers[esp]-bytes;
+        memory.store<std::uint32_t>(stack,return_sentinel);
+        for(unsigned i=0;i<arguments.size();++i) memory.store<std::uint32_t>(stack+4+i*4,arguments[i]);
+        cpu.registers[esp]=stack;cpu.floating.active=false;cpu.floating.host_context=nullptr;
+        try {
+            // Use the actual thread CPU so nested waits and native preemption
+            // retain the callback's stack while it is running.
+            invoke_native(cpu,memory,routine);
+            if(cpu.eip!=return_sentinel || cpu.registers[esp]!=stack+4+arguments.size()*4)
+                throw NativeBoundary(routine,"user callback has an unexpected return convention");
+        } catch(...) {cpu=saved;throw;}
+        cpu=saved;
+    }
+    bool deliver_apcs() {
+        auto& thread=*current;
+        if(!apc_ready(thread)) return false;
+        AlertableWait inactive(thread,false);
+        unsigned delivered=0;
+        while(!thread.apcs.empty()) {
+            if(++delivered>1024) throw NativeBoundary(thread.cpu.eip,"user APC delivery exceeded its bounded work limit");
+            const auto apc=thread.apcs.front();thread.apcs.pop_front();
+            const std::array arguments{apc.context,apc.status,0U};
+            user_callback(thread.cpu,apc.routine,arguments);++apcs_delivered;
+        }
+        return true;
+    }
     bool waiting_ready(const Thread& thread) {
+        if(apc_ready(thread)) return true;
         if(thread.wait_kind==WaitKind::critical) return !memory.load<std::uint32_t>(thread.wait_object+24);
         if(thread.wait_kind!=WaitKind::objects) return false;
         bool all=true;
@@ -479,7 +535,7 @@ struct Xbox::State {
     std::uint32_t wait(std::span<const std::uint32_t> addresses,bool all,std::uint32_t timeout_pointer,bool alertable) {
         if(addresses.empty() || addresses.size()>64) return invalid_parameter;
         if(all) for(unsigned i=0;i<addresses.size();++i) for(unsigned j=0;j<i;++j) if(addresses[i]==addresses[j]) return invalid_parameter;
-        if(alertable) throw NativeBoundary(current->cpu.eip,"alertable waits require APC delivery");
+        AlertableWait mode(*current,alertable);
         const auto due=timeout_pointer?due_time(std::bit_cast<std::int64_t>(memory.load<std::uint64_t>(timeout_pointer))):
             std::chrono::steady_clock::time_point::max();
         struct References {
@@ -490,6 +546,7 @@ struct Xbox::State {
         } references{*this,addresses};
         for(auto address:addresses) if(objects.contains(address)) ++object_references[address];
         for(;;) {
+            if(alertable) {dispatch_io();if(deliver_apcs()) return 0xC0;}
             bool complete=true; std::optional<unsigned> selected;
             for(unsigned i=0;i<addresses.size();++i) {
                 const bool state=signalled(addresses[i]); complete &=state;
@@ -1153,7 +1210,6 @@ struct Xbox::State {
         io_trace.push_back({ordinal,status,information,memory.load<std::uint32_t>(cpu.registers[esp]),path,options,requested,offset,buffer});
     }
     bool valid_io(Cpu& cpu) {
-        if(argument(cpu,2)) throw NativeBoundary(cpu.eip,"file APC completion requires APC delivery");
         const auto event=argument(cpu,1);
         if(!event) return true;
         const auto found=handles.find(event);
@@ -1161,8 +1217,9 @@ struct Xbox::State {
     }
     void io_complete(Cpu& cpu,std::uint32_t status,std::uint32_t information=0) {
         const auto event=argument(cpu,1);
-        if(event) memory.store<std::uint32_t>(handles.at(event).address+4,1);
         io_status(argument(cpu,4),status,information);
+        if(event) memory.store<std::uint32_t>(handles.at(event).address+4,1);
+        if((status>>30)!=3) queue_apc(*current,argument(cpu,2),argument(cpu,3),argument(cpu,4));
     }
     std::uint32_t queue_io(Cpu& cpu,const Object& object,bool write,std::uint64_t offset) {
         auto& file=*object.file;
@@ -1202,6 +1259,7 @@ struct Xbox::State {
         request->overlap={};request->overlap.hEvent=native_event;ResetEvent(native_event);
         request->file=object.file;request->file_object=object.address;
         request->event=event?handles.at(event).address:0;request->status=status;
+        request->issuer=current;request->apc_routine=argument(cpu,2);request->apc_context=argument(cpu,3);
         request->ordinal=write?236:219;request->callsite=memory.load<std::uint32_t>(cpu.registers[esp]);
         request->offset=offset;request->requested=length;request->buffer=output;
         request->native=file.native!=INVALID_HANDLE_VALUE?file.native:disc_io->native;
@@ -1233,6 +1291,7 @@ struct Xbox::State {
             io_status(request.status,result,transferred);
             memory.store<std::uint32_t>(request.file_object+0x38+4,1);
             if(request.event) memory.store<std::uint32_t>(request.event+4,1);
+            queue_apc(*request.issuer,request.apc_routine,request.apc_context,request.status);
             if(!live || host.trace_io) {
                 if(io_trace.size()==64) io_trace.pop_front();
                 io_trace.push_back({request.ordinal,result,transferred,request.callsite,request.file->path,
@@ -1797,10 +1856,7 @@ struct Xbox::State {
             if(recursion==1) memory.store<std::uint32_t>(address+24,0);
             finish(cpu,4);
         } else if constexpr(Ordinal==301) {
-            using Convert=ULONG(WINAPI*)(LONG);
-            static const auto convert=reinterpret_cast<Convert>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"RtlNtStatusToDosError"));
-            if(!convert) throw std::runtime_error("Native NTSTATUS conversion is unavailable");
-            finish(cpu,4,convert(static_cast<LONG>(argument(cpu,0))));
+            finish(cpu,4,dos_error(argument(cpu,0)));
         } else if constexpr(Ordinal==103) finish(cpu,0,memory.load<std::uint8_t>(cpu.fs_base+0x24));
         else if constexpr(Ordinal==104) finish(cpu,0,current->object);
         else if constexpr(Ordinal==129 || Ordinal==160 || Ordinal==161) {
@@ -1849,8 +1905,17 @@ struct Xbox::State {
             finish(cpu,4);
         } else if constexpr(Ordinal==99) {
             const auto interval=std::bit_cast<std::int64_t>(memory.load<std::uint64_t>(argument(cpu,2)));
-            if(argument(cpu,1)) throw NativeBoundary(cpu.eip,"alertable delays require APC delivery");
-            current->wait_kind=WaitKind::delay; yield(ThreadState::waiting,0,due_time(interval)); finish(cpu,12,success);
+            if(argument(cpu,0)>1) {finish(cpu,12,invalid_parameter);return;}
+            const bool alertable=argument(cpu,1) && argument(cpu,0)==1;
+            AlertableWait mode(*current,alertable);
+            const auto due=due_time(interval);
+            for(;;) {
+                if(alertable) {dispatch_io();if(deliver_apcs()){finish(cpu,12,0xC0);return;}}
+                current->wait_kind=WaitKind::delay;yield(ThreadState::waiting,0,due);
+                if(alertable) {dispatch_io();if(deliver_apcs()){finish(cpu,12,0xC0);return;}}
+                if(std::chrono::steady_clock::now()>=due) break;
+            }
+            finish(cpu,12,success);
         } else if constexpr(Ordinal==238) { yield(); finish(cpu,0,success); }
         else if constexpr(Ordinal==107) {
             const auto address=argument(cpu,0);
@@ -1926,20 +1991,26 @@ struct Xbox::State {
             } else memory.store<std::uint32_t>(address+4,Ordinal==225?1:0);
             if constexpr(Ordinal!=186) {const auto previous=argument(cpu,Ordinal==222?2:1);if(previous) memory.store<std::uint32_t>(previous,prior);}
             finish(cpu,cleanup,success);
+        } else if constexpr(Ordinal==232) {
+            const auto routine=argument(cpu,0),status=argument(cpu,1);
+            const auto result=memory.load<std::uint32_t>(status);
+            const std::array arguments{(result>>30)==3?dos_error(result):0U,memory.load<std::uint32_t>(status+4),status};
+            user_callback(cpu,routine,arguments);finish(cpu,12);
         } else if constexpr(Ordinal==159 || Ordinal==158 || Ordinal==233 || Ordinal==234) {
             std::array<std::uint32_t,64> addresses{}; unsigned count=1; bool all=false,alertable;
             std::uint32_t interval;
             if constexpr(Ordinal==158) {
                 count=argument(cpu,0); if(!count || count>64 || argument(cpu,2)>1) {finish(cpu,32,invalid_parameter);return;}
                 for(unsigned i=0;i<count;++i) addresses[i]=memory.load<std::uint32_t>(argument(cpu,1)+i*4);
-                all=argument(cpu,2)==0; alertable=argument(cpu,5)!=0; interval=argument(cpu,6);
-            } else if constexpr(Ordinal==159) {addresses[0]=argument(cpu,0);alertable=argument(cpu,3)!=0;interval=argument(cpu,4);}
+                all=argument(cpu,2)==0; alertable=argument(cpu,5)!=0 && argument(cpu,4)==1; interval=argument(cpu,6);
+            } else if constexpr(Ordinal==159) {addresses[0]=argument(cpu,0);alertable=argument(cpu,3)!=0 && argument(cpu,2)==1;interval=argument(cpu,4);}
             else {
                 const auto found=handles.find(argument(cpu,0));
                 if(found==handles.end()) {finish(cpu,Ordinal==233?12:16,invalid_handle);return;}
                 if(found->second.kind==Object::Kind::link) {finish(cpu,Ordinal==233?12:16,0xC0000024);return;}
                 addresses[0]=found->second.address+(found->second.kind==Object::Kind::file?0x38:0);
                 alertable=argument(cpu,Ordinal==233?1:2)!=0; interval=argument(cpu,Ordinal==233?2:3);
+                if constexpr(Ordinal==234) alertable &=argument(cpu,1)==1;
             }
             const auto result=wait(std::span(addresses).first(count),all,interval,alertable);
             finish(cpu,Ordinal==158?32:Ordinal==159?20:Ordinal==233?12:16,result);
@@ -2124,7 +2195,7 @@ struct Xbox::State {
                 gpu->snapshot();save_png(graphics->readback(),host.capture,true);result.capture_written=true;
             } catch(const std::exception& error) {result.capture_error=error.what();}
         }
-        result.entry_returned=entry_returned; result.main_reached=diagnostic.reached_watch;
+        result.entry_returned=entry_returned; result.main_reached=diagnostic.reached_watch;result.apcs_delivered=apcs_delivered;
         result.io.assign(io_trace.begin(),io_trace.end());
         if(!live) {
             result.allocations.reserve(allocations.size());

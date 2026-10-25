@@ -582,6 +582,12 @@ public:
                 calls=restores=returns=true;
                 body << "    commit();\n    cpu.eip=" << constant(instruction.address) << ";\n"
                     << "    smbd::call_kernel<" << *instruction.kernel_ordinal << ">(cpu,memory);\n    restore();\n    goto done;\n";
+            } else if(instruction.tail_dispatch) {
+                calls=restores=returns=true;
+                body << "    const auto target=" << read(operands[0]) << ";\n    commit();\n    switch(target) {\n";
+                const std::set<std::uint32_t> targets(instruction.jump_targets.begin(),instruction.jump_targets.end());
+                for(auto target:targets) body << "    case " << constant(target) << ": guest_" << std::format("{:08X}",target) << "(cpu,memory); break;\n";
+                body << "    default: throw smbd::NativeBoundary(target,\"tail-call target is outside its verified table\");\n    }\n    restore();\n    goto done;\n";
             } else if (!instruction.jump_targets.empty()) {
                 calls=true;
                 body << "    switch(" << read(operands[0]) << ") {\n";

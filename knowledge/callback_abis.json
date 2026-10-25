@@ -359,7 +359,187 @@
       ],
       "prefix": "515355",
       "evidence": "Original five-argument resource loader copies argument 4 to request record +28 at E1E76..E1E7E. Completion at E2277 calls that callback with result and request. Original synchronous adapter 23360 supplies completion 232B0 and waits through the same scheduler."
+    },
+    {
+      "address": "0x0002DB00",
+      "site": "0",
+      "ordinal": 0,
+      "name": "Chunked memory transfer completion",
+      "argument_count": 8,
+      "callbacks": [
+        7
+      ],
+      "offsets": [
+        -1
+      ],
+      "prefix": "558BEC8B4D20",
+      "evidence": "Original eight-argument transfer uses source, destination and length at EBP+18/+1C/+20. Both the unaligned REP copy and aligned MOVNTPS copy invoke argument 7 at EBP+24, passing completion status zero. Caller 17066 supplies 16920 to clear its transfer-busy flag."
+    },
+    {
+      "address": "0x00304580",
+      "site": "0",
+      "ordinal": 0,
+      "name": "XAPI ReadFileEx completion",
+      "argument_count": 5,
+      "callbacks": [
+        4
+      ],
+      "offsets": [
+        -1
+      ],
+      "prefix": "558BEC51",
+      "evidence": "Original XAPI wrapper passes callback argument 4 as ApcContext, the OVERLAPPED pointer as IoStatusBlock, and kernel NtUserIoApcDispatcher as ApcRoutine. Completion uses the original three-argument stdcall callback."
+    },
+    {
+      "address": "0x003045D1",
+      "site": "0",
+      "ordinal": 0,
+      "name": "XAPI WriteFileEx completion",
+      "argument_count": 5,
+      "callbacks": [
+        4
+      ],
+      "offsets": [
+        -1
+      ],
+      "prefix": "558BEC51",
+      "evidence": "Original XAPI wrapper passes callback argument 4 as ApcContext, the OVERLAPPED pointer as IoStatusBlock, and kernel NtUserIoApcDispatcher as ApcRoutine. Completion uses the original three-argument stdcall callback."
+    },
+    {
+      "address": "0",
+      "site": "0",
+      "ordinal": 219,
+      "name": "Native file I/O APC routine",
+      "argument_count": 8,
+      "callbacks": [
+        2
+      ],
+      "offsets": [
+        -1
+      ],
+      "prefix": "",
+      "evidence": "Verified kernel I/O ABI: file, event, APC routine, APC context, status block, buffer, length, offset. Only literal user callback pointers are recovered; runtime kernel dispatcher pointers are supplied by the native import table."
+    },
+    {
+      "address": "0",
+      "site": "0",
+      "ordinal": 236,
+      "name": "Native file I/O APC routine",
+      "argument_count": 8,
+      "callbacks": [
+        2
+      ],
+      "offsets": [
+        -1
+      ],
+      "prefix": "",
+      "evidence": "Verified kernel I/O ABI: file, event, APC routine, APC context, status block, buffer, length, offset. Only literal user callback pointers are recovered; runtime kernel dispatcher pointers are supplied by the native import table."
+    },
+    {
+      "address": "0x002EB570",
+      "site": "0",
+      "ordinal": 0,
+      "name": "Sofdec field query callback",
+      "argument_count": 1,
+      "callbacks": [
+        0
+      ],
+      "offsets": [
+        -1
+      ],
+      "prefix": "518D042450",
+      "evidence": "Original query adapter calls its single stack-supplied callback with context and a local output pointer; the second variant also forwards an index register. Both clean up callback arguments locally and retain the caller-owned callback argument. Video field extraction supplies the actual getter callbacks as immediate code pointers."
+    },
+    {
+      "address": "0x002EB590",
+      "site": "0",
+      "ordinal": 0,
+      "name": "Sofdec field query callback",
+      "argument_count": 1,
+      "callbacks": [
+        0
+      ],
+      "offsets": [
+        -1
+      ],
+      "prefix": "518D042450",
+      "evidence": "Original query adapter calls its single stack-supplied callback with context and a local output pointer; the second variant also forwards an index register. Both clean up callback arguments locally and retain the caller-owned callback argument. Video field extraction supplies the actual getter callbacks as immediate code pointers."
+    },
+    {
+      "site": "0",
+      "address": "0x002D6D20",
+      "ordinal": 0,
+      "name": "Sofdec audio stream preparation callback",
+      "argument_count": 3,
+      "callbacks": [
+        1
+      ],
+      "offsets": [
+        -1
+      ],
+      "prefix": "8B4424048B4C24088B54240C",
+      "evidence": "Original registration stores argument 1 at stream +0x78 and argument 2 at +0x7C. Stream transition 0x002D734B invokes this callback with context and three output pointers. The only direct registration call supplies 0x002CF560."
+    },
+    {
+      "site": "0",
+      "address": "0x00024D80",
+      "ordinal": 0,
+      "name": "Title file provider callback record",
+      "argument_count": 1,
+      "callbacks": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "offsets": [
+        0,
+        4,
+        8,
+        12
+      ],
+      "prefix": "8B4424048B088B5004",
+      "evidence": "Original registration copies all six function pointers from the supplied record to globals 0x006D4BE8, 0x006D4BEC, 0x006D4BD0, 0x006D4BD8, 0x006D4BE0, 0x006D4BD4. The caller 0x000A2910 constructs this record on its local stack; the file loader calls those globals."
+    },
+    {
+      "site": "0",
+      "address": "0x00024D80",
+      "ordinal": 0,
+      "name": "Title file provider callback record",
+      "argument_count": 1,
+      "callbacks": [
+        0,
+        0
+      ],
+      "offsets": [
+        16,
+        20
+      ],
+      "prefix": "8B4424048B088B5004",
+      "evidence": "Original registration copies all six function pointers from the supplied record to globals 0x006D4BE8, 0x006D4BEC, 0x006D4BD0, 0x006D4BD8, 0x006D4BE0, 0x006D4BD4. The caller 0x000A2910 constructs this record on its local stack; the file loader calls those globals."
     }
   ],
-  "evidence": "The kernel parameter layouts match the native host service contracts. The XAPI routine was checked from 00309872 through RET 18h; it forwards argument 2 as the start routine to PsCreateSystemThreadEx, with system entry 003097DA. The original entry pushes user routine 00309426. Only literal callback values proven in the contiguous argument-building block are recovered."
+  "evidence": "The kernel parameter layouts match the native host service contracts. The XAPI routine was checked from 00309872 through RET 18h; it forwards argument 2 as the start routine to PsCreateSystemThreadEx, with system entry 003097DA. The original entry pushes user routine 00309426. Only literal callback values proven in the contiguous argument-building block are recovered.",
+  "factories": [
+    {
+      "address": "0x000736C0",
+      "prefix": "6A0268A8936C00E84426FAFF",
+      "fields": [
+        48,
+        52,
+        56
+      ],
+      "evidence": "Returns EAX from 0x00073620, which initializes one 0xD0-byte UI object in the pool rooted at 0x007289F8. Object +0x34 is the update callback: frame loop 0x00075120 loads it through ESI=object+0x34, passes the object and active state, and invokes it at 0x00075148. Object +0x30 is invoked during release at 0x0007389F and 0x000738E2. Object +0x38 is invoked during drawing at 0x000770DB; its callers iterate the same 0xD0-byte pool and parent links."
+    },
+    {
+      "address": "0x00073820",
+      "prefix": "6A0268A8936C00E8E424FAFF",
+      "fields": [
+        48,
+        52,
+        56
+      ],
+      "evidence": "Allocates through the same 0x00073620 UI initializer and returns the EAX object, optionally linking it to its parent. It shares the 0xD0-byte layout and update callback at +0x34 with 0x000736C0. Object +0x30 is invoked during release at 0x0007389F and 0x000738E2. Object +0x38 is invoked during drawing at 0x000770DB; its callers iterate the same 0xD0-byte pool and parent links."
+    }
+  ]
 }

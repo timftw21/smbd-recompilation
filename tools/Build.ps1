@@ -9,11 +9,34 @@ function Invoke-Checked([string]$Program, [string[]]$Arguments) {
     & $Program @Arguments
     if ($LASTEXITCODE -ne 0) { throw "$Program failed with exit code $LASTEXITCODE" }
 }
+function Configure-Native([string]$Preset, [string]$Directory, [string[]]$Extra = @()) {
+    $directoryPath = [IO.Path]::GetFullPath((Join-Path $root $Directory))
+    if (!$directoryPath.StartsWith((Join-Path $root 'build') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Build configuration must stay inside this project build folder.'
+    }
+    $arguments = @('--preset', $Preset) + $Extra
+    $cache = Join-Path $directoryPath 'CMakeCache.txt'
+    if (Test-Path -LiteralPath $cache) {
+        $entries = @{}
+        foreach ($line in [IO.File]::ReadLines($cache)) {
+            if ($line -match '^(CMAKE_GENERATOR|CMAKE_C_COMPILER|CMAKE_CXX_COMPILER|CMAKE_LINKER_TYPE):[^=]+=(.*)$') {
+                $entries[$Matches[1]] = $Matches[2]
+            }
+        }
+        if ($entries.CMAKE_GENERATOR -ne 'Ninja Multi-Config' -or $entries.CMAKE_LINKER_TYPE -ne 'LLD' -or
+            [IO.Path]::GetFileNameWithoutExtension($entries.CMAKE_C_COMPILER) -ne 'clang-cl' -or
+            [IO.Path]::GetFileNameWithoutExtension($entries.CMAKE_CXX_COMPILER) -ne 'clang-cl') {
+            $arguments = @('--fresh') + $arguments
+        }
+    }
+    Invoke-Checked cmake $arguments
+}
 Push-Location $root
 try {
+    . (Join-Path $PSScriptRoot 'Initialize-Toolchain.ps1')
     # Build the small tool first; reuse it for the whole disc and all functions.
-    Invoke-Checked cmake @('-S', '.', '-B', 'build/tools', '-G', 'Visual Studio 18 2026', '-A', 'x64')
-    Invoke-Checked cmake @('--build', 'build/tools', '--config', 'Release', '--target', 'smbd-tool', '--parallel', '1')
+    Configure-Native 'tools' 'build/tools'
+    Invoke-Checked cmake @('--build', '--preset', 'tools-release')
     $tool = Join-Path $root 'build\tools\Release\smbd-tool.exe'
     New-Item -ItemType Directory -Path 'build\logs', 'build\generated' -Force | Out-Null
     Invoke-Checked $tool @('prepare', $Disc, 'data/local', '--extract-all')
@@ -51,9 +74,9 @@ try {
         @{inputs=$fingerprint;output=(Get-FileHash -LiteralPath $shaderBank -Algorithm SHA256).Hash} |
             ConvertTo-Json | Set-Content -LiteralPath $shaderCache -Encoding utf8
     } else { Write-Host 'Reusing verified offline shader bank.' }
-    Invoke-Checked cmake @('-S', '.', '-B', 'build/windows', '-G', 'Visual Studio 18 2026', '-A', 'x64',
+    Configure-Native 'windows' 'build/windows' @(
         "-DSMBD_BATCH=$root/build/generated/game.cpp", "-DSMBD_SHADER_BANK=$shaderBank")
-    Invoke-Checked cmake @('--build', 'build/windows', '--config', 'Release', '--target', 'smbd-tool', 'smbd', '--parallel', '1')
+    Invoke-Checked cmake @('--build', '--preset', 'release')
     Invoke-Checked (Join-Path $root 'build\windows\Release\smbd-tool.exe') @('check-cpu', 'data/local/default.xbe')
     Invoke-Checked (Join-Path $root 'build\windows\Release\smbd-tool.exe') @('check-input')
     Invoke-Checked (Join-Path $root 'build\windows\Release\smbd-tool.exe') @('check-audio')

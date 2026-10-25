@@ -1,7 +1,8 @@
 Super Monkey Ball Deluxe: native recompilation and bring-up
 
-Windows prerequisites: Visual Studio 2026 C++ tools and Windows SDK, CMake 4.2+,
-Git, PowerShell and JDK 21+. No Python is used. Gameplay is not yet verified.
+Windows prerequisites: LLVM 22.1+ (clang-cl, LLD), Ninja, Visual Studio 2026 C++
+tools and Windows SDK, CMake 4.2+, Git, PowerShell and JDK 21+.
+No Python is used. Gameplay is not yet verified.
 
 Run from the source folder:
 
@@ -12,6 +13,12 @@ The script verifies/extracts the whole disc, reuses indexed Ghidra analysis,
 generates 64 native C++ shards, compiles shaders offline, builds the game and
 its diagnostic tool, and checks isolated original CPU routines. Compiler work
 uses one worker; Ghidra has a 3 GiB heap and two analysis threads.
+Windows builds use clang-cl, LLD and Ninja Multi-Config, with a shared CPU
+precompiled header and cached ThinLTO. The script loads the x64 SDK environment
+and refreshes incompatible compiler metadata while retaining extracted files,
+analysis and generated sources. Link caches are bounded to 1 GiB per executable.
+For direct CMake commands, first run . .\tools\Initialize-Toolchain.ps1 in the
+current PowerShell session, then use cmake --preset tools or --preset windows.
 
 Tools and dependencies are pinned. Unchanged analysis, generated sources and
 shader banks are reused after checking their inputs. Original media, extracted

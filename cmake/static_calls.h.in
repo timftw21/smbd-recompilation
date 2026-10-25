@@ -6,7 +6,7 @@ struct StaticCallTable {
     std::uint32_t site, proof_address;
     std::string_view prefix;
     std::uint32_t start, end, stride;
-    bool jump;
+    bool jump, tail;
 };
 inline constexpr StaticCallTable static_call_tables[] = {
 @static_call_tables@};

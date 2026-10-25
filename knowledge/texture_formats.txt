@@ -1,0 +1,21 @@
+Texture format research - 2026-10-25
+XBE SHA256: 9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2
+
+The LLVM game probe game-0003 reaches NV097 texture format 04 during startup,
+after the scene update callbacks. It stops before uploading that texture.
+
+Format 04 is swizzled A4R4G4B4: two bytes per texel, with B in bits 0..3,
+G in 4..7, R in 8..11 and A in 12..15. Microsoft's corresponding native
+format is DXGI_FORMAT_B4G4R4A4_UNORM. The existing two-byte Morton unswizzle
+can preserve its packed channel data, including mips, cube faces and volumes.
+An actual GPU upload/draw is still required to validate the implementation.
+
+Sources checked:
+https://xboxdevwiki.net/XPR
+https://learn.microsoft.com/en-us/windows/uwp/gaming/feature-mapping
+https://learn.microsoft.com/en-us/windows/win32/api/dxgiformat/ne-dxgiformat-dxgi_format
+
+Validation: native upload and drawing now succeed on the RTX 5060 Ti. The
+boot-0054 capture contains the title prompt during its fade, with 215 draws,
+168 presented frames, and 1052 vertices before the next untranslated object
+callback at 0x000AE2F0. Complete title/menu visual parity remains unverified.

@@ -13,4 +13,12 @@ struct CallbackAbi {
 };
 inline constexpr std::array callback_abis{
 @callback_abis@};
+struct CallbackFactory {
+    std::uint32_t address;
+    std::string_view prefix;
+    std::array<std::uint32_t,4> fields;
+    unsigned count;
+};
+inline constexpr std::array callback_factories{
+@callback_factories@};
 }

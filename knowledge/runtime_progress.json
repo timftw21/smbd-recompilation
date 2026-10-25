@@ -2,18 +2,18 @@
   "schema_version": 1,
   "executable_sha256": "9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2",
   "validation_date": "2026-10-25",
-  "stage": "Verified textured startup screen; menu and gameplay investigation",
+  "stage": "Verified SEGA screen and faint title prompt; menu and gameplay investigation",
   "original_translation_blockers": {
     "rejected_data_entries": 4,
     "remaining": 0,
     "cache_publication_lowered": true
   },
   "native_generation": {
-    "functions": 8840,
-    "compiled": 8840,
-    "closed_functions": 4456,
+    "functions": 9138,
+    "compiled": 9138,
+    "closed_functions": 4598,
     "native_platform_functions": 31,
-    "unresolved_indirect_sites": 1370
+    "unresolved_indirect_sites": 1163
   },
   "shaders": {
     "builtin_programs": 25,
@@ -23,16 +23,17 @@
   },
   "verified_startup": {
     "main_reached": true,
-    "checkpoints": 9176546,
+    "checkpoints": 15430897,
     "threads": 6,
-    "frames": 10,
-    "draws": 5,
-    "vertices": 20,
+    "frames": 168,
+    "draws": 215,
+    "vertices": 1052,
     "rendering_verified": true,
-    "scene": "Presented by SEGA startup screen, 640x480; capture inspected",
+    "scene": "SEGA screen verified earlier; later 640x480 capture contains a very dark PRESS START BUTTON prompt during the title fade",
     "menu_verified": false,
     "playable": false,
-    "last_boundary": "Native boundary at 0x000B8068: function is absent from the fixed native table"
+    "last_boundary": "Native boundary at 0x000AE2F0: function is absent from the fixed native table",
+    "apcs_delivered": 0
   },
   "evidence": "Initial coverage is retained as a historical snapshot. Current detailed reports stay private under build/logs and build/generated. Code/data exclusions and API/callback contracts are recorded separately in knowledge.",
   "diagnostics": {
@@ -41,5 +42,22 @@
     "controller_cases": 47,
     "audio_mixer_cases": 37,
     "native_game_virtual_controller": true
+  },
+  "build_validation": {
+    "compiler": "clang-cl 22.1.8",
+    "linker": "LLD 22.1.8",
+    "generator": "Ninja Multi-Config",
+    "workers": 1,
+    "cpu_precompiled_header": true,
+    "cached_thinlto": true,
+    "cache_limit_bytes_per_executable": 1073741824,
+    "function_reports_match_previous_compiler": true,
+    "helper_assembly_identical": true,
+    "cold_full_workflow_seconds": 1952.284445,
+    "unchanged_build_seconds": 0.2166021,
+    "incremental_texture_change_seconds": 22.8113637,
+    "cpu_cases": 10,
+    "controller_cases": 47,
+    "offline_audio_cases": 37
   }
 }

@@ -21,6 +21,7 @@ class Automation {
     SDL_Joystick* joystick_=nullptr;
 public:
     explicit Automation(const std::filesystem::path& path) {
+        if(std::filesystem::file_size(path)>1024*1024) throw std::runtime_error("Controller timeline exceeds 1 MiB");
         std::ifstream input(path);
         if(!input) throw std::runtime_error("Cannot open controller timeline");
         std::string line;
