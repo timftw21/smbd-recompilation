@@ -1,0 +1,71 @@
+# Local agent instructions
+AGENTS.md
+
+# Private game files, settings and saves
+/Super Monkey Ball Deluxe/
+/data/local/
+/data/user/
+
+*.iso
+*.xiso
+*.xbe
+*.bin
+
+# Build output and downloaded dependencies
+/build/
+/build-*/
+/out/
+/generated/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CMakeUserPresets.json
+
+# Compiled programs, libraries and compiler caches
+*.exe
+*.dll
+*.obj
+*.o
+*.lib
+*.a
+*.so
+*.so.*
+*.dylib
+*.dSYM/
+*.pch
+*.ilk
+*.exp
+*.pdb
+*.ipch
+
+# Local analysis databases, captures and crash dumps
+*.i64
+*.idb
+*.id0
+*.id1
+*.id2
+*.nam
+*.til
+*.ghidra
+*.gpr
+*.rep/
+*.bndb
+*.sqlite*
+*.db
+*.etl
+*.rdc
+*.dmp
+*.mdmp
+*.log
+
+# Local editor and operating-system files
+.cache/
+.vs/
+*.suo
+*.user
+*.tmp
+Thumbs.db
+Desktop.ini
+.DS_Store
