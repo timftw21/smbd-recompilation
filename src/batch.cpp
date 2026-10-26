@@ -17,6 +17,7 @@ struct Unit {
     std::size_t instruction_count = 0;
     bool truncated = false, unresolved = false, ready = false, emit = false;
     std::vector<std::uint32_t> indirect;
+    std::vector<std::string> indirect_instructions,indexed_writes;
     std::vector<std::uint32_t> static_callbacks;
     std::vector<std::uint32_t> indirect_slots;
     std::vector<std::pair<std::uint32_t,std::uint32_t>> callback_stores;
@@ -32,6 +33,11 @@ void addresses(std::ostream& out, std::span<const std::uint32_t> values) {
         if (i) out << ',';
         out << json(hex32(values[i]));
     }
+    out << ']';
+}
+void instruction_reports(std::ostream& out,std::span<const std::string> values) {
+    out << '[';
+    for(std::size_t i=0;i<values.size();++i) {if(i) out<<',';out<<values[i];}
     out << ']';
 }
 }
@@ -94,6 +100,14 @@ Batch recompile_batch(Xbe& image, std::span<const std::uint32_t> seeds,
             for (const auto& [pc, instruction] : function.instructions) {
                 unit.clock |= instruction.decoded.mnemonic == ZYDIS_MNEMONIC_RDTSC;
                 unit.traps |= instruction.decoded.mnemonic == ZYDIS_MNEMONIC_INT3 || instruction.decoded.mnemonic == ZYDIS_MNEMONIC_INT;
+                if(std::ranges::contains(unit.indirect,pc)) unit.indirect_instructions.push_back(instruction.report());
+                const auto& destination=instruction.operands[0];
+                if(instruction.decoded.mnemonic==ZYDIS_MNEMONIC_MOV && destination.type==ZYDIS_OPERAND_TYPE_MEMORY &&
+                   destination.size==32 && destination.mem.segment==ZYDIS_REGISTER_DS && destination.mem.base==ZYDIS_REGISTER_NONE &&
+                   destination.mem.index!=ZYDIS_REGISTER_NONE && destination.mem.scale==4 && destination.mem.disp.has_displacement) {
+                    const auto base=static_cast<std::uint32_t>(destination.mem.disp.value);
+                    if(base>=image.base && base-image.base<image.image_size) unit.indexed_writes.push_back(instruction.report());
+                }
             }
             std::ranges::sort(unit.calls);
             unit.calls.erase(std::unique(unit.calls.begin(), unit.calls.end()), unit.calls.end());
@@ -104,6 +118,7 @@ Batch recompile_batch(Xbe& image, std::span<const std::uint32_t> seeds,
             unit.native_api=std::move(lowered.native_api);
             if(!unit.native_api.empty()) {
                 unit.unresolved=false;unit.calls.clear();unit.indirect.clear();unit.kernel.clear();unit.clock=unit.traps=false;
+                unit.indirect_instructions.clear();unit.indexed_writes.clear();
             }
             unit.issues = std::move(lowered.issues);
             for (const auto& issue : unit.issues)
@@ -266,6 +281,10 @@ Batch recompile_batch(Xbe& image, std::span<const std::uint32_t> seeds,
         addresses(report, unit.calls);
         report << ",\"unresolved_indirect_sites\":";
         addresses(report,unit.indirect);
+        report << ",\"unresolved_instructions\":";
+        instruction_reports(report,unit.indirect_instructions);
+        report << ",\"indexed_writes\":";
+        instruction_reports(report,unit.indexed_writes);
         report << ",\"static_callback_targets\":";
         addresses(report,unit.static_callbacks);
         report << ",\"indirect_pointer_slots\":";

@@ -1,0 +1,40 @@
+File-provider dispatch contracts
+
+Executable SHA-256:
+9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2
+
+The original initialization at 253E0 installs six default callbacks. Title setup
+A2910 calls initialization through 22890, builds a six-word stack record, and
+passes it to 24D80. That setter copies the fields to the same six global slots.
+The only recovered caller of 24D80 is A2910. Its field order and literal stores
+were checked directly from the original instructions, including their bytes.
+
+Slot       Startup     Title       Startup literal    Title literal
+006D4BE8   00025390    000A2860    000253E6           000A292C
+006D4BEC   000253A0    000169A0    000253F0           000A2934
+006D4BD0   000253B0    00016A70    000253FA           000A293C
+006D4BD8   000253C0    00016A00    00025404           000A2944
+006D4BE0   000253D0    000169D0    0002540E           000A294C
+006D4BD4   000BA870    000BA870    00025418           000A2954
+
+The two auxiliary slots 006D4BE4 and 006D4BDC are initialized by 25420 to
+000A2870 and 000A2890, using literal words at 00025426 and 00025430.
+The setters 24DC0/24DD0 have only A2910 as a recovered caller; it supplies
+the same targets at 000A2963/000A296D. Both setters return the previous value.
+
+The native index identifies 30 unique indirect sites in the eight functions
+25030, 25080, 25120, 25130, 25440, 25460, 254F0 and 25580. Five sites occur in
+both 25440 and its tail block 25460, and are counted once. CALL instructions
+retain ordinary return addresses. The single-instruction wrappers 25120 and
+25130 retain tail-call semantics and push no additional return address.
+
+static_calls.json binds each site to every distinct startup/title target for
+its slot. Each target is read from its original four-byte literal, each site
+is checked against its original opcode/slot bytes, and all targets must lie in
+code sections. Mutable slots are not treated as immutable initial data.
+An unexpected pointer still stops explicitly at the native boundary.
+
+Private reproducible evidence: build/logs/provider-static-dispatch.json,
+file-provider-defaults.json, file-provider-0x000A2910.json, and the matching
+setter analyses. The batch report now includes every unresolved instruction
+and indexed pointer-sized write, without decoding new ranges for this index.

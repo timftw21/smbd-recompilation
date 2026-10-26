@@ -49,7 +49,7 @@ try {
         Write-Warning 'Ghidra contains rejected instruction rows. Native generation independently decodes original bytes; see the analysis report.'
     }
     $batchArguments = @('batch', 'data/local/default.xbe', 'data/local/analysis/seeds.txt', '65536', '8192',
-        'build/generated/game.cpp', '--replace', '--shards', '64', '--report', 'build/generated/batch.json')
+        'build/generated/game.cpp', '--replace', '--shards', '512', '--report', 'build/generated/batch.json')
     if ($AllowPartial) { $batchArguments += '--allow-partial' }
     Invoke-Checked $tool $batchArguments
     # Shader compilation is also one offline batch. Reuse it only when every

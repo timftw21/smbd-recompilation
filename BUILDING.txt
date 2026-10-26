@@ -17,6 +17,8 @@ Windows builds use clang-cl, LLD and Ninja Multi-Config, with a shared CPU
 precompiled header and cached ThinLTO. The script loads the x64 SDK environment
 and refreshes incompatible compiler metadata while retaining extracted files,
 analysis and generated sources. Link caches are bounded to 1 GiB per executable.
+Generated game code uses 512 source partitions, matching the Burnout workflow.
+The changing function registry is a native object; game functions retain ThinLTO.
 For direct CMake commands, first run . .\tools\Initialize-Toolchain.ps1 in the
 current PowerShell session, then use cmake --preset tools or --preset windows.
 After regenerating a runtime batch, cmake --build --preset release --target smbd

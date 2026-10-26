@@ -102,6 +102,167 @@ std::optional<std::uint32_t> constant_before(const Function& function,std::uint3
     }
     return {};
 }
+// A callback argument can be prepared on several branches before a shared call.
+// Keep each proven PUSH origin; stop on calls, stack changes or possible aliases.
+std::vector<const Instruction*> callback_pushes(const Function& function,std::uint32_t call,unsigned argument) {
+    struct State {std::uint32_t pc;unsigned remaining;};
+    std::vector<State> pending;
+    std::set<std::pair<std::uint32_t,unsigned>> seen;
+    std::vector<const Instruction*> result;
+    const auto queue=[&](std::uint32_t pc,unsigned remaining) {
+        if(seen.size()<128 && seen.emplace(pc,remaining).second) pending.push_back({pc,remaining});
+    };
+    queue(call,argument);
+    while(!pending.empty()) {
+        const auto state=pending.back();pending.pop_back();
+        const auto visit=[&](const Instruction& instruction) {
+            const auto& ins=instruction.decoded;
+            if(ins.meta.category==ZYDIS_CATEGORY_CALL || ins.meta.category==ZYDIS_CATEGORY_RET ||
+               ins.meta.category==ZYDIS_CATEGORY_INTERRUPT || ins.mnemonic==ZYDIS_MNEMONIC_HLT) return;
+            if(ins.mnemonic==ZYDIS_MNEMONIC_PUSH && ins.operand_width==32) {
+                if(!state.remaining) result.push_back(&instruction);
+                else queue(instruction.address,state.remaining-1);
+                return;
+            }
+            for(unsigned i=0;i<ins.operand_count;++i) {
+                const auto& operand=instruction.operands[i];
+                if(!(operand.actions&ZYDIS_OPERAND_ACTION_MASK_WRITE)) continue;
+                if(operand.type==ZYDIS_OPERAND_TYPE_REGISTER && general(operand.reg.value)==4) return;
+                if(operand.type==ZYDIS_OPERAND_TYPE_MEMORY) {
+                    if(operand.mem.base!=ZYDIS_REGISTER_ESP || operand.mem.index!=ZYDIS_REGISTER_NONE) return;
+                    const auto start=operand.mem.disp.value;
+                    const auto slot=static_cast<std::int64_t>(state.remaining)*4;
+                    if(start<slot+4 && start+(operand.size+7)/8>slot) return;
+                }
+            }
+            queue(instruction.address,state.remaining);
+        };
+        if(const auto* before=previous(function,state.pc); before &&
+           before->decoded.meta.category!=ZYDIS_CATEGORY_UNCOND_BR &&
+           before->decoded.meta.category!=ZYDIS_CATEGORY_RET &&
+           before->decoded.meta.category!=ZYDIS_CATEGORY_INTERRUPT) visit(*before);
+        for(const auto& edge:function.edges) if(edge.to==state.pc &&
+            (edge.kind=="jump" || edge.kind=="conditional" || edge.kind=="table-jump"))
+            visit(function.instructions.at(edge.from));
+    }
+    return result;
+}
+
+bool callback_preserves(Xbe& image,const Instruction& call,int reg) {
+    const auto proof=std::ranges::find(callback_preservers,call.target().value_or(0),&CallbackPreserver::address);
+    if(proof==callback_preservers.end() || !(proof->mask&(1U<<reg))) return false;
+    if(hex_bytes(image.data(proof->address,proof->prefix.size()/2))!=proof->prefix)
+        throw std::runtime_error("Callback register preservation differs at "+hex32(proof->address));
+    return true;
+}
+// Discover code values along bounded predecessor paths. Internal calls are
+// barriers unless their original code proves that this register is preserved.
+std::vector<std::uint32_t> callback_values(Xbe& image,const Function& function,std::uint32_t pc,
+    const ZydisDecodedOperand& value) {
+    if(value.type==ZYDIS_OPERAND_TYPE_IMMEDIATE) return {static_cast<std::uint32_t>(value.imm.value.u)};
+    if(value.type!=ZYDIS_OPERAND_TYPE_REGISTER || value.size!=32 || general(value.reg.value)<0) return {};
+    struct State {std::uint32_t pc;int reg;};
+    std::vector<State> pending;
+    std::set<std::pair<std::uint32_t,int>> seen;
+    std::vector<std::uint32_t> result;
+    const auto queue=[&](std::uint32_t at,int reg) {
+        if(reg>=0 && seen.size()<128 && seen.emplace(at,reg).second) pending.push_back({at,reg});
+    };
+    queue(pc,general(value.reg.value));
+    while(!pending.empty()) {
+        const auto state=pending.back();pending.pop_back();
+        const auto visit=[&](const Instruction& instruction) {
+            const auto& ins=instruction.decoded;const auto& operands=instruction.operands;
+            if(ins.meta.category==ZYDIS_CATEGORY_RET || ins.meta.category==ZYDIS_CATEGORY_INTERRUPT ||
+               ins.mnemonic==ZYDIS_MNEMONIC_HLT) return;
+            if(ins.meta.category==ZYDIS_CATEGORY_CALL) {
+                if(!callback_preserves(image,instruction,state.reg)) return;
+                queue(instruction.address,state.reg);return;
+            }
+            bool written=false;
+            for(unsigned i=0;i<ins.operand_count;++i) written |= operands[i].type==ZYDIS_OPERAND_TYPE_REGISTER &&
+                general(operands[i].reg.value)==state.reg && (operands[i].actions&ZYDIS_OPERAND_ACTION_MASK_WRITE);
+            if(!written) {queue(instruction.address,state.reg);return;}
+            if(operands[0].type!=ZYDIS_OPERAND_TYPE_REGISTER || operands[0].size!=32 ||
+               general(operands[0].reg.value)!=state.reg) return;
+            if(ins.mnemonic==ZYDIS_MNEMONIC_MOV) {
+                if(operands[1].type==ZYDIS_OPERAND_TYPE_IMMEDIATE) result.push_back(static_cast<std::uint32_t>(operands[1].imm.value.u));
+                else if(operands[1].type==ZYDIS_OPERAND_TYPE_REGISTER && operands[1].size==32)
+                    queue(instruction.address,general(operands[1].reg.value));
+            } else if(ins.mnemonic==ZYDIS_MNEMONIC_LEA && operands[1].type==ZYDIS_OPERAND_TYPE_MEMORY &&
+                operands[1].mem.base==ZYDIS_REGISTER_NONE && operands[1].mem.index==ZYDIS_REGISTER_NONE)
+                result.push_back(static_cast<std::uint32_t>(operands[1].mem.disp.value));
+            else if(ins.mnemonic==ZYDIS_MNEMONIC_XOR && operands[1].type==ZYDIS_OPERAND_TYPE_REGISTER &&
+                    operands[1].size==32 && general(operands[1].reg.value)==state.reg) result.push_back(0);
+        };
+        if(const auto* before=previous(function,state.pc); before &&
+           before->decoded.meta.category!=ZYDIS_CATEGORY_UNCOND_BR &&
+           before->decoded.meta.category!=ZYDIS_CATEGORY_RET &&
+           before->decoded.meta.category!=ZYDIS_CATEGORY_INTERRUPT) visit(*before);
+        for(const auto& edge:function.edges) if(edge.to==state.pc &&
+            (edge.kind=="jump" || edge.kind=="conditional" || edge.kind=="table-jump"))
+            visit(function.instructions.at(edge.from));
+    }
+    return result;
+}
+// A verified consumer identifies the callback field of a submitted record.
+// Follow that exact record register back to its field installation, keeping
+// unknown calls and register changes as barriers. This does not type the arena.
+std::vector<std::uint32_t> record_callback_values(Xbe& image,const Function& function,
+    const Instruction& argument,std::uint32_t field) {
+    const auto& pointer=argument.operands[0];
+    if(pointer.type!=ZYDIS_OPERAND_TYPE_REGISTER || pointer.size!=32 || general(pointer.reg.value)<0) return {};
+    struct State {std::uint32_t pc;int reg;};
+    std::vector<State> pending;
+    std::set<std::pair<std::uint32_t,int>> seen;
+    std::vector<std::uint32_t> result;
+    const auto queue=[&](std::uint32_t pc,int reg) {
+        if(reg>=0 && seen.size()<128 && seen.emplace(pc,reg).second) pending.push_back({pc,reg});
+    };
+    queue(argument.address,general(pointer.reg.value));
+    while(!pending.empty()) {
+        const auto state=pending.back();pending.pop_back();
+        const auto visit=[&](const Instruction& instruction) {
+            const auto& ins=instruction.decoded;const auto& operands=instruction.operands;
+            if(ins.meta.category==ZYDIS_CATEGORY_RET || ins.meta.category==ZYDIS_CATEGORY_INTERRUPT ||
+               ins.mnemonic==ZYDIS_MNEMONIC_HLT) return;
+            if(ins.meta.category==ZYDIS_CATEGORY_CALL) {
+                if(callback_preserves(image,instruction,state.reg)) queue(instruction.address,state.reg);
+                return;
+            }
+            for(unsigned i=0;i<ins.operand_count;++i) {
+                const auto& operand=operands[i];
+                if(!(operand.actions&ZYDIS_OPERAND_ACTION_MASK_WRITE)) continue;
+                if(operand.type==ZYDIS_OPERAND_TYPE_MEMORY && general(operand.mem.base)==state.reg) {
+                    if(operand.mem.index!=ZYDIS_REGISTER_NONE || operand.mem.segment!=ZYDIS_REGISTER_DS) return;
+                    const auto start=operand.mem.disp.value;
+                    if(start<static_cast<std::int64_t>(field)+4 && start+(operand.size+7)/8>field) {
+                        if(i==0 && ins.mnemonic==ZYDIS_MNEMONIC_MOV && start==field && operand.size==32) {
+                            const auto values=callback_values(image,function,instruction.address,operands[1]);
+                            result.insert(result.end(),values.begin(),values.end());
+                        }
+                        return;
+                    }
+                }
+                if(operand.type==ZYDIS_OPERAND_TYPE_REGISTER && general(operand.reg.value)==state.reg) {
+                    if(i==0 && operand.size==32 && ins.mnemonic==ZYDIS_MNEMONIC_MOV &&
+                       operands[1].type==ZYDIS_OPERAND_TYPE_REGISTER && operands[1].size==32)
+                        queue(instruction.address,general(operands[1].reg.value));
+                    return;
+                }
+            }
+            queue(instruction.address,state.reg);
+        };
+        if(const auto* before=previous(function,state.pc); before &&
+           before->decoded.meta.category!=ZYDIS_CATEGORY_UNCOND_BR &&
+           before->decoded.meta.category!=ZYDIS_CATEGORY_RET &&
+           before->decoded.meta.category!=ZYDIS_CATEGORY_INTERRUPT) visit(*before);
+        for(const auto& edge:function.edges) if(edge.to==state.pc &&
+            (edge.kind=="jump" || edge.kind=="conditional" || edge.kind=="table-jump"))
+            visit(function.instructions.at(edge.from));
+    }
+    return result;
+}
 std::optional<std::uint32_t> stack_callback_before(const Function& function,std::uint32_t call,
     const Instruction& argument,std::uint32_t field) {
     const auto& pointer=argument.operands[0];
@@ -231,8 +392,8 @@ void factory_callbacks(Xbe& image,Function& function) {
         if(base<0 || !states.at(pc)[base]) continue;
         const auto& factory=callback_factories[states.at(pc)[base]-1];
         if(!std::ranges::contains(std::span(factory.fields).first(factory.count),field.mem.disp.value)) continue;
-        const auto target=constant_before(function,pc,instruction.operands[1]);
-        if(target && *target) {image.code_section(*target);function.static_callbacks.push_back(*target);}
+        for(const auto target:callback_values(image,function,pc,instruction.operands[1]))
+            if(target) {image.code_section(target);function.static_callbacks.push_back(target);}
     }
 }
 Range filter_range(Range range,ZydisMnemonic branch,std::uint32_t bound,bool taken) {
@@ -723,6 +884,13 @@ Function recover(Xbe& image, std::uint32_t address, std::uint32_t instruction_bu
             const auto proof=abi.site?abi.site:abi.address;
             if(!abi.prefix.empty() && hex_bytes(image.data(proof,abi.prefix.size()/2))!=abi.prefix)
                 throw std::runtime_error("Callback registration ABI differs at "+hex32(proof));
+            // Direct callback arguments can be prepared on separate branches.
+            // Record-field recovery below retains its stricter linear proof.
+            for(unsigned i=0;i<abi.count;++i) if(abi.offsets[i]<0)
+                for(const auto* argument:callback_pushes(function,pc,abi.callbacks[i])) {
+                    const auto target=constant_before(function,argument->address,argument->operands[0]);
+                    if(target && *target) {image.code_section(*target);function.static_callbacks.push_back(*target);}
+                }
             std::vector<const Instruction*> arguments;
             const auto* cursor = previous(function,pc);
             unsigned steps = 0;
@@ -754,7 +922,12 @@ Function recover(Xbe& image, std::uint32_t address, std::uint32_t instruction_bu
                 const auto* argument=arguments.at(abi.callbacks[i]);
                 auto target=constant_before(function,argument->address,argument->operands[0]);
                 if(abi.offsets[i]>=0) {
-                    if(!target) target=stack_callback_before(function,pc,*argument,static_cast<std::uint32_t>(abi.offsets[i]));
+                    if(!target) {
+                        const auto field=static_cast<std::uint32_t>(abi.offsets[i]);
+                        target=stack_callback_before(function,pc,*argument,field);
+                        if(!target) for(const auto candidate:record_callback_values(image,function,*argument,field))
+                            if(candidate) {image.code_section(candidate);function.static_callbacks.push_back(candidate);}
+                    }
                     else if(*target) {
                         const auto slot=*target+static_cast<std::uint32_t>(abi.offsets[i]);
                         if(slot<*target || slot<image.base || slot-image.base>=image.image_size)

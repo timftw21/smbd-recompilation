@@ -13,6 +13,12 @@ struct CallbackAbi {
 };
 inline constexpr std::array callback_abis{
 @callback_abis@};
+struct CallbackPreserver {
+    std::uint32_t address, mask;
+    std::string_view prefix;
+};
+inline constexpr std::array callback_preservers{
+@callback_preservers@};
 struct CallbackFactory {
     std::uint32_t address;
     std::string_view prefix;

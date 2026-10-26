@@ -2,18 +2,18 @@
   "schema_version": 1,
   "executable_sha256": "9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2",
   "validation_date": "2026-10-25",
-  "stage": "Verified title and input; stage/character resource loading",
+  "stage": "Verified title and Start input; menu transition reaches native image-blit boundary",
   "original_translation_blockers": {
     "rejected_data_entries": 4,
     "remaining": 0,
     "cache_publication_lowered": true
   },
   "native_generation": {
-    "functions": 9340,
-    "compiled": 9340,
-    "closed_functions": 4675,
+    "functions": 9597,
+    "compiled": 9597,
+    "closed_functions": 4797,
     "native_platform_functions": 31,
-    "unresolved_indirect_sites": 1121,
+    "unresolved_indirect_sites": 1099,
     "unresolved_report_consistent": true
   },
   "shaders": {
@@ -65,7 +65,16 @@
     "compiler_comparison_functions": 9138,
     "callback_texture_batch_seconds": 1526.8762967,
     "game_only_record_batch_seconds": 1033.3125036,
-    "incremental_frontend_report_seconds": 19.8046564
+    "incremental_frontend_report_seconds": 19.8046564,
+    "shards": 512,
+    "registry_data_native_object": true,
+    "shard_layout_function_reports_identical": true,
+    "cold_512_game_build_seconds": 1360.6703678,
+    "branch_ui_incremental_seconds": 112.2867217,
+    "mode_pair_incremental_seconds": 47.7643013,
+    "draw_record_incremental_seconds": 71.7778283,
+    "geometry_node_incremental_seconds": 25.0034194,
+    "full_diagnostics_refresh_pending": true
   },
   "frontend_validation": {
     "frames": 500,
@@ -82,15 +91,25 @@
     "report": "build/logs/menu-probe-500-full.json"
   },
   "latest_run": {
-    "functions": 9340,
-    "frames": 1054,
-    "draws": 103585,
-    "vertices": 472408,
-    "boundary": "Native boundary at 0x000A40E0: function is absent from the fixed native table",
-    "report": "build/logs/game-0009-full.json",
-    "capture": "build/logs/game-0009.png",
+    "functions": 9597,
+    "frames": 693,
+    "draws": 86495,
+    "vertices": 423586,
+    "boundary": "Unimplemented graphics class 0x9F, handle 0x10, method 0x308, value 0x1E00280",
+    "report": "build/logs/game-0017-full.json",
+    "capture": "build/logs/game-0017.png",
     "stage_and_character_assets_read": true,
     "menu_verified": false,
     "playable": false
+  },
+  "callback_recovery": {
+    "file_provider_sites_resolved": 30,
+    "named_node_visitor_interfaces": 2,
+    "branch_callback_alternatives_verified": 4,
+    "ui_loop_callbacks_verified": 4,
+    "register_preserver_contracts": 8,
+    "draw_record_producers_verified": 2,
+    "lost_previous_callback_targets": 0,
+    "dynamic_dispatch_target_sets_remain_explicit": true
   }
 }

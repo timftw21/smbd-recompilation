@@ -2,6 +2,269 @@
   "executable_sha256": "9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2",
   "contracts": [
     {
+      "name": "Geometry node callback binding",
+      "address": "0x00025870",
+      "ordinal": 0,
+      "argument_count": 1,
+      "prefix": "8B4C2404A1C88E6D00890DC88E6D00",
+      "callbacks": [0],
+      "site": "0",
+      "offsets": [-1],
+      "evidence": "The complete four-instruction setter replaces code slot 6D8EC8 with argument 0 and returns its previous value. Geometry dispatcher 275E0 loads that slot at 27738 and invokes a nonzero callback at 2776F with its local node context. Null disables this callback."
+    },
+    {
+      "name": "Scene geometry node callback binding",
+      "address": "0x000A2680",
+      "ordinal": 0,
+      "argument_count": 1,
+      "prefix": "8B442404A318CC7300",
+      "callbacks": [0],
+      "site": "0",
+      "offsets": [-1],
+      "evidence": "The complete wrapper stores callback argument 0 at 73CC18 and tail-forwards the unchanged stack argument to verified setter 25870. Background producers C53A0/C5450 choose C5160 or null along branches before their common call. Callback discovery follows both actual argument-preparation paths."
+    },
+    {
+      "name": "Depth-sorted draw record submission",
+      "address": "0x0001F770",
+      "ordinal": 0,
+      "argument_count": 2,
+      "prefix": "8B4424048B4C2408568B7008",
+      "callbacks": [1],
+      "site": "0",
+      "offsets": [4],
+      "evidence": "Original 1F770 inserts argument 1's record into the active render context's list at +104, using its +0 next pointer and +8 sort key. Draw dispatcher 1F860 walks that same list and calls record +4 at 1F888, passing the record itself. A2D80 and 2204E0 install A2B60 at A2E11 before submitting their actual record. The arena allocator 1F7E0 also supplies unrelated payloads, so only records passed to this verified consumer are treated as callback records."
+    },
+    {
+      "name": "Deferred mode callback pair",
+      "address": "0x0029F180",
+      "ordinal": 0,
+      "argument_count": 4,
+      "prefix": "8B4424048B4C24088B54240C",
+      "callbacks": [0, 1],
+      "site": "0",
+      "offsets": [-1, -1],
+      "evidence": "Original 29F180 stores arguments 0/1 at 8B2504/8B24B0 and the two data arguments at 738DEC/73F194. The frameless dispatchers 29F1B0 and 29F1C0 load the respective code slots and tail-jump to nonzero callbacks. Producer 2BB750 passes 2AA370/2BA250 at 2BB759/2BB754; the second recovered caller is 2BC360. Their callbacks are discovered through this registration contract without assigning a fake return address or closing the mutable tail dispatches."
+    },
+    {
+      "name": "Resource record remapping callback",
+      "address": "0x00092160",
+      "ordinal": 0,
+      "argument_count": 4,
+      "prefix": "5355568B74241033DB",
+      "callbacks": [
+        2
+      ],
+      "site": "0",
+      "offsets": [
+        -1
+      ],
+      "evidence": "Original 92160 processes two 16-byte record lists in argument 0. It matches each record's byte +6 against argument 1, calls argument 2 with context argument 3 and the computed record data pointer, and replaces the record's +8 value with the returned 16-bit result. Four saved registers and two outgoing pushes put ESP at entry-0x18; both 92192 and 921E0 call [esp+0x24], original entry+0xC. The callers 95E20 and 9B8F0 pass literal mapping callbacks, including alternatives prepared along branches that join at 96351 and 9BA2B."
+    },
+    {
+      "name": "Stream block visitor callback",
+      "address": "0x002C9EF0",
+      "ordinal": 0,
+      "argument_count": 2,
+      "prefix": "8B463453558B6C2410",
+      "callbacks": [
+        0
+      ],
+      "site": "0",
+      "offsets": [
+        -1
+      ],
+      "evidence": "Original 2C9EF0 walks ESI's circular block list at +30/+34/+38, invoking argument 0 with each block and context argument 1 until count is exhausted or the callback returns -1. Three saved registers and two outgoing pushes put ESP at entry-0x14; 2C9F1B calls [esp+0x18], original entry+4. Wrapper 2CA410 forwards its second and third arguments to this helper, preserving the callback/context contract."
+    },
+    {
+      "name": "Named plug-in factory callback",
+      "address": "0x002CC390",
+      "ordinal": 0,
+      "argument_count": 1,
+      "prefix": "53568BF08D5001",
+      "callbacks": [
+        0
+      ],
+      "site": "0",
+      "offsets": [
+        -1
+      ],
+      "evidence": "Original 2CC390 uppercases the name passed in EAX, invokes the factory in stack argument 0 without callback arguments, then stores the returned interface with that name. Two saved registers put ESP at entry-8; 2CC3C5 calls [esp+0xC], original entry+4. The registration wrapper 2CC7A0 forwards its already verified factory pointer through PUSH ECX at 2CC7FF and CALL 2CC390 at 2CC800."
+    },
+    {
+      "name": "CRT quicksort comparator",
+      "address": "0x0030CF80",
+      "ordinal": 0,
+      "argument_count": 4,
+      "prefix": "8B44240881EC00010000",
+      "callbacks": [
+        3
+      ],
+      "site": "0",
+      "offsets": [
+        -1
+      ],
+      "evidence": "Original 30CF80 sorts the array in argument 0 using argument 1's element count and argument 2's width, passing pairs of element pointers to comparator argument 3. Its 0x100-byte local frame, four saved registers and two outgoing pushes put ESP at entry-0x118; comparator calls use [esp+0x128], original entry+0x10. Six recovered callers pass literal comparators 1041F0,10B220,10B300,130850,212620,214900. The small-array path forwards the same comparator to 30CF10."
+    },
+    {
+      "name": "CRT short-sort comparator",
+      "address": "0x0030CF10",
+      "ordinal": 0,
+      "argument_count": 3,
+      "prefix": "8B4C2404558B6C240C",
+      "callbacks": [
+        2
+      ],
+      "site": "0",
+      "offsets": [
+        -1
+      ],
+      "evidence": "Original 30CF10 receives its high element pointer in EAX and the low pointer, width and comparator as three stack arguments. Four saved registers and two outgoing pushes put ESP at entry-0x18; 30CF32 calls [esp+0x24], original entry+0xC, stack argument 2. It compares and swaps width-byte elements. Quicksort forwards the comparator at 30CFD3..30CFDF; register parameters are retained by translated code."
+    },
+    {
+      "name": "Locked stream block visitor",
+      "address": "0x002CA410",
+      "ordinal": 0,
+      "argument_count": 3,
+      "prefix": "56E8AA6700008B442410",
+      "callbacks": [
+        1
+      ],
+      "site": "0",
+      "offsets": [
+        -1
+      ],
+      "evidence": "Original 2CA410 acquires the stream lock, loads its object/callback/context from original stack arguments 0/1/2, and forwards callback/context through PUSH EAX, PUSH ECX and CALL 2C9EF0 at 2CA422..2CA424. The helper's verified ABI invokes that callback for the object's circular block list. It then releases the lock through the original tail jump at 2CA42D. Register this complete forwarding wrapper so its original callers' literal callbacks are recovered."
+    },
+    {
+      "name": "Explicit node-list visitor callback",
+      "address": "0x000BAAF0",
+      "ordinal": 0,
+      "argument_count": 4,
+      "prefix": "83EC088B44241085C0",
+      "callbacks": [
+        3
+      ],
+      "site": "0",
+      "offsets": [
+        -1
+      ],
+      "evidence": "Original BAAF0 visits the node array/count in arguments 0/1, compares names against argument 2's filter records, and invokes argument 3 with the matching filter index and node pointer. An eight-byte local frame and four saved registers leave ESP at entry-0x18; after two pushes, BABF9 calls [esp+0x30], the original entry+0x10 callback argument. The three comparison arguments are balanced at BABE7. C52F0 passes C5270, filters, count and node pointer at C532B..C5337 and again at C5347..C5353. Recover the whole visitor family across its callers."
+    },
+    {
+      "name": "Named-node visitor callback",
+      "address": "0x000BA980",
+      "ordinal": 0,
+      "argument_count": 2,
+      "prefix": "A1749C730083EC1485C0",
+      "callbacks": [
+        1
+      ],
+      "site": "0",
+      "offsets": [
+        -1
+      ],
+      "evidence": "Original BA980 visits the name filters in argument 0 and invokes argument 1 with the matching filter index and node pointer. Its 0x14 local frame and four saved registers leave ESP at entry-0x24; after two pushes, BAA99 calls [esp+0x34], the original entry+8 callback argument. The comparison path's three pushes are balanced at BAA87 before callback dispatch. C52F0 supplies C5250 at C5301, the filter table at C5306, and calls BA980 at C530B. Recover callback arguments from every verified caller rather than seeding this one observed target."
+    },
+    {
+      "name": "Seven-field menu object callback record",
+      "address": "0x00258C70",
+      "ordinal": 0,
+      "argument_count": 2,
+      "prefix": "83EC1C5355568B74243085F657",
+      "callbacks": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "site": "0",
+      "offsets": [
+        0,
+        4,
+        8,
+        12
+      ],
+      "evidence": "Original 258C70 copies seven words from argument 1 (or defaults at 6949E0) and registers them at the type index in argument 0. It writes the seven callback arrays at 694740,6947A0,694800,694860,6948C0,694920,694980. Null fields select the corresponding real default callback. These are the first four fields; the following ABI covers the final three."
+    },
+    {
+      "name": "Seven-field menu object callback record",
+      "address": "0x00258C70",
+      "ordinal": 0,
+      "argument_count": 2,
+      "prefix": "83EC1C5355568B74243085F657",
+      "callbacks": [
+        1,
+        1,
+        1
+      ],
+      "site": "0",
+      "offsets": [
+        16,
+        20,
+        24
+      ],
+      "evidence": "The last three callable fields of the same verified 258C70 registration record. Original 258D22/258D39/258D40 write them to arrays 6948C0/694920/694980, with null fields using defaults at 6949F0/6949F4/6949F8."
+    },
+    {
+      "name": "Typed object callback record",
+      "address": "0x0004DF40",
+      "ordinal": 0,
+      "argument_count": 2,
+      "prefix": "8B44240885C05657",
+      "callbacks": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "site": "0",
+      "offsets": [
+        0,
+        4,
+        8,
+        12
+      ],
+      "evidence": "Original 4DF40 reads argument 1 as four callback pointers and writes them at the type index in argument 0 into arrays 4B2C90,4B2DB0,4B2ED0,4B2FF0. Null records/fields use the real default callbacks at 4B3110..4B3120. Initial image callbacks are seeded separately, so runtime registrations are not mistaken for immutable dispatch tables."
+    },
+    {
+      "name": "Two-phase object callback record",
+      "address": "0x000861F0",
+      "ordinal": 0,
+      "argument_count": 2,
+      "prefix": "8B44240885C053555657",
+      "callbacks": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "site": "0",
+      "offsets": [
+        0,
+        4,
+        8,
+        12
+      ],
+      "evidence": "Original 861F0 reads the six pointer fields of argument 1 and writes them at the type index in argument 0 into six 14-slot callback arrays at 55578C,5557C4,5557FC,555834,55586C,5558A4. Null records/fields select the real defaults at 5558E0..5558F8. The first four callback fields are covered here; the last two use the next record."
+    },
+    {
+      "name": "Two-phase object callback record",
+      "address": "0x000861F0",
+      "ordinal": 0,
+      "argument_count": 2,
+      "prefix": "8B44240885C053555657",
+      "callbacks": [
+        1,
+        1
+      ],
+      "site": "0",
+      "offsets": [
+        16,
+        20
+      ],
+      "evidence": "The final two callable fields of the same verified 861F0 registration record. Original 8626F/8628D store them in the release callback arrays at 55586C/5558A4; null fields use the real BA870 defaults."
+    },
+    {
       "name": "Title mode callback record",
       "address": "0x0001FA50",
       "ordinal": 0,
@@ -569,6 +832,56 @@
     }
   ],
   "evidence": "The kernel parameter layouts match the native host service contracts. The XAPI routine was checked from 00309872 through RET 18h; it forwards argument 2 as the start routine to PsCreateSystemThreadEx, with system entry 003097DA. The original entry pushes user routine 00309426. Only literal callback values proven in the contiguous argument-building block are recovered.",
+  "preservers": [
+    {
+      "address": "0x0001F7E0",
+      "mask": 232,
+      "prefix": "8B4C2404390D74356D00",
+      "evidence": "Arena allocation writes only EAX/ECX/EDX and its two global cursor/count words. Its optional diagnostic callee BA870 is a single RET. EBX/EBP/ESI/EDI are unchanged on every returning path. Preserving a record pointer across this call does not give arbitrary arena allocations a callback type."
+    },
+    {
+      "address": "0x00028410",
+      "mask": 232,
+      "prefix": "0F2805A0D56D000F280DB0D56D00",
+      "evidence": "The complete seven-instruction identity-matrix writer uses XMM0..2 and ECX, writes 48 bytes at ECX, and returns without changing EBX/EBP/ESI/EDI. Queued draw producers pass their matrix field at record +14."
+    },
+    {
+      "address": "0x000285E0",
+      "mask": 232,
+      "prefix": "0F10010F1049100F105120",
+      "evidence": "The complete seven-instruction matrix-copy helper uses XMM0..2 to copy 48 bytes from ECX to EDX. It has no calls and leaves EBX/EBP/ESI/EDI unchanged."
+    },
+    {
+      "address": "0x000B8B20",
+      "mask": 232,
+      "prefix": "A190FE7300C3",
+      "evidence": "The complete routine loads global 73FE90 into EAX and returns. It neither changes EBX/EBP/ESI/EDI nor writes memory."
+    },
+    {
+      "address": "0x000736C0",
+      "mask": 232,
+      "prefix": "6A0268A8936C00E84426FAFF",
+      "evidence": "Preserves EBX/EBP/ESI/EDI (register bits 3/5/6/7). Its only callees are 15D10 and 73620. All returning paths through pool allocator 15D10 restore its saved EBX/ESI/EDI and do not write EBP. Initializer 73620 leaves EBX/EBP/ESI untouched and restores EDI after REP STOSD. The factory also saves/restores its own EBX at 736D6/736DE. This retains code-pointer values across allocation without assuming a convention for other internal routines."
+    },
+    {
+      "address": "0x00073820",
+      "mask": 232,
+      "prefix": "6A0268A8936C00E8E424FAFF",
+      "evidence": "Preserves EBX/EBP/ESI/EDI through the same verified 15D10/73620 helpers as 736C0. Its own EBX save/restore is at 73836/73840. The additional parent-linking instructions write only EAX/ECX/EDX and object memory; EBP/ESI/EDI remain unchanged."
+    },
+    {
+      "address": "0x0030B60C",
+      "mask": 192,
+      "prefix": "E8213D00008B4814",
+      "evidence": "Original CRT random-number routine writes only EAX/ECX after calling 30F332. The returning paths through 30F332 save ESI/EDI at 30F346/30F347 and restore them at 30F3AF/30F3B2. Its exceptional branch before those saves is a nonreturning kernel bug check. UI producer 2B0EE0 keeps callback 2AAD30 in ESI across this random-choice path and allocation."
+    },
+    {
+      "address": "0x0030B5A7",
+      "mask": 192,
+      "prefix": "558BEC83EC20568B750857",
+      "evidence": "Original CRT string formatter saves ESI/EDI at 30B5AD/30B5B1 and restores both at 30B5FB/30B5FC before its single return. Its frame and saved-register slots remain separate from the formatter's outgoing arguments and local FILE record. UI construction loops format labels between iterations while retaining callback pointers in these registers."
+    }
+  ],
   "factories": [
     {
       "address": "0x000736C0",
