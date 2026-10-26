@@ -78,7 +78,7 @@
     "draw_record_incremental_seconds": 71.7778283,
     "geometry_node_incremental_seconds": 25.0034194,
     "full_diagnostics_refresh_pending": false,
-    "diagnostics_generation_functions": 9748,
+    "diagnostics_generation_functions": 9755,
     "full_tool_build_seconds": 24.1422148,
     "image_copy_hardware_cases": 9,
     "image_copy_warp_cases": 9,
