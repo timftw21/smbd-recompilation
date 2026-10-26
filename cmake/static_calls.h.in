@@ -19,7 +19,7 @@ struct TablePointerSource {
     std::uint32_t source,proof_address;
     std::string_view prefix;
     std::uint32_t table;
-    bool global,object;
+    bool global,object,load;
 };
 inline constexpr std::array<TablePointerSource,@pointer_source_count@> table_pointer_sources = {{
 @table_pointer_sources@}};

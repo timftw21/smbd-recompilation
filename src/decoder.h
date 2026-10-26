@@ -22,7 +22,7 @@ struct Instruction {
 
 class Decoder {
 public:
-    struct PointerSource {std::uint32_t source;unsigned table;bool global,object,leaf;};
+    struct PointerSource {std::uint32_t source;unsigned table;bool global,object,leaf,load;};
     Decoder();
     Instruction decode(Xbe& image, std::uint32_t address);
     std::uint64_t decoded_count() const { return decoded_count_; }

@@ -9,13 +9,13 @@
     "cache_publication_lowered": true
   },
   "native_generation": {
-    "functions": 9748,
-    "compiled": 9748,
-    "closed_functions": 4893,
+    "functions": 9755,
+    "compiled": 9755,
+    "closed_functions": 4904,
     "native_platform_functions": 31,
-    "unresolved_indirect_sites": 921,
+    "unresolved_indirect_sites": 807,
     "unresolved_report_consistent": true,
-    "compiled_instructions": 815593,
+    "compiled_instructions": 815680,
     "unsupported_instructions": 0
   },
   "shaders": {
@@ -47,8 +47,8 @@
     "controller_cases": 47,
     "audio_mixer_cases": 37,
     "native_game_virtual_controller": true,
-    "generation_functions": 9748,
-    "unresolved_indirect_sites": 921
+    "generation_functions": 9755,
+    "unresolved_indirect_sites": 807
   },
   "build_validation": {
     "compiler": "clang-cl 22.1.8",
@@ -79,7 +79,7 @@
     "geometry_node_incremental_seconds": 25.0034194,
     "full_diagnostics_refresh_pending": false,
     "diagnostics_generation_functions": 9748,
-    "full_tool_build_seconds": 44.5868104,
+    "full_tool_build_seconds": 24.1422148,
     "image_copy_hardware_cases": 9,
     "image_copy_warp_cases": 9,
     "d3d11_copy_messages": 0,
@@ -98,7 +98,9 @@
     "shared_thinlto_cache": true,
     "native_dispatcher_outside_thinlto": true,
     "muted_runtime_game_build_seconds": 191.6005925,
-    "shared_cache_full_tool_build_seconds": 44.5868104
+    "shared_cache_full_tool_build_seconds": 24.1422148,
+    "stream_audio_batch_game_build_seconds": 477.8063552,
+    "stream_audio_batch_tool_build_seconds": 24.1422148
   },
   "frontend_validation": {
     "frames": 901,
@@ -118,14 +120,14 @@
     "generation_functions": 9597
   },
   "latest_run": {
-    "functions": 9748,
-    "frames": 3731,
-    "draws": 1478401,
-    "vertices": 81850120,
-    "blits": 1274,
+    "functions": 9755,
+    "frames": 3753,
+    "draws": 1496131,
+    "vertices": 85278093,
+    "blits": 1277,
     "boundary": "Native window closed",
-    "report": "build/logs/game-0045-full.json",
-    "capture": "build/logs/game-0045.png",
+    "report": "build/logs/game-0046-full.json",
+    "capture": "build/logs/game-0046.png",
     "stage_and_character_assets_read": true,
     "menu_verified": true,
     "playable": true,
@@ -155,7 +157,10 @@
     "shared_slot_dispatch_sites_resolved": 42,
     "shared_callback_and_factory_sites_resolved": 73,
     "table_pointer_flow_sites_resolved": 21,
-    "table_pointer_contracts": 16
+    "table_pointer_contracts": 233,
+    "grouped_pointer_source_records": 52,
+    "byte_checked_vptr_loads": 114,
+    "stream_audio_batch_sites_resolved": 114
   },
   "first_level_validation": {
     "level": "1-1 SIMPLE",
@@ -187,7 +192,8 @@
     "geometry_and_effects_artifacts_present": true,
     "neutral_generation_functions": 9746,
     "post_goal_exit_code": 0,
-    "post_goal_report": "build/logs/game-0045-full.json"
+    "post_goal_report": "build/logs/game-0046-full.json",
+    "post_goal_generation_functions": 9755
   },
   "controller_automation": {
     "original_menu_state": "0x008B2680",
@@ -202,12 +208,12 @@
   },
   "second_level_validation": {
     "level": "1-2 DIAMOND",
-    "functions": 9748,
+    "functions": 9755,
     "loaded": true,
     "rendered": true,
     "capture_state": "READY",
-    "capture": "build/logs/game-0045.png",
-    "report": "build/logs/game-0045-full.json",
+    "capture": "build/logs/game-0046.png",
+    "report": "build/logs/game-0046-full.json",
     "controller_steps": 34,
     "controller_waits": 6,
     "controller_complete": true,
@@ -219,21 +225,21 @@
     "analysis_command": "tools/Build.ps1 -Stage Analysis -AllowPartial",
     "game_command": "tools/Build.ps1 -Stage Game -AllowPartial",
     "full_command": "tools/Build.ps1 -AllowPartial",
-    "warm_analysis_seconds": 6.9762771,
-    "native_generation_seconds": 3.6030118000000004,
+    "warm_analysis_seconds": 6.5269833,
+    "native_generation_seconds": 3.707551,
     "index": "build/logs/call-recovery.json",
-    "unique_sites": 921,
-    "pattern_groups": 276,
+    "unique_sites": 807,
+    "pattern_groups": 264,
     "object_pointer_stores": 83,
     "absolute_slot_writes": 159,
-    "known_caller_entries": 7489,
+    "known_caller_entries": 7525,
     "generated_files_unchanged": 515,
     "function_reports_identical": true,
     "slot_binding_origins_verified": true,
     "analysis_index_built_in_bootstrap_tool": true,
     "batch_by_shared_slots_and_interfaces": true,
     "defer_full_links_and_platform_checks": true,
-    "batch_sites_resolved": 94,
+    "batch_sites_resolved": 114,
     "batch_sites_introduced": 0,
     "observed_unresolved_sites": 245,
     "observed_stream_interface_sites": 106,
@@ -246,6 +252,6 @@
     "tool_boot_diagnostics_muted": true,
     "explicit_flag": "--mute",
     "normal_mixing_and_playback_continue": true,
-    "verified_report": "build/logs/game-0045.json"
+    "verified_report": "build/logs/game-0046.json"
   }
 }

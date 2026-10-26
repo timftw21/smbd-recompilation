@@ -167,3 +167,38 @@ The latter run explicitly reports audio_muted:true. Hidden/scripted runs and
 tool boot diagnostics now mute the SDL output stream before playback starts,
 while normal audio mixing and playback timing continue. Regular game audio
 remains available; --mute provides an explicit output control.
+
+2026-10-26: Shared stream-record and audio-output recovery
+
+Pointer-source records now group source addresses and table alternatives. The
+analyser checks every original instruction prefix and interface bound before
+using a declared pointer load. Bounded local stack forwarding follows four-byte
+spills through PUSH/POP and explicit ESP adjustments, stopping at calls, branches,
+unknown aliases and overlapping writes. It retains table values rather than
+assuming an object vptr survives arbitrary writes or calls.
+
+The batch follows actual record producers and setters: ADX 2CFB60/2CF220,
+wave records 2D01E0/2D0A30, outer records 2C75C0/2C6770 and sound workers
+2CDD00. Worker +30 holds input streams, +50 holds audio output, and +4C is
+numeric timing state. The two stream interfaces are 6C0BA0/6C0BD0; output
+uses 6C0950 or the original fallback interface 6C0C60. Its 26-slot extent ends
+at 6C0CC8, before descriptor data. Seven original fallback methods are newly
+compiled. Their three guarded clock calls share the sole original initializer
+2CCED0, which installs 2D6870 in slot 93930C. Generic Sofdec receivers without
+complete producer proofs remain unresolved.
+
+Compared with the previous 921-site generation, this batch closes 114 sites
+and leaves 807, with no introduced unknowns or lost calls/callbacks. It compiles
+9755 functions and 815680 instructions, with 4904 closed functions and no
+unsupported instructions or exhausted budgets. There are 114 byte-checked
+vptr-load locations; grouped declarations expand to 233 source/table bindings.
+The warm analysis takes 6.53 seconds and changes no generated source files.
+The game batch builds in 477.81 seconds and the shared-cache diagnostic build
+in 24.14 seconds, using one compiler/linker worker. CPU 10, controller 47 and
+offline mixer 37 existing checks pass on the same generation.
+
+game-0046 completes all 34 input steps and six waits with audio_muted:true,
+3753 frames, 1496131 draws, 85278093 vertices and 1277 blits. The final
+capture shows READY on 1-2 DIAMOND after the first-level results flow.
+It exits normally. Visual/timing parity and the remaining calls/services
+are still incomplete.

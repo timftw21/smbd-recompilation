@@ -466,6 +466,52 @@ void resolve_import_aliases(Xbe& image,Function& function) {
         function.edges.push_back({pc,category==ZYDIS_CATEGORY_CALL?"kernel-call":"kernel-jump",instruction.kernel_ordinal});
     }
 }
+// Find a four-byte stack value within one straight-line section. Offsets are
+// relative to ESP at each instruction, so argument PUSHes cannot hide a spill.
+std::optional<std::pair<std::uint32_t,unsigned>> stack_value_source(const Function& function,std::uint32_t pc,std::int64_t wanted) {
+    for(unsigned steps=0;steps<64 && wanted>=-65536 && wanted<=65536;++steps) {
+        if(std::ranges::any_of(function.edges,[&](const Edge& edge) {return edge.to==pc &&
+            (edge.kind=="jump" || edge.kind=="conditional" || edge.kind=="table-jump");})) return {};
+        const auto* instruction=previous(function,pc);if(!instruction) return {};
+        const auto& ins=instruction->decoded;const auto& operands=instruction->operands;
+        if(ins.meta.category==ZYDIS_CATEGORY_CALL || ins.meta.category==ZYDIS_CATEGORY_COND_BR ||
+           ins.meta.category==ZYDIS_CATEGORY_UNCOND_BR || ins.meta.category==ZYDIS_CATEGORY_RET ||
+           ins.meta.category==ZYDIS_CATEGORY_INTERRUPT || ins.meta.category==ZYDIS_CATEGORY_SYSTEM ||
+           ins.meta.category==ZYDIS_CATEGORY_IO || ins.meta.category==ZYDIS_CATEGORY_IOSTRINGOP) return {};
+        const auto width=ins.operand_width/8;
+        if(ins.mnemonic==ZYDIS_MNEMONIC_PUSH || ins.mnemonic==ZYDIS_MNEMONIC_PUSHF || ins.mnemonic==ZYDIS_MNEMONIC_PUSHFD) {
+            if(width!=2 && width!=4) return {};
+            if(wanted<width && wanted+4>0)
+                return wanted==0 && width==4 && ins.mnemonic==ZYDIS_MNEMONIC_PUSH?
+                    std::optional{std::pair{instruction->address,0U}}:std::nullopt;
+            wanted-=width;
+        } else if((ins.mnemonic==ZYDIS_MNEMONIC_POP && operands[0].type==ZYDIS_OPERAND_TYPE_REGISTER &&
+                   general(operands[0].reg.value)>=0 && general(operands[0].reg.value)!=4) ||
+                  ins.mnemonic==ZYDIS_MNEMONIC_POPF || ins.mnemonic==ZYDIS_MNEMONIC_POPFD) {
+            if(width!=2 && width!=4) return {};
+            wanted+=width;
+        } else if((ins.mnemonic==ZYDIS_MNEMONIC_ADD || ins.mnemonic==ZYDIS_MNEMONIC_SUB) &&
+                  operands[0].type==ZYDIS_OPERAND_TYPE_REGISTER && operands[0].reg.value==ZYDIS_REGISTER_ESP &&
+                  operands[0].size==32 && operands[1].type==ZYDIS_OPERAND_TYPE_IMMEDIATE) {
+            const auto amount=operands[1].imm.is_signed?operands[1].imm.value.s:static_cast<std::int64_t>(operands[1].imm.value.u);
+            wanted+=ins.mnemonic==ZYDIS_MNEMONIC_ADD?amount:-amount;
+        } else {
+            for(unsigned i=0;i<ins.operand_count;++i) if(operands[i].actions&ZYDIS_OPERAND_ACTION_MASK_WRITE) {
+                const auto& operand=operands[i];
+                if(operand.type==ZYDIS_OPERAND_TYPE_REGISTER &&
+                   (general(operand.reg.value)==4 || operand.reg.value==ZYDIS_REGISTER_SS)) return {};
+                if(operand.type!=ZYDIS_OPERAND_TYPE_MEMORY) continue;
+                if(operand.mem.base!=ZYDIS_REGISTER_ESP || operand.mem.index!=ZYDIS_REGISTER_NONE || operand.mem.segment!=ZYDIS_REGISTER_SS) return {};
+                const auto first=operand.mem.disp.value,last=first+(operand.size+7)/8;
+                if(first<wanted+4 && last>wanted)
+                    return first==wanted && operand.size==32 && ins.mnemonic==ZYDIS_MNEMONIC_MOV && i==0?
+                        std::optional{std::pair{instruction->address,1U}}:std::nullopt;
+            }
+        }
+        pc=instruction->address;
+    }
+    return {};
+}
 void resolve_table_pointers(Xbe& image,Function& function,std::span<const Decoder::PointerSource> sources) {
     static_assert(std::size(entry_tables)<=128);
     using Tables=std::bitset<128>;
@@ -477,9 +523,9 @@ void resolve_table_pointers(Xbe& image,Function& function,std::span<const Decode
         unsigned kind=0; // Unknown, table address, object, method cell, null.
         bool operator==(const Value&) const = default;
     };
-    const auto source_value=[&](std::uint32_t address,bool global) {
+    const auto source_value=[&](std::uint32_t address,bool global,bool load=false) {
         Value result;
-        for(const auto& source:sources) if(source.source==address && source.global==global) {
+        for(const auto& source:sources) if(source.source==address && source.global==global && source.load==load) {
             const auto kind=source.object?2U:1U;
             if(result.kind && result.kind!=kind) return Value{};
             result.kind=kind;result.tables.set(source.table);
@@ -512,17 +558,43 @@ void resolve_table_pointers(Xbe& image,Function& function,std::span<const Decode
         std::ranges::sort(result);result.erase(std::unique(result.begin(),result.end()),result.end());return result;
     };
     using State=std::array<Value,8>;
-    const auto operand_value=[&](const ZydisDecodedOperand& operand,const State& state) {
+    std::map<std::uint32_t,State> states;
+    std::deque<std::uint32_t> pending;
+    std::map<std::uint32_t,std::set<std::uint32_t>> stack_readers;
+    const auto stack_value=[&](std::uint32_t pc,std::int64_t offset) {
+        if(!pc) return Value{};
+        const auto source=stack_value_source(function,pc,offset);if(!source) return Value{};
+        stack_readers[source->first].insert(pc);
+        const auto at=states.find(source->first);if(at==states.end()) return Value{};
+        const auto& operand=function.instructions.at(source->first).operands[source->second];
+        Value value;
+        if(operand.type==ZYDIS_OPERAND_TYPE_REGISTER && operand.size==32) {
+            const auto reg=general(operand.reg.value);if(reg>=0) value=at->second[reg];
+        } else if(operand.type==ZYDIS_OPERAND_TYPE_IMMEDIATE) value=literal(static_cast<std::uint32_t>(operand.imm.value.u));
+        return value.kind==1 || value.kind==3?value:Value{};
+    };
+    const auto operand_value=[&](const ZydisDecodedOperand& operand,const State& state,std::uint32_t pc=0) {
         if(operand.type==ZYDIS_OPERAND_TYPE_REGISTER && operand.size==32) {
             const auto reg=general(operand.reg.value);return reg>=0?state[reg]:Value{};
         }
         if(operand.type==ZYDIS_OPERAND_TYPE_IMMEDIATE) return literal(static_cast<std::uint32_t>(operand.imm.value.u));
+        if(operand.type==ZYDIS_OPERAND_TYPE_MEMORY && operand.size==32 && operand.mem.base==ZYDIS_REGISTER_ESP &&
+           operand.mem.index==ZYDIS_REGISTER_NONE && operand.mem.segment==ZYDIS_REGISTER_SS)
+            return stack_value(pc,operand.mem.disp.value);
         if(operand.type!=ZYDIS_OPERAND_TYPE_MEMORY || operand.size!=32 || operand.mem.segment!=ZYDIS_REGISTER_DS || operand.mem.index!=ZYDIS_REGISTER_NONE) return Value{};
         if(operand.mem.base==ZYDIS_REGISTER_NONE) return source_value(static_cast<std::uint32_t>(operand.mem.disp.value),true);
         const auto reg=general(operand.mem.base);return reg>=0?field(state[reg],static_cast<std::uint32_t>(operand.mem.disp.value)):Value{};
     };
     bool used=false;
     for(const auto& [pc,instruction]:function.instructions) {
+        if(source_value(pc,false,true).kind) {
+            if(instruction.decoded.mnemonic!=ZYDIS_MNEMONIC_MOV || instruction.decoded.address_width!=32 ||
+               instruction.operands[0].type!=ZYDIS_OPERAND_TYPE_REGISTER || instruction.operands[0].size!=32 ||
+               general(instruction.operands[0].reg.value)<0 || instruction.operands[1].type!=ZYDIS_OPERAND_TYPE_MEMORY ||
+               instruction.operands[1].size!=32)
+                throw std::runtime_error("Table pointer load differs at "+hex32(pc));
+            used=true;
+        }
         if(instruction.decoded.meta.category==ZYDIS_CATEGORY_CALL) {
             auto callees=instruction.jump_targets;if(const auto target=instruction.target()) callees.push_back(*target);
             for(auto target:callees) used |= source_value(target,false).kind!=0;
@@ -540,8 +612,6 @@ void resolve_table_pointers(Xbe& image,Function& function,std::span<const Decode
         if(!a.kind || a.kind!=b.kind || a.offset!=b.offset) return Value{};
         a.tables|=b.tables;return a;
     };
-    std::map<std::uint32_t,State> states;
-    std::deque<std::uint32_t> pending;
     const auto update=[&](std::uint32_t pc,const State& value) {
         if(!function.instructions.contains(pc)) return;
         const auto [found,inserted]=states.emplace(pc,value);bool changed=inserted;
@@ -549,7 +619,11 @@ void resolve_table_pointers(Xbe& image,Function& function,std::span<const Decode
             const auto merged=merge(found->second[reg],value[reg]);
             if(merged!=found->second[reg]) {found->second[reg]=merged;changed=true;}
         }
-        if(changed) pending.push_back(pc);
+        if(changed) {
+            pending.push_back(pc);
+            if(const auto readers=stack_readers.find(pc);readers!=stack_readers.end())
+                for(auto reader:readers->second) if(states.contains(reader)) pending.push_back(reader);
+        }
     };
     update(function.entry,State{});unsigned iterations=0;
     while(!pending.empty() && ++iterations<=function.instructions.size()*32) {
@@ -565,7 +639,11 @@ void resolve_table_pointers(Xbe& image,Function& function,std::span<const Decode
             const auto reg=general(operands[i].reg.value);if(reg>=0) state[reg]={};
         }
         if(ins.mnemonic==ZYDIS_MNEMONIC_MOV && ins.address_width==32 && operands[0].type==ZYDIS_OPERAND_TYPE_REGISTER && operands[0].size==32) {
-            const auto reg=general(operands[0].reg.value);if(reg>=0) state[reg]=operand_value(operands[1],original);
+            const auto declared=source_value(pc,false,true);
+            const auto reg=general(operands[0].reg.value);if(reg>=0) state[reg]=declared.kind?declared:operand_value(operands[1],original,pc);
+        }
+        if(ins.mnemonic==ZYDIS_MNEMONIC_POP && operands[0].type==ZYDIS_OPERAND_TYPE_REGISTER && operands[0].size==32) {
+            const auto reg=general(operands[0].reg.value);if(reg>=0 && reg!=4) state[reg]=stack_value(pc,0);
         }
         if(ins.mnemonic==ZYDIS_MNEMONIC_XOR && operands[0].type==ZYDIS_OPERAND_TYPE_REGISTER && operands[0].size==32 &&
            operands[1].type==ZYDIS_OPERAND_TYPE_REGISTER && operands[0].reg.value==operands[1].reg.value) {
@@ -574,7 +652,7 @@ void resolve_table_pointers(Xbe& image,Function& function,std::span<const Decode
         const auto next=pc+ins.length;const auto destination=instruction.target();
         if(ins.meta.category==ZYDIS_CATEGORY_CALL) {
             auto callees=instruction.jump_targets;
-            if(destination) callees={*destination};else if(callees.empty()) callees=targets(operand_value(operands[0],original));
+            if(destination) callees={*destination};else if(callees.empty()) callees=targets(operand_value(operands[0],original,pc));
             const bool leaf=!callees.empty() && std::ranges::all_of(callees,[&](auto target) {
                 return std::ranges::any_of(sources,[&](const auto& source) {return source.source==target && source.leaf;});
             });
@@ -596,7 +674,7 @@ void resolve_table_pointers(Xbe& image,Function& function,std::span<const Decode
         const auto category=instruction.decoded.meta.category;
         if((category!=ZYDIS_CATEGORY_CALL && category!=ZYDIS_CATEGORY_UNCOND_BR) || instruction.target() || instruction.kernel_ordinal ||
            !instruction.jump_targets.empty() || !states.contains(pc)) continue;
-        auto proven=targets(operand_value(instruction.operands[0],states.at(pc)));if(proven.empty()) continue;
+        auto proven=targets(operand_value(instruction.operands[0],states.at(pc),pc));if(proven.empty()) continue;
         instruction.jump_targets=proven;instruction.tail_dispatch=category==ZYDIS_CATEGORY_UNCOND_BR;
         for(auto target:proven) {function.static_callbacks.push_back(target);function.edges.push_back({pc,instruction.tail_dispatch?"tail-call":"call",target});}
     }
@@ -886,12 +964,12 @@ const std::vector<Decoder::PointerSource>& Decoder::pointer_sources(Xbe& image) 
         if(found==std::end(entry_tables) || found->end<=found->start || found->end-found->start>128*1024 || found->stride<4 || found->stride%4)
             throw std::runtime_error("Table pointer source has no bounded interface at "+hex32(source.table));
         bool leaf=false;
-        if(!source.global && !source.object && source.proof_address==source.source) {
+        if(!source.global && !source.load && !source.object && source.proof_address==source.source) {
             const auto code=image.data(source.source,11);
             leaf=(code[0]==std::byte{0xB8} && u32(code,1)==source.table && code[5]==std::byte{0xC3}) ||
                 (code[0]==std::byte{0xA1} && code[5]==std::byte{0xB8} && u32(code,6)==source.table && code[10]==std::byte{0xC3});
         }
-        result.push_back({source.source,static_cast<unsigned>(found-std::begin(entry_tables)),source.global,source.object,leaf});
+        result.push_back({source.source,static_cast<unsigned>(found-std::begin(entry_tables)),source.global,source.object,leaf,source.load});
     }
     pointer_sources_=std::move(result);pointer_image_=&image;return pointer_sources_;
 }

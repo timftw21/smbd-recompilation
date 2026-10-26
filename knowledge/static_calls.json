@@ -1356,6 +1356,14 @@
       "start": "0x002EC2FF",
       "end": "0x002EC303",
       "evidence": "Original decoder CPU setup publishes reconstruction callback 0x0031A650 into slot 0x0094E2A4."
+    },
+    {
+      "owner": "0x002D6910",
+      "prefix": "5633F633C033D2B9E4819500",
+      "start": "0x006C0C60",
+      "end": "0x006C0CC8",
+      "stride": 4,
+      "evidence": "The original fallback output-object constructor installs this 26-slot interface at 2D6949. It has the same operation span as the sound voice interface 6C0950; original worker consumers call its operations through +64. The next word at 6C0CC8 points to descriptor 460618 and is followed by a separate byte lookup table at 6C0CD0. The only two sound-backend factory slots are 2CE310 and 2D6910."
     }
   ],
   "groups": [
@@ -1882,6 +1890,20 @@
         "0x002D387E"
       ],
       "evidence": "The complete setter 2D3590 copies argument 0 to 9398EC. Its two recovered callers are 2C8C70 and the overlapping initialization entry 2C8FC0, both reaching the original PUSH 2C86B0 at 2C8CC6. The other writer is the zero initializer 2D3660. The sole raw occurrence of the setter address is a relative CALL displacement to another function, not an address-taken registration."
+    },
+    {
+      "slot": "0x0093930C",
+      "prefix": "FFD1",
+      "kind": "call",
+      "target_literals": [
+        "0x002CCED6"
+      ],
+      "sites": [
+        "0x002D69AC",
+        "0x002D69FD",
+        "0x002D6A4D"
+      ],
+      "evidence": "The complete original initializer 2CCED0 writes callback 2D6870 to 93930C. Native exact-address search finds only that store and these three guarded reads/calls. Null is checked before invocation. The four-byte target literal is the original immediate at 2CCED6."
     }
   ],
   "pointer_sources": [
@@ -2012,6 +2034,491 @@
       "prefix": "56E88AD8FFFF8B442408",
       "table": "0x006C0BD0",
       "evidence": "The complete wrapper enters the original service lock, invokes its verified stream-object constructor, saves the returned object in ESI, leaves the service lock through 2D6770, then returns that same object in EAX. The complete 12/14-instruction paths and constructor vptr stores were checked."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B03",
+      "sources": [
+        "0x002CF311",
+        "0x002CF35F",
+        "0x002CF3A5",
+        "0x002CF4BE",
+        "0x002CF6A2"
+      ],
+      "tables": [
+        "0x006C0BA0",
+        "0x006C0BD0"
+      ],
+      "evidence": "The ADX record constructor 2CFB60 is called only by 2C75C0: record +8 receives the LSC object created at 2C76C3 by 2D2CE0, and +C onward receives the array filled by 2D2CE0 at 2C770A. The sole primary-stream setter 2CF220 is called only by 2C6770. Its sources are the same saved object (2C6810), the 2D3330 result (2C78F0), or 2C7560 whose sole caller 2DDCC0 creates the object with 2D2CE0. 2D2890/2D2FC0 install the two original stream interfaces 6C0BA0/6C0BD0. These ADX consumers read those record streams; callback 2CF560 receives the original ADX record from its constructor. The declared MOV instructions load their vptrs, independently of method offset or observed target."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B06",
+      "sources": [
+        "0x002CFCE0",
+        "0x002CFD58",
+        "0x002CFD7F",
+        "0x002CFDD4",
+        "0x002CFE83"
+      ],
+      "tables": [
+        "0x006C0BA0",
+        "0x006C0BD0"
+      ],
+      "evidence": "The ADX record constructor 2CFB60 is called only by 2C75C0: record +8 receives the LSC object created at 2C76C3 by 2D2CE0, and +C onward receives the array filled by 2D2CE0 at 2C770A. The sole primary-stream setter 2CF220 is called only by 2C6770. Its sources are the same saved object (2C6810), the 2D3330 result (2C78F0), or 2C7560 whose sole caller 2DDCC0 creates the object with 2D2CE0. 2D2890/2D2FC0 install the two original stream interfaces 6C0BA0/6C0BD0. These ADX consumers read those record streams; callback 2CF560 receives the original ADX record from its constructor. The declared MOV instructions load their vptrs, independently of method offset or observed target."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B08",
+      "sources": [
+        "0x002CF7B5",
+        "0x002CF7D6",
+        "0x002CF84D",
+        "0x002CF8B7",
+        "0x002CF8D8",
+        "0x002CFE49"
+      ],
+      "tables": [
+        "0x006C0BA0",
+        "0x006C0BD0"
+      ],
+      "evidence": "The ADX record constructor 2CFB60 is called only by 2C75C0: record +8 receives the LSC object created at 2C76C3 by 2D2CE0, and +C onward receives the array filled by 2D2CE0 at 2C770A. The sole primary-stream setter 2CF220 is called only by 2C6770. Its sources are the same saved object (2C6810), the 2D3330 result (2C78F0), or 2C7560 whose sole caller 2DDCC0 creates the object with 2D2CE0. 2D2890/2D2FC0 install the two original stream interfaces 6C0BA0/6C0BD0. These ADX consumers read those record streams; callback 2CF560 receives the original ADX record from its constructor. The declared MOV instructions load their vptrs, independently of method offset or observed target."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B0B",
+      "sources": [
+        "0x002CF522",
+        "0x002CF540",
+        "0x002CF695"
+      ],
+      "tables": [
+        "0x006C0BA0",
+        "0x006C0BD0"
+      ],
+      "evidence": "The ADX record constructor 2CFB60 is called only by 2C75C0: record +8 receives the LSC object created at 2C76C3 by 2D2CE0, and +C onward receives the array filled by 2D2CE0 at 2C770A. The sole primary-stream setter 2CF220 is called only by 2C6770. Its sources are the same saved object (2C6810), the 2D3330 result (2C78F0), or 2C7560 whose sole caller 2DDCC0 creates the object with 2D2CE0. 2D2890/2D2FC0 install the two original stream interfaces 6C0BA0/6C0BD0. These ADX consumers read those record streams; callback 2CF560 receives the original ADX record from its constructor. The declared MOV instructions load their vptrs, independently of method offset or observed target."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B0E",
+      "sources": [
+        "0x002CFD61",
+        "0x002CFE27",
+        "0x002CFE9D"
+      ],
+      "tables": [
+        "0x006C0BA0",
+        "0x006C0BD0"
+      ],
+      "evidence": "The ADX record constructor 2CFB60 is called only by 2C75C0: record +8 receives the LSC object created at 2C76C3 by 2D2CE0, and +C onward receives the array filled by 2D2CE0 at 2C770A. The sole primary-stream setter 2CF220 is called only by 2C6770. Its sources are the same saved object (2C6810), the 2D3330 result (2C78F0), or 2C7560 whose sole caller 2DDCC0 creates the object with 2D2CE0. 2D2890/2D2FC0 install the two original stream interfaces 6C0BA0/6C0BD0. These ADX consumers read those record streams; callback 2CF560 receives the original ADX record from its constructor. The declared MOV instructions load their vptrs, independently of method offset or observed target."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B10",
+      "sources": [
+        "0x002CF589",
+        "0x002CF70B",
+        "0x002CF71A",
+        "0x002CF822",
+        "0x002CF922",
+        "0x002CF938"
+      ],
+      "tables": [
+        "0x006C0BA0",
+        "0x006C0BD0"
+      ],
+      "evidence": "The ADX record constructor 2CFB60 is called only by 2C75C0: record +8 receives the LSC object created at 2C76C3 by 2D2CE0, and +C onward receives the array filled by 2D2CE0 at 2C770A. The sole primary-stream setter 2CF220 is called only by 2C6770. Its sources are the same saved object (2C6810), the 2D3330 result (2C78F0), or 2C7560 whose sole caller 2DDCC0 creates the object with 2D2CE0. 2D2890/2D2FC0 install the two original stream interfaces 6C0BA0/6C0BD0. These ADX consumers read those record streams; callback 2CF560 receives the original ADX record from its constructor. The declared MOV instructions load their vptrs, independently of method offset or observed target."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B13",
+      "sources": [
+        "0x002CF3BE",
+        "0x002CF4CB",
+        "0x002CF4E9"
+      ],
+      "tables": [
+        "0x006C0BA0",
+        "0x006C0BD0"
+      ],
+      "evidence": "The ADX record constructor 2CFB60 is called only by 2C75C0: record +8 receives the LSC object created at 2C76C3 by 2D2CE0, and +C onward receives the array filled by 2D2CE0 at 2C770A. The sole primary-stream setter 2CF220 is called only by 2C6770. Its sources are the same saved object (2C6810), the 2D3330 result (2C78F0), or 2C7560 whose sole caller 2DDCC0 creates the object with 2D2CE0. 2D2890/2D2FC0 install the two original stream interfaces 6C0BA0/6C0BD0. These ADX consumers read those record streams; callback 2CF560 receives the original ADX record from its constructor. The declared MOV instructions load their vptrs, independently of method offset or observed target."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B16",
+      "sources": [
+        "0x002CFCC6",
+        "0x002CFDCB",
+        "0x002CFDF0",
+        "0x002CFE5D"
+      ],
+      "tables": [
+        "0x006C0BA0",
+        "0x006C0BD0"
+      ],
+      "evidence": "The ADX record constructor 2CFB60 is called only by 2C75C0: record +8 receives the LSC object created at 2C76C3 by 2D2CE0, and +C onward receives the array filled by 2D2CE0 at 2C770A. The sole primary-stream setter 2CF220 is called only by 2C6770. Its sources are the same saved object (2C6810), the 2D3330 result (2C78F0), or 2C7560 whose sole caller 2DDCC0 creates the object with 2D2CE0. 2D2890/2D2FC0 install the two original stream interfaces 6C0BA0/6C0BD0. These ADX consumers read those record streams; callback 2CF560 receives the original ADX record from its constructor. The declared MOV instructions load their vptrs, independently of method offset or observed target."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B06",
+      "sources": [
+        "0x002D00E1",
+        "0x002D015F",
+        "0x002D0A43"
+      ],
+      "tables": [
+        "0x006C0BA0",
+        "0x006C0BD0"
+      ],
+      "evidence": "2D0060 consumes the stream fields of the ADX record initialized by sole constructor 2CFB60 from 2C75C0; its primary replacement path is 2CF220 from 2C6770, fed only by the two original LSC factories. 2D01E0 initializes the separate 963580 record pool and writes its LSC input to +4. Its wrappers 2D0280/2D02E0 are called only through 2D0340, with original constructor-created streams or null. The only later +4 writer in this complete private module is 2D0A30, called only by 2C7BD0; its callers 2C7C90/2C7E00 pass their 2D2CE0 results. 2D0590 and 2D0A30 dispatch the stored/input stream. The two concrete interfaces are installed by 2D2890 and 2D2FC0; these declarations identify their vptr loads, rather than deriving type from method offsets or observations."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B07",
+      "sources": [
+        "0x002D0258",
+        "0x002D05E7",
+        "0x002D070C",
+        "0x002D072D"
+      ],
+      "tables": [
+        "0x006C0BA0",
+        "0x006C0BD0"
+      ],
+      "evidence": "2D0060 consumes the stream fields of the ADX record initialized by sole constructor 2CFB60 from 2C75C0; its primary replacement path is 2CF220 from 2C6770, fed only by the two original LSC factories. 2D01E0 initializes the separate 963580 record pool and writes its LSC input to +4. Its wrappers 2D0280/2D02E0 are called only through 2D0340, with original constructor-created streams or null. The only later +4 writer in this complete private module is 2D0A30, called only by 2C7BD0; its callers 2C7C90/2C7E00 pass their 2D2CE0 results. 2D0590 and 2D0A30 dispatch the stored/input stream. The two concrete interfaces are installed by 2D2890 and 2D2FC0; these declarations identify their vptr loads, rather than deriving type from method offsets or observations."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B0E",
+      "sources": [
+        "0x002D0A4B"
+      ],
+      "tables": [
+        "0x006C0BA0",
+        "0x006C0BD0"
+      ],
+      "evidence": "2D0060 consumes the stream fields of the ADX record initialized by sole constructor 2CFB60 from 2C75C0; its primary replacement path is 2CF220 from 2C6770, fed only by the two original LSC factories. 2D01E0 initializes the separate 963580 record pool and writes its LSC input to +4. Its wrappers 2D0280/2D02E0 are called only through 2D0340, with original constructor-created streams or null. The only later +4 writer in this complete private module is 2D0A30, called only by 2C7BD0; its callers 2C7C90/2C7E00 pass their 2D2CE0 results. 2D0590 and 2D0A30 dispatch the stored/input stream. The two concrete interfaces are installed by 2D2890 and 2D2FC0; these declarations identify their vptr loads, rather than deriving type from method offsets or observations."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B16",
+      "sources": [
+        "0x002D00A9",
+        "0x002D0127"
+      ],
+      "tables": [
+        "0x006C0BA0",
+        "0x006C0BD0"
+      ],
+      "evidence": "2D0060 consumes the stream fields of the ADX record initialized by sole constructor 2CFB60 from 2C75C0; its primary replacement path is 2CF220 from 2C6770, fed only by the two original LSC factories. 2D01E0 initializes the separate 963580 record pool and writes its LSC input to +4. Its wrappers 2D0280/2D02E0 are called only through 2D0340, with original constructor-created streams or null. The only later +4 writer in this complete private module is 2D0A30, called only by 2C7BD0; its callers 2C7C90/2C7E00 pass their 2D2CE0 results. 2D0590 and 2D0A30 dispatch the stored/input stream. The two concrete interfaces are installed by 2D2890 and 2D2FC0; these declarations identify their vptr loads, rather than deriving type from method offsets or observations."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B17",
+      "sources": [
+        "0x002D024E",
+        "0x002D05F4",
+        "0x002D0677",
+        "0x002D07D3"
+      ],
+      "tables": [
+        "0x006C0BA0",
+        "0x006C0BD0"
+      ],
+      "evidence": "2D0060 consumes the stream fields of the ADX record initialized by sole constructor 2CFB60 from 2C75C0; its primary replacement path is 2CF220 from 2C6770, fed only by the two original LSC factories. 2D01E0 initializes the separate 963580 record pool and writes its LSC input to +4. Its wrappers 2D0280/2D02E0 are called only through 2D0340, with original constructor-created streams or null. The only later +4 writer in this complete private module is 2D0A30, called only by 2C7BD0; its callers 2C7C90/2C7E00 pass their 2D2CE0 results. 2D0590 and 2D0A30 dispatch the stored/input stream. The two concrete interfaces are installed by 2D2890 and 2D2FC0; these declarations identify their vptr loads, rather than deriving type from method offsets or observations."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B3E",
+      "sources": [
+        "0x002D00AF",
+        "0x002D012D"
+      ],
+      "tables": [
+        "0x006C0BA0",
+        "0x006C0BD0"
+      ],
+      "evidence": "2D0060 consumes the stream fields of the ADX record initialized by sole constructor 2CFB60 from 2C75C0; its primary replacement path is 2CF220 from 2C6770, fed only by the two original LSC factories. 2D01E0 initializes the separate 963580 record pool and writes its LSC input to +4. Its wrappers 2D0280/2D02E0 are called only through 2D0340, with original constructor-created streams or null. The only later +4 writer in this complete private module is 2D0A30, called only by 2C7BD0; its callers 2C7C90/2C7E00 pass their 2D2CE0 results. 2D0590 and 2D0A30 dispatch the stored/input stream. The two concrete interfaces are installed by 2D2890 and 2D2FC0; these declarations identify their vptr loads, rather than deriving type from method offsets or observations."
+    },
+    {
+      "source": "0x002D6910",
+      "kind": "return-object",
+      "proof_address": "0x002D6910",
+      "prefix": "5633F633C033D2B9E4819500",
+      "table": "0x006C0C60",
+      "evidence": "The complete original allocator chooses one of sixteen records of 0x20 bytes in 9581E0..9583E0, installs vptr 6C0C60 at 2D6949, and returns that same EAX record. This is the fallback result of backend factory +14; the other factory returns the real sound voice 6C0950."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B08",
+      "sources": [
+        "0x002CCFA7",
+        "0x002CCFEB",
+        "0x002CD35E",
+        "0x002CD3B1",
+        "0x002CD3FC",
+        "0x002CD52A",
+        "0x002CD5C7",
+        "0x002CD616",
+        "0x002CD703",
+        "0x002CDC05",
+        "0x002CDC18",
+        "0x002CDC36",
+        "0x002CDC4E",
+        "0x002CDC68",
+        "0x002CDE3B",
+        "0x002CDEA3",
+        "0x002CDF95"
+      ],
+      "tables": [
+        "0x006C0950",
+        "0x006C0C60"
+      ],
+      "evidence": "The original sound-worker record has one nonzero +50 writer: 2CDD8C stores the result of the selected backend factory at 2CDD84. Global 9392FC has only the two original backend tables 6C0938 and 6C0C48, whose +14 factories are 2CE310 (vptr 6C0950) and 2D6910 (vptr 6C0C60). The former installs 6C0950 at 2CE35B and the latter installs 6C0C60 at 2D6949. The complete worker module has no other +50 pointer assignment; allocation/release clearing yields null. These MOVs reload the output vptr after loading worker +50. Input packet-stream fields are kept separate from this output field."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B10",
+      "sources": [
+        "0x002CD3CB",
+        "0x002CD412",
+        "0x002CD436",
+        "0x002CD45D",
+        "0x002CDC43",
+        "0x002CDC59",
+        "0x002CDC81",
+        "0x002CDC8C",
+        "0x002CDDD7"
+      ],
+      "tables": [
+        "0x006C0950",
+        "0x006C0C60"
+      ],
+      "evidence": "The original sound-worker record has one nonzero +50 writer: 2CDD8C stores the result of the selected backend factory at 2CDD84. Global 9392FC has only the two original backend tables 6C0938 and 6C0C48, whose +14 factories are 2CE310 (vptr 6C0950) and 2D6910 (vptr 6C0C60). The former installs 6C0950 at 2CE35B and the latter installs 6C0C60 at 2D6949. The complete worker module has no other +50 pointer assignment; allocation/release clearing yields null. These MOVs reload the output vptr after loading worker +50. Input packet-stream fields are kept separate from this output field."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B11",
+      "sources": [
+        "0x002CD251",
+        "0x002CDE2B"
+      ],
+      "tables": [
+        "0x006C0950",
+        "0x006C0C60"
+      ],
+      "evidence": "The original sound-worker record has one nonzero +50 writer: 2CDD8C stores the result of the selected backend factory at 2CDD84. Global 9392FC has only the two original backend tables 6C0938 and 6C0C48, whose +14 factories are 2CE310 (vptr 6C0950) and 2D6910 (vptr 6C0C60). The former installs 6C0950 at 2CE35B and the latter installs 6C0C60 at 2D6949. The complete worker module has no other +50 pointer assignment; allocation/release clearing yields null. These MOVs reload the output vptr after loading worker +50. Input packet-stream fields are kept separate from this output field."
+    },
+    {
+      "source": "0x002E990A",
+      "kind": "load-table",
+      "prefix": "8B16",
+      "table": "0x006C0BA0",
+      "evidence": "Complete initialization 2E98F0 constructs one object from 2D2CE0 and one from 2D3330, queries each class tag at +10, saves those tags in 94E018/94E014, and releases each through +0C. These releases reload the vptr of the same saved ESI object; both +10 getters save/restore ESI in their complete original bodies. The two factories install precisely 6C0BA0 and 6C0BD0."
+    },
+    {
+      "source": "0x002E9929",
+      "kind": "load-table",
+      "prefix": "8B16",
+      "table": "0x006C0BD0",
+      "evidence": "Complete initialization 2E98F0 constructs one object from 2D2CE0 and one from 2D3330, queries each class tag at +10, saves those tags in 94E018/94E014, and releases each through +0C. These releases reload the vptr of the same saved ESI object; both +10 getters save/restore ESI in their complete original bodies. The two factories install precisely 6C0BA0 and 6C0BD0."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B08",
+      "sources": [
+        "0x002CD1F4",
+        "0x002CD28D",
+        "0x002CD29C",
+        "0x002CD9DE"
+      ],
+      "tables": [
+        "0x006C0BA0"
+      ],
+      "evidence": "2CDD00 copies its checked 1..4-element input array into worker +30 onward at 2CDD6E..2CDD77. Its wrapper 2D0C00 is called only by 2C75C0, which passes the secondary array filled with 2D2CE0 results at 2C770A/2C7714. Therefore the input objects read by the worker input loop and channel-zero query use the original 6C0BA0 interface installed at 2D28F8. This input array is distinct from output +50 and numeric timing field +4C."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B10",
+      "sources": [
+        "0x002CD4D6"
+      ],
+      "tables": [
+        "0x006C0950",
+        "0x006C0C60"
+      ],
+      "evidence": "2CD4A0 reloads worker output +50 at 2CD4D3, then tail-dispatches its original +1C operation. The sole nonzero +50 writer is 2CDD8C, fed by original backend factory +14: 2CE310 installs 6C0950 and 2D6910 installs 6C0C60. The global backend selection admits only 6C0938/6C0C48 or null."
+    },
+    {
+      "kind": "load-table",
+      "source": "0x002CD148",
+      "prefix": "8B01",
+      "table": "0x006C0BA0",
+      "evidence": "The worker input array at +30 is copied from the secondary 2D2CE0-created array of the sole 2D0C00 caller 2C75C0. 2CD146 fetches an array element and 2CD148 loads its 6C0BA0 vptr. The following code spills that pointer to the local stack before loading it again around two argument PUSHes; stack-value forwarding proves the same pointer at call 2CD16A."
+    },
+    {
+      "kind": "load-table",
+      "source": "0x002CDFCB",
+      "prefix": "8B08",
+      "tables": [
+        "0x006C0950",
+        "0x006C0C60"
+      ],
+      "evidence": "The shutdown loop starts ESI at 965F90, exactly worker-pool base 965F40 plus output-field offset 50, advances by the original D0 record stride and stops at 966C90. Each active record reloads that output pointer then its vptr. Its sole nonzero constructor assignment admits only 6C0950 or fallback 6C0C60."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B08",
+      "sources": [
+        "0x002C6789",
+        "0x002C68E7",
+        "0x002C74A3"
+      ],
+      "tables": [
+        "0x006C0BA0",
+        "0x006C0BD0"
+      ],
+      "evidence": "The sole outer-record constructor 2C75C0 installs the primary 2D2CE0 result at +10 and its secondary results at +18 onward. The active-stream setter 2C6770 copies its input to +14; its complete callers supply the saved primary, a 2D3330 result, or the 2D2CE0 result from sole replacement caller 2DDCC0. These four loads dispatch only those primary, secondary, or active fields, whose constructors install 6C0BA0 or 6C0BD0. The other +78/+80 release fields in 2C73F0 are deliberately excluded."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B10",
+      "sources": [
+        "0x002C74C2"
+      ],
+      "tables": [
+        "0x006C0BA0",
+        "0x006C0BD0"
+      ],
+      "evidence": "The sole outer-record constructor 2C75C0 installs the primary 2D2CE0 result at +10 and its secondary results at +18 onward. The active-stream setter 2C6770 copies its input to +14; its complete callers supply the saved primary, a 2D3330 result, or the 2D2CE0 result from sole replacement caller 2DDCC0. These four loads dispatch only those primary, secondary, or active fields, whose constructors install 6C0BA0 or 6C0BD0. The other +78/+80 release fields in 2C73F0 are deliberately excluded."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B03",
+      "sources": [
+        "0x002D1812",
+        "0x002D1820"
+      ],
+      "tables": [
+        "0x006C0BA0",
+        "0x006C0BD0"
+      ],
+      "evidence": "Both callbacks receive the original outer record as context, registered through 2CF9A0 at 2D1DF4..2D1DFB and 2D2017..2D201E. Their stream receivers are the saved active stream at record +14, loaded at 2D174E or 2D191D and held in EBX/ESI. The only active-stream setter 2C6770 is fed by original 2D2CE0/2D3330 factory results or the saved primary stream from sole outer constructor 2C75C0. Each declared MOV reloads the concrete stream vptr; callback context and receiver field establish the class independently of method offsets or traces."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B06",
+      "sources": [
+        "0x002D1941",
+        "0x002D19FC",
+        "0x002D1A48",
+        "0x002D1A95"
+      ],
+      "tables": [
+        "0x006C0BA0",
+        "0x006C0BD0"
+      ],
+      "evidence": "Both callbacks receive the original outer record as context, registered through 2CF9A0 at 2D1DF4..2D1DFB and 2D2017..2D201E. Their stream receivers are the saved active stream at record +14, loaded at 2D174E or 2D191D and held in EBX/ESI. The only active-stream setter 2C6770 is fed by original 2D2CE0/2D3330 factory results or the saved primary stream from sole outer constructor 2C75C0. Each declared MOV reloads the concrete stream vptr; callback context and receiver field establish the class independently of method offsets or traces."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B0B",
+      "sources": [
+        "0x002D179B"
+      ],
+      "tables": [
+        "0x006C0BA0",
+        "0x006C0BD0"
+      ],
+      "evidence": "Both callbacks receive the original outer record as context, registered through 2CF9A0 at 2D1DF4..2D1DFB and 2D2017..2D201E. Their stream receivers are the saved active stream at record +14, loaded at 2D174E or 2D191D and held in EBX/ESI. The only active-stream setter 2C6770 is fed by original 2D2CE0/2D3330 factory results or the saved primary stream from sole outer constructor 2C75C0. Each declared MOV reloads the concrete stream vptr; callback context and receiver field establish the class independently of method offsets or traces."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B0E",
+      "sources": [
+        "0x002D1927",
+        "0x002D1983",
+        "0x002D1A28",
+        "0x002D1A64",
+        "0x002D1A88"
+      ],
+      "tables": [
+        "0x006C0BA0",
+        "0x006C0BD0"
+      ],
+      "evidence": "Both callbacks receive the original outer record as context, registered through 2CF9A0 at 2D1DF4..2D1DFB and 2D2017..2D201E. Their stream receivers are the saved active stream at record +14, loaded at 2D174E or 2D191D and held in EBX/ESI. The only active-stream setter 2C6770 is fed by original 2D2CE0/2D3330 factory results or the saved primary stream from sole outer constructor 2C75C0. Each declared MOV reloads the concrete stream vptr; callback context and receiver field establish the class independently of method offsets or traces."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B13",
+      "sources": [
+        "0x002D17C4",
+        "0x002D1808"
+      ],
+      "tables": [
+        "0x006C0BA0",
+        "0x006C0BD0"
+      ],
+      "evidence": "Both callbacks receive the original outer record as context, registered through 2CF9A0 at 2D1DF4..2D1DFB and 2D2017..2D201E. Their stream receivers are the saved active stream at record +14, loaded at 2D174E or 2D191D and held in EBX/ESI. The only active-stream setter 2C6770 is fed by original 2D2CE0/2D3330 factory results or the saved primary stream from sole outer constructor 2C75C0. Each declared MOV reloads the concrete stream vptr; callback context and receiver field establish the class independently of method offsets or traces."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B16",
+      "sources": [
+        "0x002D1976",
+        "0x002D1A09",
+        "0x002D1A55"
+      ],
+      "tables": [
+        "0x006C0BA0",
+        "0x006C0BD0"
+      ],
+      "evidence": "Both callbacks receive the original outer record as context, registered through 2CF9A0 at 2D1DF4..2D1DFB and 2D2017..2D201E. Their stream receivers are the saved active stream at record +14, loaded at 2D174E or 2D191D and held in EBX/ESI. The only active-stream setter 2C6770 is fed by original 2D2CE0/2D3330 factory results or the saved primary stream from sole outer constructor 2C75C0. Each declared MOV reloads the concrete stream vptr; callback context and receiver field establish the class independently of method offsets or traces."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B06",
+      "sources": [
+        "0x002D1BF2",
+        "0x002D1C18"
+      ],
+      "tables": [
+        "0x006C0BA0"
+      ],
+      "evidence": "These outer-record consumers are called by the original driver 2D2140. 2D1B20 iterates the secondary stream array at outer +18 (2D1BDE..2D1BF2); 2D1E10 uses the saved primary stream at outer +10 (2D1E50..2D1E57). The sole constructor 2C75C0 fills both fields with 2D2CE0 results at 2C76C3/2C770A, whose allocator installs precisely 6C0BA0. These are distinct from the replaceable active field +14."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B08",
+      "sources": [
+        "0x002D1E57"
+      ],
+      "tables": [
+        "0x006C0BA0"
+      ],
+      "evidence": "These outer-record consumers are called by the original driver 2D2140. 2D1B20 iterates the secondary stream array at outer +18 (2D1BDE..2D1BF2); 2D1E10 uses the saved primary stream at outer +10 (2D1E50..2D1E57). The sole constructor 2C75C0 fills both fields with 2D2CE0 results at 2C76C3/2C770A, whose allocator installs precisely 6C0BA0. These are distinct from the replaceable active field +14."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B0F",
+      "sources": [
+        "0x002D0DCA"
+      ],
+      "tables": [
+        "0x006C0BA0"
+      ],
+      "evidence": "The complete helper takes its stream in EDI and dispatches the two +24 queries. Its only original callers are 2C75C0 at 2C7750, passing the saved primary 2D2CE0 result at outer +10, and 2DBB70 at 2DBD5A, passing player +1D4 created by 2DAF40 through 2D2CE0. That factory installs exactly 6C0BA0. The helper stores this input at its own record +8; numeric +14 is not a pointer."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B17",
+      "sources": [
+        "0x002D0DD2"
+      ],
+      "tables": [
+        "0x006C0BA0"
+      ],
+      "evidence": "The complete helper takes its stream in EDI and dispatches the two +24 queries. Its only original callers are 2C75C0 at 2C7750, passing the saved primary 2D2CE0 result at outer +10, and 2DBB70 at 2DBD5A, passing player +1D4 created by 2DAF40 through 2D2CE0. That factory installs exactly 6C0BA0. The helper stores this input at its own record +8; numeric +14 is not a pointer."
     }
   ]
 }
