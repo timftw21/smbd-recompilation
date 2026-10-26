@@ -8,6 +8,26 @@ Run from the source folder:
 
   .\tools\Build.ps1 -AllowPartial
 
+For ongoing call recovery after preparation:
+
+  .\tools\Build.ps1 -Stage Analysis -AllowPartial
+  .\tools\Build.ps1 -Stage Game -AllowPartial
+
+Analysis rebuilds only the small generator, checks the saved inputs, and emits
+native source plus build/logs/call-recovery.json. The index lists every unique
+unresolved site once, ranks shared calling patterns, and supplies original
+instructions, nearby code, constructors, slot writes and direct callers. Nearby
+address uses are research candidates, not proofs of writes or object types.
+Caller lists include statically resolved target sets. A slot origin is reported
+only when every recovered owner agrees; method offsets alone do not prove type.
+Work through related slot/interface families in this loop before linking.
+Grouped slot bindings verify each site's original pointer source automatically.
+
+Game then builds only the game, reusing prepared media, analysis and shaders.
+The default All stage performs the full workflow and refreshes both executables
+and platform diagnostics. Use it for runtime changes and milestone validation;
+individual call metadata changes do not require repeated platform checks.
+
 Use -Disc 'D:\path\game.xiso.iso' to select a different image location.
 The script verifies/extracts the whole disc, reuses indexed Ghidra analysis,
 generates 512 native C++ shards, compiles shaders offline, builds the game and

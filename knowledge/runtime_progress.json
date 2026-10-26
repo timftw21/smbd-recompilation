@@ -206,5 +206,24 @@
     "goal_reached": false,
     "straight_input_fall_and_retry_verified": true,
     "fall_report": "build/logs/game-0039-full.json"
+  },
+  "recovery_workflow": {
+    "analysis_command": "tools/Build.ps1 -Stage Analysis -AllowPartial",
+    "game_command": "tools/Build.ps1 -Stage Game -AllowPartial",
+    "full_command": "tools/Build.ps1 -AllowPartial",
+    "warm_analysis_seconds": 5.9687385,
+    "native_generation_seconds": 3.6030118000000004,
+    "index": "build/logs/call-recovery.json",
+    "unique_sites": 1015,
+    "pattern_groups": 283,
+    "object_pointer_stores": 83,
+    "absolute_slot_writes": 168,
+    "known_caller_entries": 691,
+    "generated_files_unchanged": 515,
+    "function_reports_identical": true,
+    "slot_binding_origins_verified": true,
+    "analysis_index_built_in_bootstrap_tool": true,
+    "batch_by_shared_slots_and_interfaces": true,
+    "defer_full_links_and_platform_checks": true
   }
 }

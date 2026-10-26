@@ -40,6 +40,174 @@ void instruction_reports(std::ostream& out,std::span<const std::string> values) 
     for(std::size_t i=0;i<values.size();++i) {if(i) out<<',';out<<values[i];}
     out << ']';
 }
+struct RecoverySite {
+    std::string group,instruction;
+    std::vector<std::string> nearby;
+    std::set<std::uint32_t> owners;
+    std::size_t scope=SIZE_MAX;
+    std::optional<std::uint32_t> slot;
+    bool mixed_slots=false;
+};
+struct PointerStore {std::uint32_t value;std::string instruction;std::set<std::uint32_t> owners;};
+struct SlotWrite {std::uint32_t address;unsigned bytes;std::string instruction;std::set<std::uint32_t> owners;};
+// This is a local origin proof, not a guess about the object's type. Incoming
+// branches, calls and other writes stop the walk before they can hide an alias.
+std::optional<ZydisDecodedOperand> load_origin(const Function& function,std::uint32_t pc,ZydisRegister reg) {
+    auto wanted=ZydisRegisterGetLargestEnclosing(ZYDIS_MACHINE_MODE_LEGACY_32,reg);
+    for(unsigned steps=0;steps<64;++steps) {
+        if(std::ranges::any_of(function.edges,[&](const Edge& edge) {
+            return edge.to==pc && (edge.kind=="jump" || edge.kind=="conditional" || edge.kind=="table-jump");
+        })) return {};
+        auto at=function.instructions.lower_bound(pc);
+        if(at==function.instructions.begin()) return {};
+        const auto& instruction=(--at)->second;const auto& ins=instruction.decoded;
+        if(instruction.address+ins.length!=pc || ins.meta.category==ZYDIS_CATEGORY_CALL ||
+           ins.meta.category==ZYDIS_CATEGORY_UNCOND_BR || ins.meta.category==ZYDIS_CATEGORY_RET) return {};
+        bool written=false;
+        for(unsigned i=0;i<ins.operand_count;++i) {
+            const auto& operand=instruction.operands[i];
+            written |= operand.type==ZYDIS_OPERAND_TYPE_REGISTER && (operand.actions&ZYDIS_OPERAND_ACTION_MASK_WRITE) &&
+                ZydisRegisterGetLargestEnclosing(ZYDIS_MACHINE_MODE_LEGACY_32,operand.reg.value)==wanted;
+        }
+        if(written) {
+            const auto& destination=instruction.operands[0];const auto& source=instruction.operands[1];
+            if(ins.mnemonic!=ZYDIS_MNEMONIC_MOV || destination.type!=ZYDIS_OPERAND_TYPE_REGISTER || destination.size!=32 ||
+               ZydisRegisterGetLargestEnclosing(ZYDIS_MACHINE_MODE_LEGACY_32,destination.reg.value)!=wanted || source.size!=32) return {};
+            if(source.type==ZYDIS_OPERAND_TYPE_MEMORY && ins.address_width==32 && source.mem.segment==ZYDIS_REGISTER_DS) return source;
+            if(source.type!=ZYDIS_OPERAND_TYPE_REGISTER) return {};
+            wanted=ZydisRegisterGetLargestEnclosing(ZYDIS_MACHINE_MODE_LEGACY_32,source.reg.value);
+        }
+        pc=instruction.address;
+    }
+    return {};
+}
+std::string recovery_group(const Function& function,const Instruction& instruction) {
+    if(const auto slot=indirect_slot(function,instruction)) return "slot "+hex32(*slot);
+    auto operand=instruction.operands[0];
+    bool loaded=false;
+    if(operand.type==ZYDIS_OPERAND_TYPE_REGISTER) {
+        const auto origin=load_origin(function,instruction.address,operand.reg.value);
+        if(!origin) return "register";
+        operand=*origin;loaded=true;
+    }
+    if(operand.type!=ZYDIS_OPERAND_TYPE_MEMORY) return "other";
+    if(operand.mem.base==ZYDIS_REGISTER_NONE)
+        return std::string(operand.mem.index==ZYDIS_REGISTER_NONE?"slot ":"indexed table ")+hex32(static_cast<std::uint32_t>(operand.mem.disp.value));
+    if(operand.mem.index!=ZYDIS_REGISTER_NONE) return "indexed object field";
+    const auto origin=loaded?std::nullopt:load_origin(function,instruction.address,operand.mem.base);
+    const bool table=origin && origin->mem.base!=ZYDIS_REGISTER_NONE && origin->mem.index==ZYDIS_REGISTER_NONE && origin->mem.disp.value==0;
+    return std::string(table?"method +":loaded?"loaded field +":"object field +")+hex32(static_cast<std::uint32_t>(operand.mem.disp.value));
+}
+void collect_recovery(const Xbe& image,const Function& function,const Unit& unit,
+    std::map<std::uint32_t,RecoverySite>& sites,std::map<std::uint32_t,PointerStore>& stores,
+    std::map<std::uint32_t,SlotWrite>& writes,std::map<std::uint32_t,PointerStore>& uses) {
+    for(auto pc:unit.indirect) {
+        auto& site=sites[pc];const auto source=unit.emit?indirect_slot(function,function.instructions.at(pc)):std::nullopt;
+        if(site.owners.empty()) site.slot=source;
+        else if(site.slot!=source) {site.slot.reset();site.mixed_slots=true;}
+        site.owners.insert(function.entry);
+        if(site.mixed_slots) site.group="mixed slot origins";
+        if(function.instructions.size()>=site.scope) continue;
+        const auto at=function.instructions.find(pc);site.scope=function.instructions.size();
+        site.group=site.mixed_slots?"mixed slot origins":unit.emit?recovery_group(function,at->second):"translation blocked";
+        site.instruction=at->second.report();site.nearby.clear();
+        auto begin=at;for(unsigned i=0;i<16 && begin!=function.instructions.begin();++i) --begin;
+        auto end=at;for(unsigned i=0;i<4 && end!=function.instructions.end();++i) ++end;
+        for(auto cursor=begin;cursor!=end;++cursor) site.nearby.push_back(cursor->second.report());
+    }
+    for(const auto& [pc,instruction]:function.instructions) {
+        for(unsigned i=0;i<instruction.decoded.operand_count_visible;++i) {
+            const auto& operand=instruction.operands[i];std::optional<std::uint32_t> address;
+            if(operand.type==ZYDIS_OPERAND_TYPE_IMMEDIATE && !operand.imm.is_relative) address=static_cast<std::uint32_t>(operand.imm.value.u);
+            if(instruction.decoded.mnemonic==ZYDIS_MNEMONIC_LEA && instruction.decoded.address_width==32 &&
+               operand.type==ZYDIS_OPERAND_TYPE_MEMORY && operand.mem.base==ZYDIS_REGISTER_NONE && operand.mem.index==ZYDIS_REGISTER_NONE)
+                address=static_cast<std::uint32_t>(operand.mem.disp.value);
+            if(!address || *address<image.base || *address-image.base>=image.image_size) continue;
+            auto& use=uses[pc];use.value=*address;use.instruction=instruction.report();use.owners.insert(function.entry);
+        }
+        for(unsigned i=0;i<instruction.decoded.operand_count;++i) {
+            const auto& operand=instruction.operands[i];
+            if(operand.type!=ZYDIS_OPERAND_TYPE_MEMORY || !(operand.actions&ZYDIS_OPERAND_ACTION_MASK_WRITE) ||
+               instruction.decoded.address_width!=32 || operand.mem.segment!=ZYDIS_REGISTER_DS ||
+               operand.mem.base!=ZYDIS_REGISTER_NONE || operand.mem.index!=ZYDIS_REGISTER_NONE) continue;
+            const auto address=static_cast<std::uint32_t>(operand.mem.disp.value);
+            if(address<image.base || address-image.base>=image.image_size) continue;
+            auto& write=writes[pc];write.address=address;write.bytes=(operand.size+7)/8;
+            write.instruction=instruction.report();write.owners.insert(function.entry);
+        }
+        const auto& destination=instruction.operands[0];const auto& value=instruction.operands[1];
+        if(instruction.decoded.mnemonic!=ZYDIS_MNEMONIC_MOV || destination.type!=ZYDIS_OPERAND_TYPE_MEMORY || destination.size!=32 ||
+           destination.mem.base==ZYDIS_REGISTER_NONE || destination.mem.index!=ZYDIS_REGISTER_NONE || destination.mem.disp.value!=0 ||
+           value.type!=ZYDIS_OPERAND_TYPE_IMMEDIATE) continue;
+        const auto address=static_cast<std::uint32_t>(value.imm.value.u);
+        if(!std::ranges::any_of(image.sections,[&](const Section& section) {
+            return (section.name==".data" || section.name==".rdata") && address>=section.address &&
+                static_cast<std::uint64_t>(address)+4<=static_cast<std::uint64_t>(section.address)+section.raw_size;
+        })) continue;
+        auto& store=stores[pc];store.value=address;store.instruction=instruction.report();store.owners.insert(function.entry);
+    }
+}
+void recovery_report(std::ostream& out,const std::map<std::uint32_t,RecoverySite>& sites,const std::map<std::uint32_t,PointerStore>& stores,
+    const std::map<std::uint32_t,SlotWrite>& writes,const std::map<std::uint32_t,PointerStore>& uses,const std::map<std::uint32_t,Unit>& units) {
+    const auto set_addresses=[&](const std::set<std::uint32_t>& values) {
+        const std::vector<std::uint32_t> ordered(values.begin(),values.end());addresses(out,ordered);
+    };
+    std::map<std::string,std::vector<std::uint32_t>> groups;
+    std::set<std::uint32_t> slots,needed;
+    for(const auto& [pc,site]:sites) {
+        groups[site.group].push_back(pc);if(site.slot) slots.insert(*site.slot);
+        needed.insert(site.owners.begin(),site.owners.end());
+    }
+    std::vector<std::pair<std::string,std::vector<std::uint32_t>>> ranked(groups.begin(),groups.end());
+    std::ranges::sort(ranked,[](const auto& a,const auto& b) {return a.second.size()!=b.second.size()?a.second.size()>b.second.size():a.first<b.first;});
+    out << "{\"unique_sites\":" << sites.size() << ",\"groups\":[";
+    bool first=true;
+    for(const auto& [name,values]:ranked) {
+        if(!first) out<<',';first=false;
+        out<<"{\"pattern\":"<<json(name)<<",\"count\":"<<values.size()<<",\"sites\":";addresses(out,values);out<<'}';
+    }
+    out<<"],\"sites\":[";first=true;
+    for(const auto& [pc,site]:sites) {
+        if(!first) out<<',';first=false;
+        out<<"{\"instruction\":"<<site.instruction<<",\"pattern\":"<<json(site.group)<<",\"owners\":";
+        set_addresses(site.owners);if(site.slot) out<<",\"source_slot\":"<<json(hex32(*site.slot));
+        out<<",\"nearby_instructions\":";instruction_reports(out,site.nearby);out<<'}';
+    }
+    out<<"],\"object_pointer_stores\":[";first=true;
+    for(const auto& [pc,store]:stores) {
+        if(!first) out<<',';first=false;
+        out<<"{\"instruction\":"<<store.instruction<<",\"value\":"<<json(hex32(store.value))<<",\"owners\":";
+        set_addresses(store.owners);out<<'}';
+        needed.insert(store.owners.begin(),store.owners.end());
+    }
+    out<<"],\"absolute_slot_writes\":[";first=true;
+    for(const auto& [pc,write]:writes) {
+        const auto slot=slots.lower_bound(write.address-3);
+        if(slot==slots.end() || *slot>=static_cast<std::uint64_t>(write.address)+write.bytes) continue;
+        if(!first) out<<',';first=false;
+        out<<"{\"instruction\":"<<write.instruction<<",\"address\":"<<json(hex32(write.address))<<",\"bytes\":"<<write.bytes<<",\"owners\":";
+        set_addresses(write.owners);out<<'}';needed.insert(write.owners.begin(),write.owners.end());
+    }
+    // Nearby address literals expose aggregate initializers and base+field
+    // stores without treating those possible aliases as proven slot writes.
+    out<<"],\"nearby_address_uses\":[";first=true;
+    for(const auto& [pc,use]:uses) {
+        const auto slot=slots.lower_bound(use.value);
+        if(slot==slots.end() || *slot-use.value>=128) continue;
+        if(!first) out<<',';first=false;
+        out<<"{\"instruction\":"<<use.instruction<<",\"value\":"<<json(hex32(use.value))<<",\"owners\":";
+        set_addresses(use.owners);out<<'}';needed.insert(use.owners.begin(),use.owners.end());
+    }
+    std::map<std::uint32_t,std::set<std::uint32_t>> callers;
+    for(const auto& [entry,unit]:units) if(unit.emit) for(auto target:unit.calls)
+        if(needed.contains(target)) callers[target].insert(entry);
+    out<<"],\"direct_callers\":[";first=true;
+    for(const auto& [entry,values]:callers) {
+        if(!first) out<<',';first=false;
+        out<<"{\"entry\":"<<json(hex32(entry))<<",\"callers\":";set_addresses(values);out<<'}';
+    }
+    out<<"]}";
+}
 }
 
 Batch recompile_batch(Xbe& image, std::span<const std::uint32_t> seeds,
@@ -56,6 +224,10 @@ Batch recompile_batch(Xbe& image, std::span<const std::uint32_t> seeds,
     std::deque<std::uint32_t> pending;
     std::set<std::uint32_t> called_slots;
     std::map<std::uint32_t,std::set<std::uint32_t>> installed_callbacks;
+    std::map<std::uint32_t,RecoverySite> recovery_sites;
+    std::map<std::uint32_t,PointerStore> object_pointer_stores;
+    std::map<std::uint32_t,SlotWrite> absolute_slot_writes;
+    std::map<std::uint32_t,PointerStore> address_uses;
     const auto schedule = [&](std::uint32_t address) {
         if (scheduled.insert(address).second) pending.push_back(address);
     };
@@ -125,6 +297,7 @@ Batch recompile_batch(Xbe& image, std::span<const std::uint32_t> seeds,
                 ++unsupported[ZydisMnemonicGetString(function.instructions.at(issue.address).decoded.mnemonic)];
             unit.emit = !unit.truncated && unit.issues.empty();
             unit.ready = unit.emit && !unit.unresolved;
+            if(unit.native_api.empty()) collect_recovery(image,function,unit,recovery_sites,object_pointer_stores,absolute_slot_writes,address_uses);
             generated_bytes += unit.source.size();
         } catch (const std::exception& error) { unit.error = error.what(); unit.ready = false; }
         // Failed recovery still consumes the global work budget.
@@ -268,7 +441,9 @@ Batch recompile_batch(Xbe& image, std::span<const std::uint32_t> seeds,
         const auto import = std::ranges::find(image.imports, ordinal, &KernelImport::ordinal);
         report << "{\"ordinal\":" << ordinal << ",\"name\":" << json(import->name) << '}';
     }
-    report << "]},\"functions\":[";
+    report << "]},\"call_recovery\":";
+    recovery_report(report,recovery_sites,object_pointer_stores,absolute_slot_writes,address_uses,units);
+    report << ",\"functions\":[";
     first = true;
     for (const auto& [address, unit] : units) {
         if (!first) report << ',';

@@ -51,6 +51,7 @@ struct Function {
 };
 Function recover(Xbe& image, std::uint32_t address, std::uint32_t instruction_budget);
 Function recover(Xbe& image, std::uint32_t address, std::uint32_t instruction_budget, Decoder& decoder);
+std::optional<std::uint32_t> indirect_slot(const Function& function,const Instruction& instruction);
 std::string disassemble(Xbe& image, std::uint32_t address, std::uint32_t byte_count);
 std::string analyse(Xbe& image, std::uint32_t address, std::uint32_t instruction_budget);
 }

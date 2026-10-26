@@ -723,6 +723,14 @@ std::optional<TableGuard> table_guard(Xbe& image, const Function& function, cons
     return TableGuard{proof_begin, branch->address, static_cast<std::uint32_t>(count)};
 }
 }
+std::optional<std::uint32_t> indirect_slot(const Function& function,const Instruction& instruction) {
+    const auto& operand=instruction.operands[0];
+    if(operand.type==ZYDIS_OPERAND_TYPE_REGISTER) return constant_before(function,instruction.address,operand,true);
+    if(operand.type==ZYDIS_OPERAND_TYPE_MEMORY && operand.size==32 && instruction.decoded.address_width==32 &&
+       operand.mem.base==ZYDIS_REGISTER_NONE && operand.mem.index==ZYDIS_REGISTER_NONE && operand.mem.segment==ZYDIS_REGISTER_DS)
+        return static_cast<std::uint32_t>(operand.mem.disp.value);
+    return {};
+}
 Decoder::Decoder() {
     if (!ZYAN_SUCCESS(ZydisDecoderInit(&decoder_, ZYDIS_MACHINE_MODE_LEGACY_32, ZYDIS_STACK_WIDTH_32)) ||
         !ZYAN_SUCCESS(ZydisFormatterInit(&formatter_, ZYDIS_FORMATTER_STYLE_INTEL)))
@@ -924,7 +932,8 @@ Function recover(Xbe& image, std::uint32_t address, std::uint32_t instruction_bu
         if (found == function.instructions.end()) continue;
         auto& call = found->second;
         if (call.decoded.meta.category != (table.tail?ZYDIS_CATEGORY_UNCOND_BR:ZYDIS_CATEGORY_CALL) || call.target() || call.kernel_ordinal ||
-            hex_bytes(image.data(table.proof_address,table.prefix.size()/2)) != table.prefix)
+            hex_bytes(image.data(table.proof_address,table.prefix.size()/2)) != table.prefix ||
+            (table.slot && indirect_slot(function,call)!=table.slot))
             throw std::runtime_error("Static call proof differs at " + hex32(table.site));
         if (table.end <= table.start || table.end-table.start > 128*1024 || table.stride < 4 || table.stride % 4)
             throw std::runtime_error("Invalid static call table bounds");

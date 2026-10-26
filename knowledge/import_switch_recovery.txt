@@ -49,6 +49,39 @@ using the straight-line input, reaching RETRY and exiting normally.
 game-0040 captures READY on 1-2 DIAMOND with neutral input after loading.
 Detailed reports and generation comparisons remain private under build/logs.
 
+Bulk recovery workflow
+
+The generator now indexes all unresolved sites during its existing bounded
+function pass. Its call_recovery report deduplicates overlapping function
+recoveries, ranks shared patterns, and includes original instruction bytes,
+nearby code, pointer stores, absolute writes overlapping callback slots,
+nearby address literals and known callers. Address literals are candidates for
+following aggregate/aliased writes; they are not classified as proven writes.
+Slot origins must agree across all recovered owners of an instruction.
+
+The current index has 1015 unique sites in 283 pattern groups, 83 object
+pointer stores, 168 absolute slot writes and 691 caller entries. Three method
+offsets cover 197 sites. Slots 93A334, 938E2C and 9392E0 cover another 99.
+These are work groups, not newly resolved calls. In particular, offset matches
+alone do not establish that two objects implement the same interface.
+
+Grouped slot dispatch now checks the actual original pointer source, including
+register aliases, in addition to opcode and target-literal bytes. All existing
+367 expanded dispatch rows still pass. The generation's per-function reports
+and all 515 generated C++/header/assembly files remain identical.
+
+tools/Build.ps1 -Stage Analysis -AllowPartial reuses the verified preparation
+and refreshes the generator/index without linking either runtime executable.
+Its measured warm cycle is 5.97 seconds, including about 3.5 seconds of generation.
+-Stage Game builds just the game after related families have been batched.
+Unchanged CMake caches use Ninja's existing dependency tracking. The All stage
+retains complete preparation, both executables and platform checks.
+
+Next table evidence includes the exact static interface returns
+2CA7D0 -> 6C0868, 2CC850 -> 6C08D0 and 2CEC70 -> 6C0938. Known media object
+constructors install 6C0950, 6C0BA0, 6C0BD0, 6C0C60 and 6C0ED8. Follow these
+producers and their callers together to establish interface target families.
+
 Shared callback slots
 
 The next batch resolves 42 more sites, reducing the unique unresolved count
