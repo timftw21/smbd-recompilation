@@ -48,3 +48,47 @@ game-0039 completes the first results flow, enters the next stage and falls
 using the straight-line input, reaching RETRY and exiting normally.
 game-0040 captures READY on 1-2 DIAMOND with neutral input after loading.
 Detailed reports and generation comparisons remain private under build/logs.
+
+Shared callback slots
+
+The next batch resolves 42 more sites, reducing the unique unresolved count
+from 1057 to 1015. It retains the same 9748 functions and 815593 instructions.
+
+Setup 1B7BA0 selects callbacks for slots 804D08, 804D04 and 804D18. Their
+complete target sets contain 15, 6 and 6 functions, respectively. Default
+stores through EDX and ECX use the literals loaded at 1B7D23 and 1B7D76;
+neither register changes before those stores. The later reset block at
+1B87E6 writes the same three defaults. These slots serve 18 dispatch sites,
+including the frameless tail jump at 1B55E0.
+
+The complete initializer 30B4B7 supplies the targets for four CRT slots:
+  6C6D30 -> 30E5AB, literal at 30B4B8
+  6C6D34 -> 30E258, literal at 30B4C7
+  6C6D38 -> 30E2BD, literal at 30B4D1
+  6C6D3C -> 30E200, literal at 30B4DB
+These account for seven absolute CALL sites.
+
+Native recovery of setup 212700 includes branches absent from the saved
+Ghidra index. Mode byte 86C274 selects 229700 or 2293B0 for slot 878528,
+and 22A1E0 or 22A030 for slot 87852C. The original literals are at
+2127F2/212808 and 2127E8/2127FE. Those slots serve eight and four calls.
+Five calls through 86ECDC use the two targets installed by the complete
+five-instruction setter 21DB20: 21D7A0 and 2E2CA0, selected by its byte
+argument. Its literals are at 21DB2B and 21DB37.
+
+Each new slot was checked with native analysis and a native byte-pattern
+search for its address in the verified image, supplementing the reference
+index. Calls still verify the actual pointer against their supported targets.
+
+static_calls.json groups share original target-literal locations across sites.
+The 45 file-provider records now use shared groups too; all 128 preceding
+expanded dispatch proofs remain present and unchanged. The expanded registry
+has 367 rows. Generation validation reports exactly the 42 intended closures,
+no introduced unknown sites, no lost calls or callbacks, and no unsupported
+instructions or exhausted budgets.
+
+Both native executables were rebuilt together in 222.88 seconds with one
+compiler/linker worker. CPU 10, controller 47 and offline audio 37 checks pass
+on the 1015-site generation. game-0041 repeats GOAL on 1-1 SIMPLE; game-0042
+completes the results flow and captures READY on 1-2 DIAMOND. Both input scripts
+complete and exit normally. Graphics and timing parity remain unverified.

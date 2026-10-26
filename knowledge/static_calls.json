@@ -72,456 +72,6 @@
       "evidence": "The fifth 44-slot background-scene callback table shares the scene ID at 575360. BA540 has no stack frame and jumps to the selected standalone callback at BA54E, so the original caller return address must be retained. The next table at 5759A8 holds scene resource names, as independently read by BA260 at BA337; those data pointers are excluded."
     },
     {
-      "site": "0x00025052",
-      "proof_address": "0x00025052",
-      "prefix": "FF15DC4B6D00",
-      "start": "0x00025430",
-      "end": "0x00025434",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BDC: 0x000A2890 is installed by 0x00025420. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x00025073",
-      "proof_address": "0x00025073",
-      "prefix": "FF15DC4B6D00",
-      "start": "0x00025430",
-      "end": "0x00025434",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BDC: 0x000A2890 is installed by 0x00025420. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x000250AE",
-      "proof_address": "0x000250AE",
-      "prefix": "FF15DC4B6D00",
-      "start": "0x00025430",
-      "end": "0x00025434",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BDC: 0x000A2890 is installed by 0x00025420. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x000250B5",
-      "proof_address": "0x000250B5",
-      "prefix": "FF15DC4B6D00",
-      "start": "0x00025430",
-      "end": "0x00025434",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BDC: 0x000A2890 is installed by 0x00025420. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x00025120",
-      "proof_address": "0x00025120",
-      "prefix": "FF25E44B6D00",
-      "start": "0x00025426",
-      "end": "0x0002542A",
-      "stride": 4,
-      "kind": "tail",
-      "evidence": "File-provider slot 0x006D4BE4: 0x000A2870 is installed by 0x00025420. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x00025130",
-      "proof_address": "0x00025130",
-      "prefix": "FF25DC4B6D00",
-      "start": "0x00025430",
-      "end": "0x00025434",
-      "stride": 4,
-      "kind": "tail",
-      "evidence": "File-provider slot 0x006D4BDC: 0x000A2890 is installed by 0x00025420. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x00025442",
-      "proof_address": "0x00025442",
-      "prefix": "FF15E84B6D00",
-      "start": "0x000253E6",
-      "end": "0x000253EA",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BE8: 0x00025390 is installed by 0x000253E0. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x00025442",
-      "proof_address": "0x00025442",
-      "prefix": "FF15E84B6D00",
-      "start": "0x000A292C",
-      "end": "0x000A2930",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BE8: 0x000A2860 is installed by 0x000A2910. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x00025450",
-      "proof_address": "0x00025450",
-      "prefix": "FF15EC4B6D00",
-      "start": "0x000253F0",
-      "end": "0x000253F4",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BEC: 0x000253A0 is installed by 0x000253E0. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x00025450",
-      "proof_address": "0x00025450",
-      "prefix": "FF15EC4B6D00",
-      "start": "0x000A2934",
-      "end": "0x000A2938",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BEC: 0x000169A0 is installed by 0x000A2910. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x00025463",
-      "proof_address": "0x00025463",
-      "prefix": "FF15D04B6D00",
-      "start": "0x000253FA",
-      "end": "0x000253FE",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BD0: 0x000253B0 is installed by 0x000253E0. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x00025463",
-      "proof_address": "0x00025463",
-      "prefix": "FF15D04B6D00",
-      "start": "0x000A293C",
-      "end": "0x000A2940",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BD0: 0x00016A70 is installed by 0x000A2910. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x00025472",
-      "proof_address": "0x00025472",
-      "prefix": "FF15E44B6D00",
-      "start": "0x00025426",
-      "end": "0x0002542A",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BE4: 0x000A2870 is installed by 0x00025420. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x00025494",
-      "proof_address": "0x00025494",
-      "prefix": "FF15D84B6D00",
-      "start": "0x00025404",
-      "end": "0x00025408",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BD8: 0x000253C0 is installed by 0x000253E0. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x00025494",
-      "proof_address": "0x00025494",
-      "prefix": "FF15D84B6D00",
-      "start": "0x000A2944",
-      "end": "0x000A2948",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BD8: 0x00016A00 is installed by 0x000A2910. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x0002549B",
-      "proof_address": "0x0002549B",
-      "prefix": "FF15E04B6D00",
-      "start": "0x0002540E",
-      "end": "0x00025412",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BE0: 0x000253D0 is installed by 0x000253E0. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x0002549B",
-      "proof_address": "0x0002549B",
-      "prefix": "FF15E04B6D00",
-      "start": "0x000A294C",
-      "end": "0x000A2950",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BE0: 0x000169D0 is installed by 0x000A2910. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x000254A2",
-      "proof_address": "0x000254A2",
-      "prefix": "FF15D44B6D00",
-      "start": "0x00025418",
-      "end": "0x0002541C",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BD4: 0x000BA870 is installed by 0x000253E0. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x000254F2",
-      "proof_address": "0x000254F2",
-      "prefix": "FF15E84B6D00",
-      "start": "0x000253E6",
-      "end": "0x000253EA",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BE8: 0x00025390 is installed by 0x000253E0. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x000254F2",
-      "proof_address": "0x000254F2",
-      "prefix": "FF15E84B6D00",
-      "start": "0x000A292C",
-      "end": "0x000A2930",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BE8: 0x000A2860 is installed by 0x000A2910. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x00025500",
-      "proof_address": "0x00025500",
-      "prefix": "FF15EC4B6D00",
-      "start": "0x000253F0",
-      "end": "0x000253F4",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BEC: 0x000253A0 is installed by 0x000253E0. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x00025500",
-      "proof_address": "0x00025500",
-      "prefix": "FF15EC4B6D00",
-      "start": "0x000A2934",
-      "end": "0x000A2938",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BEC: 0x000169A0 is installed by 0x000A2910. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x00025513",
-      "proof_address": "0x00025513",
-      "prefix": "FF15D04B6D00",
-      "start": "0x000253FA",
-      "end": "0x000253FE",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BD0: 0x000253B0 is installed by 0x000253E0. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x00025513",
-      "proof_address": "0x00025513",
-      "prefix": "FF15D04B6D00",
-      "start": "0x000A293C",
-      "end": "0x000A2940",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BD0: 0x00016A70 is installed by 0x000A2910. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x00025525",
-      "proof_address": "0x00025525",
-      "prefix": "FF15E44B6D00",
-      "start": "0x00025426",
-      "end": "0x0002542A",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BE4: 0x000A2870 is installed by 0x00025420. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x0002554A",
-      "proof_address": "0x0002554A",
-      "prefix": "FF15D84B6D00",
-      "start": "0x00025404",
-      "end": "0x00025408",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BD8: 0x000253C0 is installed by 0x000253E0. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x0002554A",
-      "proof_address": "0x0002554A",
-      "prefix": "FF15D84B6D00",
-      "start": "0x000A2944",
-      "end": "0x000A2948",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BD8: 0x00016A00 is installed by 0x000A2910. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x00025551",
-      "proof_address": "0x00025551",
-      "prefix": "FF15E04B6D00",
-      "start": "0x0002540E",
-      "end": "0x00025412",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BE0: 0x000253D0 is installed by 0x000253E0. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x00025551",
-      "proof_address": "0x00025551",
-      "prefix": "FF15E04B6D00",
-      "start": "0x000A294C",
-      "end": "0x000A2950",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BE0: 0x000169D0 is installed by 0x000A2910. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x00025558",
-      "proof_address": "0x00025558",
-      "prefix": "FF15D44B6D00",
-      "start": "0x00025418",
-      "end": "0x0002541C",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BD4: 0x000BA870 is installed by 0x000253E0. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x00025584",
-      "proof_address": "0x00025584",
-      "prefix": "FF15E84B6D00",
-      "start": "0x000253E6",
-      "end": "0x000253EA",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BE8: 0x00025390 is installed by 0x000253E0. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x00025584",
-      "proof_address": "0x00025584",
-      "prefix": "FF15E84B6D00",
-      "start": "0x000A292C",
-      "end": "0x000A2930",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BE8: 0x000A2860 is installed by 0x000A2910. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x00025596",
-      "proof_address": "0x00025596",
-      "prefix": "FF15EC4B6D00",
-      "start": "0x000253F0",
-      "end": "0x000253F4",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BEC: 0x000253A0 is installed by 0x000253E0. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x00025596",
-      "proof_address": "0x00025596",
-      "prefix": "FF15EC4B6D00",
-      "start": "0x000A2934",
-      "end": "0x000A2938",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BEC: 0x000169A0 is installed by 0x000A2910. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x000255AC",
-      "proof_address": "0x000255AC",
-      "prefix": "FF15D04B6D00",
-      "start": "0x000253FA",
-      "end": "0x000253FE",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BD0: 0x000253B0 is installed by 0x000253E0. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x000255AC",
-      "proof_address": "0x000255AC",
-      "prefix": "FF15D04B6D00",
-      "start": "0x000A293C",
-      "end": "0x000A2940",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BD0: 0x00016A70 is installed by 0x000A2910. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x000255D9",
-      "proof_address": "0x000255D9",
-      "prefix": "FF15D84B6D00",
-      "start": "0x00025404",
-      "end": "0x00025408",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BD8: 0x000253C0 is installed by 0x000253E0. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x000255D9",
-      "proof_address": "0x000255D9",
-      "prefix": "FF15D84B6D00",
-      "start": "0x000A2944",
-      "end": "0x000A2948",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BD8: 0x00016A00 is installed by 0x000A2910. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x00025602",
-      "proof_address": "0x00025602",
-      "prefix": "FF15E44B6D00",
-      "start": "0x00025426",
-      "end": "0x0002542A",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BE4: 0x000A2870 is installed by 0x00025420. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x0002563C",
-      "proof_address": "0x0002563C",
-      "prefix": "FF15E44B6D00",
-      "start": "0x00025426",
-      "end": "0x0002542A",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BE4: 0x000A2870 is installed by 0x00025420. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x0002569E",
-      "proof_address": "0x0002569E",
-      "prefix": "FF15E44B6D00",
-      "start": "0x00025426",
-      "end": "0x0002542A",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BE4: 0x000A2870 is installed by 0x00025420. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x000256D8",
-      "proof_address": "0x000256D8",
-      "prefix": "FF15E44B6D00",
-      "start": "0x00025426",
-      "end": "0x0002542A",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BE4: 0x000A2870 is installed by 0x00025420. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x000257EA",
-      "proof_address": "0x000257EA",
-      "prefix": "FF15E04B6D00",
-      "start": "0x0002540E",
-      "end": "0x00025412",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BE0: 0x000253D0 is installed by 0x000253E0. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x000257EA",
-      "proof_address": "0x000257EA",
-      "prefix": "FF15E04B6D00",
-      "start": "0x000A294C",
-      "end": "0x000A2950",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BE0: 0x000169D0 is installed by 0x000A2910. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
-      "site": "0x000257F1",
-      "proof_address": "0x000257F1",
-      "prefix": "FF15D44B6D00",
-      "start": "0x00025418",
-      "end": "0x0002541C",
-      "stride": 4,
-      "kind": "call",
-      "evidence": "File-provider slot 0x006D4BD4: 0x000BA870 is installed by 0x000253E0. Both the startup defaults and the title's registration are preserved; see file_provider.txt."
-    },
-    {
       "site": "0x0007791D",
       "proof_address": "0x00077912",
       "prefix": "8B4C24140FB691D47A0700FF2495C07A0700",
@@ -1806,6 +1356,348 @@
       "start": "0x002EC2FF",
       "end": "0x002EC303",
       "evidence": "Original decoder CPU setup publishes reconstruction callback 0x0031A650 into slot 0x0094E2A4."
+    }
+  ],
+  "groups": [
+    {
+      "slot": "0x006D4BD0",
+      "prefix": "FF15D04B6D00",
+      "kind": "call",
+      "target_literals": [
+        "0x000253FA",
+        "0x000A293C"
+      ],
+      "sites": [
+        "0x00025463",
+        "0x00025513",
+        "0x000255AC"
+      ],
+      "evidence": "File-provider slot 0x006D4BD0 has the verified startup/title registrations described in file_provider.txt. Every target literal and CALL/tail opcode is checked against the supported executable."
+    },
+    {
+      "slot": "0x006D4BD4",
+      "prefix": "FF15D44B6D00",
+      "kind": "call",
+      "target_literals": [
+        "0x00025418"
+      ],
+      "sites": [
+        "0x000254A2",
+        "0x00025558",
+        "0x000257F1"
+      ],
+      "evidence": "File-provider slot 0x006D4BD4 has the verified startup/title registrations described in file_provider.txt. Every target literal and CALL/tail opcode is checked against the supported executable."
+    },
+    {
+      "slot": "0x006D4BD8",
+      "prefix": "FF15D84B6D00",
+      "kind": "call",
+      "target_literals": [
+        "0x00025404",
+        "0x000A2944"
+      ],
+      "sites": [
+        "0x00025494",
+        "0x0002554A",
+        "0x000255D9"
+      ],
+      "evidence": "File-provider slot 0x006D4BD8 has the verified startup/title registrations described in file_provider.txt. Every target literal and CALL/tail opcode is checked against the supported executable."
+    },
+    {
+      "slot": "0x006D4BDC",
+      "prefix": "FF15DC4B6D00",
+      "kind": "call",
+      "target_literals": [
+        "0x00025430"
+      ],
+      "sites": [
+        "0x00025052",
+        "0x00025073",
+        "0x000250AE",
+        "0x000250B5"
+      ],
+      "evidence": "File-provider slot 0x006D4BDC has the verified startup/title registrations described in file_provider.txt. Every target literal and CALL/tail opcode is checked against the supported executable."
+    },
+    {
+      "slot": "0x006D4BE0",
+      "prefix": "FF15E04B6D00",
+      "kind": "call",
+      "target_literals": [
+        "0x0002540E",
+        "0x000A294C"
+      ],
+      "sites": [
+        "0x0002549B",
+        "0x00025551",
+        "0x000257EA"
+      ],
+      "evidence": "File-provider slot 0x006D4BE0 has the verified startup/title registrations described in file_provider.txt. Every target literal and CALL/tail opcode is checked against the supported executable."
+    },
+    {
+      "slot": "0x006D4BE4",
+      "prefix": "FF15E44B6D00",
+      "kind": "call",
+      "target_literals": [
+        "0x00025426"
+      ],
+      "sites": [
+        "0x00025472",
+        "0x00025525",
+        "0x00025602",
+        "0x0002563C",
+        "0x0002569E",
+        "0x000256D8"
+      ],
+      "evidence": "File-provider slot 0x006D4BE4 has the verified startup/title registrations described in file_provider.txt. Every target literal and CALL/tail opcode is checked against the supported executable."
+    },
+    {
+      "slot": "0x006D4BE8",
+      "prefix": "FF15E84B6D00",
+      "kind": "call",
+      "target_literals": [
+        "0x000253E6",
+        "0x000A292C"
+      ],
+      "sites": [
+        "0x00025442",
+        "0x000254F2",
+        "0x00025584"
+      ],
+      "evidence": "File-provider slot 0x006D4BE8 has the verified startup/title registrations described in file_provider.txt. Every target literal and CALL/tail opcode is checked against the supported executable."
+    },
+    {
+      "slot": "0x006D4BEC",
+      "prefix": "FF15EC4B6D00",
+      "kind": "call",
+      "target_literals": [
+        "0x000253F0",
+        "0x000A2934"
+      ],
+      "sites": [
+        "0x00025450",
+        "0x00025500",
+        "0x00025596"
+      ],
+      "evidence": "File-provider slot 0x006D4BEC has the verified startup/title registrations described in file_provider.txt. Every target literal and CALL/tail opcode is checked against the supported executable."
+    },
+    {
+      "slot": "0x006D4BDC",
+      "prefix": "FF25DC4B6D00",
+      "kind": "tail",
+      "target_literals": [
+        "0x00025430"
+      ],
+      "sites": [
+        "0x00025130"
+      ],
+      "evidence": "File-provider slot 0x006D4BDC has the verified startup/title registrations described in file_provider.txt. Every target literal and CALL/tail opcode is checked against the supported executable."
+    },
+    {
+      "slot": "0x006D4BE4",
+      "prefix": "FF25E44B6D00",
+      "kind": "tail",
+      "target_literals": [
+        "0x00025426"
+      ],
+      "sites": [
+        "0x00025120"
+      ],
+      "evidence": "File-provider slot 0x006D4BE4 has the verified startup/title registrations described in file_provider.txt. Every target literal and CALL/tail opcode is checked against the supported executable."
+    },
+    {
+      "slot": "0x00804D08",
+      "prefix": "FF15084D8000",
+      "kind": "call",
+      "target_literals": [
+        "0x001B7C65",
+        "0x001B7C74",
+        "0x001B7C83",
+        "0x001B7C92",
+        "0x001B7CA1",
+        "0x001B7CAD",
+        "0x001B7CB9",
+        "0x001B7CC5",
+        "0x001B7CD1",
+        "0x001B7CDD",
+        "0x001B7CE9",
+        "0x001B7CF5",
+        "0x001B7D01",
+        "0x001B7D0D",
+        "0x001B7DD5"
+      ],
+      "sites": [
+        "0x001B56CF",
+        "0x001B5733",
+        "0x001B577A",
+        "0x001B6D35",
+        "0x001B6DF5",
+        "0x001B7070",
+        "0x001B7160",
+        "0x001B7F7C",
+        "0x001B81CA",
+        "0x001B829D"
+      ],
+      "evidence": "The complete setup at 1B7BA0 selects fourteen callback literals or default 1B5B10 for slot 804D08. The later reset at 1B87E6 writes that same default. Direct slot-address searches and the reference index identify no additional target values."
+    },
+    {
+      "slot": "0x00804D04",
+      "prefix": "FF15044D8000",
+      "kind": "call",
+      "target_literals": [
+        "0x001B7D37",
+        "0x001B7D43",
+        "0x001B7D4F",
+        "0x001B7D5B",
+        "0x001B7D67",
+        "0x001B7D24"
+      ],
+      "sites": [
+        "0x001B5433"
+      ],
+      "evidence": "Setup 1B7BA0 selects five callback literals for slot 804D04 or the default 1B6CD0 loaded into EDX at 1B7D23. No instruction changes EDX before either default store at 1B7D6D or 1B7DD9. Reset 1B87F0 writes the same default."
+    },
+    {
+      "slot": "0x00804D18",
+      "prefix": "FF15184D8000",
+      "kind": "call",
+      "target_literals": [
+        "0x001B7D8A",
+        "0x001B7D96",
+        "0x001B7DA2",
+        "0x001B7DAE",
+        "0x001B7DBA",
+        "0x001B7D77"
+      ],
+      "sites": [
+        "0x001B5674",
+        "0x001B7F3C",
+        "0x001B8249",
+        "0x001B826A",
+        "0x001B8474",
+        "0x001B84CC"
+      ],
+      "evidence": "Setup 1B7BA0 selects five callback literals for slot 804D18 or the default 1B7700 loaded into ECX at 1B7D76. No instruction changes ECX before either default store at 1B7DC0 or 1B7DDF. Reset 1B87FA writes the same default."
+    },
+    {
+      "slot": "0x00804D18",
+      "prefix": "FF25184D8000",
+      "kind": "tail",
+      "target_literals": [
+        "0x001B7D8A",
+        "0x001B7D96",
+        "0x001B7DA2",
+        "0x001B7DAE",
+        "0x001B7DBA",
+        "0x001B7D77"
+      ],
+      "sites": [
+        "0x001B55E0"
+      ],
+      "evidence": "Setup 1B7BA0 selects five callback literals for slot 804D18 or the default 1B7700 loaded into ECX at 1B7D76. No instruction changes ECX before either default store at 1B7DC0 or 1B7DDF. Reset 1B87FA writes the same default."
+    },
+    {
+      "slot": "0x006C6D30",
+      "prefix": "FF15306D6C00",
+      "kind": "call",
+      "target_literals": [
+        "0x0030B4B8"
+      ],
+      "sites": [
+        "0x0030ECE4",
+        "0x00310280"
+      ],
+      "evidence": "The complete initializer 30B4B7 installs 30E5AB in slot 0x006C6D30. The original absolute CALL sites use that slot. The literal is checked against the supported image; slot values are still checked by the generated dispatch."
+    },
+    {
+      "slot": "0x006C6D34",
+      "prefix": "FF15346D6C00",
+      "kind": "call",
+      "target_literals": [
+        "0x0030B4C7"
+      ],
+      "sites": [
+        "0x0030ED10",
+        "0x003102AD"
+      ],
+      "evidence": "The complete initializer 30B4B7 installs 30E258 in slot 0x006C6D34. The original absolute CALL sites use that slot. The literal is checked against the supported image; slot values are still checked by the generated dispatch."
+    },
+    {
+      "slot": "0x006C6D3C",
+      "prefix": "FF153C6D6C00",
+      "kind": "call",
+      "target_literals": [
+        "0x0030B4DB"
+      ],
+      "sites": [
+        "0x0030ECFF",
+        "0x0031029B"
+      ],
+      "evidence": "The complete initializer 30B4B7 installs 30E200 in slot 0x006C6D3C. The original absolute CALL sites use that slot. The literal is checked against the supported image; slot values are still checked by the generated dispatch."
+    },
+    {
+      "slot": "0x006C6D38",
+      "prefix": "FF15386D6C00",
+      "kind": "call",
+      "target_literals": [
+        "0x0030B4D1"
+      ],
+      "sites": [
+        "0x0031177D"
+      ],
+      "evidence": "The complete initializer 30B4B7 installs 30E2BD in slot 0x006C6D38. The original absolute CALL sites use that slot. The literal is checked against the supported image; slot values are still checked by the generated dispatch."
+    },
+    {
+      "slot": "0x00878528",
+      "prefix": "FF1528858700",
+      "kind": "call",
+      "target_literals": [
+        "0x002127F2",
+        "0x00212808"
+      ],
+      "sites": [
+        "0x00216E1C",
+        "0x00216E2F",
+        "0x00216E43",
+        "0x00216E6A",
+        "0x0021732C",
+        "0x0021733F",
+        "0x00217353",
+        "0x0021737A"
+      ],
+      "evidence": "Setup 212700 compares the original mode byte 86C274 with 2. It installs 229700 at 2127EC or 2293B0 at 212802 in slot 878528. Both branches are decoded from the original image; byte-reference searches identify exactly these two stores and eight absolute CALL sites."
+    },
+    {
+      "slot": "0x0087852C",
+      "prefix": "FF152C858700",
+      "kind": "call",
+      "target_literals": [
+        "0x002127E8",
+        "0x002127FE"
+      ],
+      "sites": [
+        "0x00215AF6",
+        "0x00215BA0",
+        "0x00215BBF",
+        "0x00215C34"
+      ],
+      "evidence": "The same mode selection in setup 212700 installs 22A1E0 at 2127E2 or 22A030 at 2127F8 in slot 87852C. Byte-reference searches identify those two stores and four absolute CALL sites."
+    },
+    {
+      "slot": "0x0086ECDC",
+      "prefix": "FF15DCEC8600",
+      "kind": "call",
+      "target_literals": [
+        "0x0021DB2B",
+        "0x0021DB37"
+      ],
+      "sites": [
+        "0x0021E115",
+        "0x0021E28A",
+        "0x0021E465",
+        "0x0021E57B",
+        "0x0021E68F"
+      ],
+      "evidence": "The complete five-instruction setter at 21DB20 compares its byte argument with 2. It installs 21D7A0 by default at 21DB25 and overwrites it with 2E2CA0 at 21DB31 for the other branch. Byte-reference searches identify both stores and five absolute CALL sites for slot 86ECDC."
     }
   ]
 }

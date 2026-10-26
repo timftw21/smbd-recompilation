@@ -29,7 +29,9 @@ retain ordinary return addresses. The single-instruction wrappers 25120 and
 25130 retain tail-call semantics and push no additional return address.
 
 static_calls.json binds each site to every distinct startup/title target for
-its slot. Each target is read from its original four-byte literal, each site
+its slot. Shared groups retain one list of literal locations per slot and
+dispatch kind; configuration expands it into the same per-site proofs.
+Each target is read from its original four-byte literal, each site
 is checked against its original opcode/slot bytes, and all targets must lie in
 code sections. Mutable slots are not treated as immutable initial data.
 An unexpected pointer still stops explicitly at the native boundary.
