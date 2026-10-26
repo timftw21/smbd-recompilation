@@ -19,6 +19,9 @@ and refreshes incompatible compiler metadata while retaining extracted files,
 analysis and generated sources. Link caches are bounded to 1 GiB per executable.
 For direct CMake commands, first run . .\tools\Initialize-Toolchain.ps1 in the
 current PowerShell session, then use cmake --preset tools or --preset windows.
+After regenerating a runtime batch, cmake --build --preset release --target smbd
+builds just the game for the next automated check. Refresh both executables with
+the full release preset when validating a milestone.
 
 Tools and dependencies are pinned. Unchanged analysis, generated sources and
 shader banks are reused after checking their inputs. Original media, extracted
@@ -51,6 +54,9 @@ controller. Each line is FRAME BUTTON [LEFT_X LEFT_Y], with increasing frames;
 buttons are a, b, x, y, start, back, up, down, left, right or none. A state lasts
 until the next line. Stick values are -1..1, with positive Y pointing up.
 For example, "120 start" followed by "122 none" presses Start for two frames.
+Automation enables SDL background controller input so hidden windows receive
+these events. --report OUTPUT.json saves the shared boot report, including the
+original stack, registers, file activity and service/graphics counters.
 The current frontend is for development; settings and the
 complete playable path remain in progress.
 
@@ -65,7 +71,8 @@ Private outputs:
 
 Only Windows x64 execution has been exercised. Native Xbox services, D3D11 and
 SDL3 input/audio are being brought up against the original program. The SEGA
-startup screen renders. CPU checks (10), controller checks (47), and mixer checks
+startup screen and full-color title artwork render, and automated Start input
+advances beyond the prompt. CPU checks (10), controller checks (47), and mixer checks
 (37) pass. Menus, gameplay, settings, complete audio behaviour, Linux/macOS,
 visual parity and performance require further work. See runtime_progress.json
 in knowledge for the current execution boundary; initial_coverage.json is historical.

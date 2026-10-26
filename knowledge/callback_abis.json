@@ -2,6 +2,55 @@
   "executable_sha256": "9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2",
   "contracts": [
     {
+      "name": "Title mode callback record",
+      "address": "0x0001FA50",
+      "ordinal": 0,
+      "argument_count": 2,
+      "prefix": "833D48366D000A7C14",
+      "callbacks": [
+        0,
+        0,
+        0
+      ],
+      "site": "0",
+      "offsets": [
+        0,
+        4,
+        8
+      ],
+      "evidence": "Original 1FA50 copies the three 32-bit fields of argument 0 into argument 1 at 1FA89..1FA96, registers the destination in the ten-entry mode stack, then tail-calls the first field at 1FA99. Cleanup 1FAA0 and stack unwind 1FAF0 call field +4. The mode record tables are separately bounded in static_calls.json; literal or locally built records use this registration ABI."
+    },
+    {
+      "name": "ScheduleModeTransitionCallback",
+      "address": "0x00015920",
+      "ordinal": 0,
+      "argument_count": 1,
+      "prefix": "A1D8926C0085C07421",
+      "callbacks": [
+        0
+      ],
+      "site": "0",
+      "offsets": [
+        -1
+      ],
+      "evidence": "The original 15920 takes one code-pointer argument and stores it at 6C92D8 on both paths. Main-mode dispatch loads that slot, clears it, and calls it at 15B98. The seven indexed original callers pass A8D20, AB390, F7850, 244150, 2456B0, 26F8E0 and 2BC3F0 directly; no raw-immediate scan is used."
+    },
+    {
+      "name": "Title audio voice completion callback",
+      "address": "0x000E2940",
+      "ordinal": 0,
+      "argument_count": 14,
+      "prefix": "8B0D1C5F75005381C1CC700000",
+      "callbacks": [
+        11
+      ],
+      "site": "0",
+      "offsets": [
+        -1
+      ],
+      "evidence": "Original EC510 pushes fourteen arguments before calling E2940 at EC554. Argument 11 is EC360 and argument 12 is its voice context. E2940 saves three registers and calls E2610, which returns with RET 4; it then reads original arguments 11/12 at ESP+3C/+40 and stores them in the voice record at +44/+48. Automated Start input reached the EC360 callback at frame 304, independently confirming its code-pointer role."
+    },
+    {
       "name": "PsCreateSystemThreadEx",
       "address": "0",
       "ordinal": 255,

@@ -65,4 +65,5 @@ private:
     std::unique_ptr<State> state_;
 };
 std::string check_boot(Xbe&,const std::filesystem::path&,std::uint32_t budget,const std::filesystem::path& capture={});
+std::string boot_report(const Xbe&,const BootResult&);
 }

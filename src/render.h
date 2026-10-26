@@ -22,7 +22,7 @@ std::string compare_images(const std::filesystem::path& actual,
 enum class TextureFormat : std::uint32_t {
     argb4 = 0x04, rgb565 = 0x05, argb8 = 0x06, xrgb8 = 0x07,
     dxt1 = 0x0C, dxt3 = 0x0E, dxt5 = 0x0F,
-    argb8_linear = 0x12, xrgb8_linear = 0x1E
+    argb8_linear = 0x12, a8l8 = 0x1A, xrgb8_linear = 0x1E
 };
 struct TextureData {
     std::uint32_t width, height;

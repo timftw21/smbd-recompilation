@@ -331,6 +331,25 @@ std::map<std::uint32_t,std::vector<std::uint32_t>> bounded_tables(Xbe& image,con
                 if(a || b) state.registers[target]={0,(a && b?std::min(*a,*b):a?*a:*b)+1};
             } else if(mnemonic==ZYDIS_MNEMONIC_MOVZX && operands[1].size==8) {
                 state.registers[target]={0,256};
+                const auto& lookup=operands[1];
+                if(ins.address_width==32 && lookup.type==ZYDIS_OPERAND_TYPE_MEMORY && lookup.mem.segment==ZYDIS_REGISTER_DS) {
+                    const auto index=lookup.mem.index==ZYDIS_REGISTER_NONE?general(lookup.mem.base):
+                        lookup.mem.base==ZYDIS_REGISTER_NONE && lookup.mem.scale==1?general(lookup.mem.index):-1;
+                    if(index>=0 && original.registers[index].count) {
+                        const auto range=original.registers[index];
+                        const auto address=static_cast<std::uint32_t>(lookup.mem.disp.value)+range.first;
+                        const auto section=std::ranges::find_if(image.sections,[&](const Section& value) {
+                            return !(value.flags&1) && address>=value.address &&
+                                static_cast<std::uint64_t>(address)-value.address+range.count<=std::min(value.size,value.raw_size);
+                        });
+                        if(section!=image.sections.end()) {
+                            const auto bytes=image.data(address,range.count);
+                            std::vector<std::uint32_t> values;values.reserve(range.count);
+                            for(const auto value:bytes) values.push_back(std::to_integer<unsigned char>(value));
+                            state.registers[target]=enclosing(std::move(values));
+                        }
+                    }
+                }
             }
             else if((mnemonic==ZYDIS_MNEMONIC_ADD || mnemonic==ZYDIS_MNEMONIC_SUB) && immediate && previous_range.count)
                 state.registers[target]={previous_range.first+(mnemonic==ZYDIS_MNEMONIC_ADD?value:0U-value),previous_range.count};
@@ -669,20 +688,31 @@ Function recover(Xbe& image, std::uint32_t address, std::uint32_t instruction_bu
     }
     for(const auto& table:entry_tables) if(function.entry==table.owner) {
         if(hex_bytes(image.data(table.owner,table.prefix.size()/2))!=table.prefix ||
-           table.end<=table.start || table.end-table.start>128*1024 || (table.end-table.start)%4)
+           table.end<=table.start || table.end-table.start>128*1024 || (table.end-table.start)%4 ||
+           table.stride<4 || table.stride>128*1024 || table.stride%4)
             throw std::runtime_error("Callback table proof differs at "+hex32(table.owner));
         const auto bytes=image.data(table.start,table.end-table.start);
-        for(std::uint32_t offset=0;offset<bytes.size();offset+=4) {
+        for(std::uint32_t offset=0;offset<bytes.size();offset+=table.stride) {
             const auto target=u32(bytes,offset);
             if(!target) continue;
             image.code_section(target);function.static_callbacks.push_back(target);
         }
     }
-    function.unresolved=std::ranges::any_of(function.instructions,[](const auto& pair) {
-        const auto& instruction=pair.second;const auto category=instruction.decoded.meta.category;
-        return (category==ZYDIS_CATEGORY_CALL || category==ZYDIS_CATEGORY_UNCOND_BR) && !instruction.target() &&
-            !instruction.kernel_ordinal && instruction.jump_targets.empty();
+    // Bounds propagation and guard invalidation can both change a dispatch.
+    // Report unresolved edges from the final instruction state.
+    std::erase_if(function.edges,[&](const auto& edge) {
+        return (!edge.to && (edge.kind=="call" || edge.kind=="jump")) ||
+            (edge.kind=="table-jump" && function.instructions.at(edge.from).jump_targets.empty());
     });
+    function.unresolved=false;
+    for(const auto& [pc,instruction]:function.instructions) {
+        const auto category=instruction.decoded.meta.category;
+        if((category==ZYDIS_CATEGORY_CALL || category==ZYDIS_CATEGORY_UNCOND_BR) && !instruction.target() &&
+           !instruction.kernel_ordinal && instruction.jump_targets.empty()) {
+            function.unresolved=true;
+            function.edges.push_back({pc,category==ZYDIS_CATEGORY_CALL?"call":"jump",std::nullopt});
+        }
+    }
     // Recover code-valued callback arguments from verified registration ABIs.
     // Writes to the outgoing arguments and control transfers stop the proof;
     // unrelated local stack writes cannot change those callback arguments.

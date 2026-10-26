@@ -19,3 +19,31 @@ Validation: native upload and drawing now succeed on the RTX 5060 Ti. The
 boot-0054 capture contains the title prompt during its fade, with 215 draws,
 168 presented frames, and 1052 vertices before the next untranslated object
 callback at 0x000AE2F0. Complete title/menu visual parity remains unverified.
+
+XTPL inventory (metadata-only streaming read)
+Original loader 0x00025580 checks XTPL magic 4C505458, reads count at +4,
+and copies count 16-byte records from +8. Texture creation at 0x00021200
+reads each record's resource offset at +4, then passes resource fields
++0/+4/+8/+C as format/width/height/mip count to 0x0032E4E6.
+
+All 962 media TPL files use XTPL. Reading only these tables and 32-byte
+resource headers produced 18,712 texture records, with no invalid or skipped
+files: 05=52, 06=816, 0C=14,884, 0E=1,728, 1A=1,232. Container record tags
+are not texture formats; resource headers supply the actual D3D format.
+The private reproducible inventory is build/logs/texture-format-inventory.json.
+
+1A is swizzled A8L8 (luminance in byte 0, alpha in byte 1). Sampling must
+return L,L,L,A. Expansion to BGRA8 during the existing unswizzle preserves
+these channels for every shader and requires accounting for twice the
+source byte count in the native texture budget. A8L8 support is implemented
+and the native build passed; runtime use of 1A has not been independently
+captured. Runtime-created formats remain separate.
+https://raw.githubusercontent.com/aap/librw/master/src/d3d/rwxbox.h
+https://learn.microsoft.com/en-us/windows/uwp/gaming/feature-mapping
+
+The seven additional XPR0/XBX containers were also inspected at their first
+texture resource: Font.xpr uses 04, Gamepad.xpr uses linear 12, and all five
+save/title image XBX files use 0C. Those formats are supported already.
+Font.xpr therefore independently confirms the observed 04 font-atlas path.
+The private header report is build/logs/xpr-texture-formats.json.
+https://xboxdevwiki.net/XPR

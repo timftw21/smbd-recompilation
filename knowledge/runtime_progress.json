@@ -2,18 +2,19 @@
   "schema_version": 1,
   "executable_sha256": "9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2",
   "validation_date": "2026-10-25",
-  "stage": "Verified SEGA screen and faint title prompt; menu and gameplay investigation",
+  "stage": "Verified title and input; stage/character resource loading",
   "original_translation_blockers": {
     "rejected_data_entries": 4,
     "remaining": 0,
     "cache_publication_lowered": true
   },
   "native_generation": {
-    "functions": 9138,
-    "compiled": 9138,
-    "closed_functions": 4598,
+    "functions": 9340,
+    "compiled": 9340,
+    "closed_functions": 4675,
     "native_platform_functions": 31,
-    "unresolved_indirect_sites": 1163
+    "unresolved_indirect_sites": 1121,
+    "unresolved_report_consistent": true
   },
   "shaders": {
     "builtin_programs": 25,
@@ -23,17 +24,19 @@
   },
   "verified_startup": {
     "main_reached": true,
-    "checkpoints": 15430897,
+    "checkpoints": 50000000,
     "threads": 6,
-    "frames": 168,
-    "draws": 215,
-    "vertices": 1052,
+    "frames": 219,
+    "draws": 2866,
+    "vertices": 21256,
     "rendering_verified": true,
-    "scene": "SEGA screen verified earlier; later 640x480 capture contains a very dark PRESS START BUTTON prompt during the title fade",
+    "scene": "Initial SEGA/prompt diagnostic; full title artwork was verified separately in the automated frontend",
     "menu_verified": false,
     "playable": false,
-    "last_boundary": "Native boundary at 0x000AE2F0: function is absent from the fixed native table",
-    "apcs_delivered": 0
+    "last_boundary": "Native boundary at 0x002D6451: execution diagnostic budget exhausted",
+    "apcs_delivered": 0,
+    "evidence_report": "build/logs/boot-0055.json",
+    "generation_functions": 9211
   },
   "evidence": "Initial coverage is retained as a historical snapshot. Current detailed reports stay private under build/logs and build/generated. Code/data exclusions and API/callback contracts are recorded separately in knowledge.",
   "diagnostics": {
@@ -58,6 +61,36 @@
     "incremental_texture_change_seconds": 22.8113637,
     "cpu_cases": 10,
     "controller_cases": 47,
-    "offline_audio_cases": 37
+    "offline_audio_cases": 37,
+    "compiler_comparison_functions": 9138,
+    "callback_texture_batch_seconds": 1526.8762967,
+    "game_only_record_batch_seconds": 1033.3125036,
+    "incremental_frontend_report_seconds": 19.8046564
+  },
+  "frontend_validation": {
+    "frames": 500,
+    "draws": 15982,
+    "controller_steps": 11,
+    "title_artwork_verified": true,
+    "start_input_verified": true,
+    "menu_verified": false,
+    "playable": false,
+    "capture": "build/logs/menu-probe-500.png",
+    "boundary": "Native window closed",
+    "automation_issue": "SDL suppressed virtual controller events without keyboard focus; enabling its background joystick hint allowed Start to advance",
+    "code_fix_validation_pending": false,
+    "report": "build/logs/menu-probe-500-full.json"
+  },
+  "latest_run": {
+    "functions": 9340,
+    "frames": 1054,
+    "draws": 103585,
+    "vertices": 472408,
+    "boundary": "Native boundary at 0x000A40E0: function is absent from the fixed native table",
+    "report": "build/logs/game-0009-full.json",
+    "capture": "build/logs/game-0009.png",
+    "stage_and_character_assets_read": true,
+    "menu_verified": false,
+    "playable": false
   }
 }

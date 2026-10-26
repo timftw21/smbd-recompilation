@@ -672,7 +672,9 @@ std::uint32_t Renderer::upload(const TextureData& texture) {
     DXGI_FORMAT format;
     unsigned bpp = 0, block = 0;
     bool swizzled = false;
+    const bool expand_luminance=texture.format==TextureFormat::a8l8;
     switch (texture.format) {
+    case TextureFormat::a8l8: format = DXGI_FORMAT_B8G8R8A8_UNORM; bpp = 2; swizzled = true; break;
     case TextureFormat::argb4: format = DXGI_FORMAT_B4G4R4A4_UNORM; bpp = 2; swizzled = true; break;
     case TextureFormat::rgb565: format = DXGI_FORMAT_B5G6R5_UNORM; bpp = 2; swizzled = true; break;
     case TextureFormat::argb8: format = DXGI_FORMAT_B8G8R8A8_UNORM; bpp = 4; swizzled = true; break;
@@ -691,7 +693,8 @@ std::uint32_t Renderer::upload(const TextureData& texture) {
     if (texture.pitch && (swizzled || block || texture.mip_levels != 1))
         throw std::runtime_error("An explicit pitch requires a single linear mip");
     if (r.textures.size() >= 4096) throw std::runtime_error("Texture resource limit reached");
-    if (texture.bytes.size() > 256 * 1024 * 1024 - r.texture_bytes)
+    const auto resident_bytes=texture.bytes.size()*(expand_luminance?2U:1U);
+    if (resident_bytes > 256 * 1024 * 1024 - r.texture_bytes)
         throw std::runtime_error("Texture resources exceed 256 MiB");
     if(texture.cubemap && (texture.width!=texture.height || texture.depth!=1)) throw std::runtime_error("Cubemap faces must be square and two-dimensional");
     const auto faces=texture.cubemap?6U:1U;
@@ -708,7 +711,8 @@ std::uint32_t Renderer::upload(const TextureData& texture) {
         const auto input_bytes = texture.bytes.subspan(offset, size);
         const void* pixels = input_bytes.data();
         if (swizzled) {
-            auto& output = linear[subresource]; output.resize(size);
+            const auto output_bpp=expand_luminance?4U:bpp;
+            auto& output = linear[subresource]; output.resize(std::size_t(w)*h*d*output_bpp);
             std::uint32_t mx = 0, my = 0, mz=0,bit = 1;
             for (unsigned dimension = 1; dimension < std::max({w,h,d}); dimension <<= 1) {
                 if (dimension < w) { mx |= bit; bit <<= 1; }
@@ -721,8 +725,11 @@ std::uint32_t Renderer::upload(const TextureData& texture) {
                 for (unsigned y = 0; y < h; ++y) {
                     std::uint32_t sx = 0;
                     for (unsigned x = 0; x < w; ++x) {
-                        std::memcpy(output.data() + ((std::size_t(z)*h+y) * w + x) * bpp,
-                                    input_bytes.data() + (sx + sy+sz) * bpp, bpp);
+                        auto* destination=output.data()+((std::size_t(z)*h+y)*w+x)*output_bpp;
+                        const auto* source=input_bytes.data()+(sx+sy+sz)*bpp;
+                        if(expand_luminance) {
+                            destination[0]=destination[1]=destination[2]=source[0];destination[3]=source[1];
+                        } else std::memcpy(destination,source,bpp);
                         sx = (sx - mx) & mx;
                     }
                     sy = (sy - my) & my;
@@ -731,7 +738,9 @@ std::uint32_t Renderer::upload(const TextureData& texture) {
             }
             pixels = output.data();
         }
-        data[subresource] = {pixels, pitch, static_cast<UINT>(slice)};
+        const auto upload_pitch=expand_luminance?w*4:static_cast<unsigned>(pitch);
+        const auto upload_slice=expand_luminance?std::size_t(upload_pitch)*h:slice;
+        data[subresource] = {pixels, upload_pitch, static_cast<UINT>(upload_slice)};
         offset += size;
     }
     if (offset != texture.bytes.size()) throw std::runtime_error("Texture payload has trailing bytes; specify its full mip count");
@@ -756,7 +765,7 @@ std::uint32_t Renderer::upload(const TextureData& texture) {
     }
     r.textures.push_back(std::move(view));
     r.texture_dimensions.push_back(texture.cubemap?3U:texture.depth>1?2U:1U);
-    r.texture_bytes += texture.bytes.size();
+    r.texture_bytes += resident_bytes;
     return static_cast<std::uint32_t>(r.textures.size() - 1);
 }
 void Renderer::prepare(const RenderState& state) {

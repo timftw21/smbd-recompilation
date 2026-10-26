@@ -119,7 +119,7 @@ struct Gpu::Impl {
                 ((surface_type==1)==linear) && (!linear || (key[3]&0xFFFF)==pitch)) return surface.identifier;
         }
         unsigned bpp=0,block=0;
-        switch(code) {case 4:case 5:bpp=2;break;case 6:case 7:case 0x12:case 0x1E:bpp=4;break;
+        switch(code) {case 4:case 5:case 0x1A:bpp=2;break;case 6:case 7:case 0x12:case 0x1E:bpp=4;break;
             case 0xC:block=8;break;case 0xE:case 0xF:block=16;break;
             default:throw std::runtime_error(std::format("Unsupported NV097 texture format 0x{:02X}",code));}
         std::uint64_t size=0;

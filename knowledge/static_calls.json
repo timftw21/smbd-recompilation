@@ -2,6 +2,86 @@
   "executable_sha256": "9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2",
   "tables": [
     {
+      "site": "0x0007791D",
+      "proof_address": "0x00077912",
+      "prefix": "8B4C24140FB691D47A0700FF2495C07A0700",
+      "start": "0x00077AC0",
+      "end": "0x00077AD4",
+      "stride": 4,
+      "kind": "jump",
+      "evidence": "In 775E0, the unsigned guard at 7786B/77872 bounds EAX to 0..9 and 7786E saves it at ESP+14. Every path from the guarded first switch to 77912 keeps ESP unchanged, and the only write to that slot is 7786E. Reload 77912 indexes the ten immutable bytes at 77AD4 (00,00,01,01,02,02,04,04,04,03), selecting exactly the five function-local branch pointers in [77AC0,77AD4). The next bytes are remapping data, not pointers."
+    },
+    {
+      "site": "0x00017404",
+      "proof_address": "0x00017404",
+      "prefix": "FF148DC42D4800",
+      "start": "0x00482DC4",
+      "end": "0x00482DD8",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original request setup 172E0 calls this immutable five-slot request-type callback table, passing the request and its 0x60-byte loader object. Slot 1 contains 18A50, reached by automated startup at frame 362. The next distinct callback table begins at 482DD8; the unused null slot is preserved. All nonzero targets are checked against code sections."
+    },
+    {
+      "site": "0x0001746D",
+      "proof_address": "0x0001746D",
+      "prefix": "FF148DC42D4800",
+      "start": "0x00482DC4",
+      "end": "0x00482DD8",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original request setup 172E0 calls this immutable five-slot request-type callback table, passing the request and its 0x60-byte loader object. Slot 1 contains 18A50, reached by automated startup at frame 362. The next distinct callback table begins at 482DD8; the unused null slot is preserved. All nonzero targets are checked against code sections."
+    },
+    {
+      "site": "0x00017511",
+      "proof_address": "0x00017511",
+      "prefix": "FF148DC42D4800",
+      "start": "0x00482DC4",
+      "end": "0x00482DD8",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original request setup 172E0 calls this immutable five-slot request-type callback table, passing the request and its 0x60-byte loader object. Slot 1 contains 18A50, reached by automated startup at frame 362. The next distinct callback table begins at 482DD8; the unused null slot is preserved. All nonzero targets are checked against code sections."
+    },
+    {
+      "site": "0x0001759F",
+      "proof_address": "0x0001759F",
+      "prefix": "FF148DC42D4800",
+      "start": "0x00482DC4",
+      "end": "0x00482DD8",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original request setup 172E0 calls this immutable five-slot request-type callback table, passing the request and its 0x60-byte loader object. Slot 1 contains 18A50, reached by automated startup at frame 362. The next distinct callback table begins at 482DD8; the unused null slot is preserved. All nonzero targets are checked against code sections."
+    },
+    {
+      "site": "0x0001AEE2",
+      "proof_address": "0x0001AEE2",
+      "prefix": "FF148DD82D4800",
+      "start": "0x00482DD8",
+      "end": "0x00482DEC",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original loader poll 1ADA0 reads the request type from loader object +2 and invokes the matching completion callback. These five slots parallel the setup table at 482DC4; the following padding word at 482DEC and the state table at 482DF0 are excluded."
+    },
+    {
+      "site": "0x0001AFBC",
+      "proof_address": "0x0001AFBC",
+      "prefix": "FF1495F02D4800",
+      "start": "0x00482DF0",
+      "end": "0x00482EC8",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original loader poll 1ADA0 invokes the state-entry callback when the loader's byte state changes. The complete 54-slot table at 482DF0 ends at 482EC8, before two padding words and the parallel state-update table at 482ED0. Zero/FFFFFFFF sentinels are not code."
+    },
+    {
+      "site": "0x0001AFD1",
+      "proof_address": "0x0001AFD1",
+      "prefix": "FF1485D02E4800",
+      "start": "0x00482ED0",
+      "end": "0x00482FA8",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original loader poll 1ADA0 invokes the current state's update callback after any state-entry callback. This table has the same 54 slots as 482DF0 and ends at 482FA8. Its next word is null, followed by packed numeric data at 482FAC, which is excluded."
+    },
+    {
       "site": "0x0030AF39",
       "proof_address": "0x0030AF1C",
       "prefix": "5657B820484600BF2C484600",
@@ -590,9 +670,131 @@
       "stride": 4,
       "kind": "call",
       "evidence": "Background-scene state uses three adjacent tables of 44 slots for setup (0x00575638), update (0x005756E8), and cleanup (0x00575798). Their starts are encoded in the original dispatchers. Unused and padding slots are null. The update dispatcher has no local stack frame and tail-calls a standalone update routine; callbacks retain the caller return address."
+    },
+    {
+      "site": "0x000B75B1",
+      "proof_address": "0x000B75B1",
+      "prefix": "FF149590A05600",
+      "start": "0x0056A090",
+      "end": "0x0056A204",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "Original object update dispatch indexes the 93-entry immutable method table by the object type byte. The table ends immediately before numeric float data at 0x0056A204. Each entry is an independently recoverable method or the common empty routine."
+    },
+    {
+      "site": "0x000B75A2",
+      "proof_address": "0x000B75A2",
+      "prefix": "FF1598A05600",
+      "start": "0x0056A098",
+      "end": "0x0056A09C",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "The alternate object update path invokes the fixed third entry of the same method table."
+    },
+    {
+      "site": "0x00015BE5",
+      "proof_address": "0x00015BE5",
+      "prefix": "FF2495786F4700",
+      "start": "0x00476F78",
+      "end": "0x00476FA0",
+      "stride": 4,
+      "kind": "tail",
+      "evidence": "Main-mode dispatcher tail-calls standalone handlers from the table at 0x00476F78. The next table begins at 0x00476FA0; unused and alignment slots are null. The original dispatcher has no local stack frame on this path."
+    },
+    {
+      "site": "0x00240171",
+      "proof_address": "0x00240171",
+      "prefix": "FF248568416800",
+      "start": "0x00684330",
+      "end": "0x00684404",
+      "stride": 4,
+      "kind": "tail",
+      "evidence": "Story-mode dispatcher accepts signed submode indices 0x72 through 0xA6, after rejecting indices <=0x71 and >=0xA7. Its encoded table base 0x00684168 plus that verified interval yields [0x00684330,0x00684404). It tail-calls standalone handlers without a local stack frame."
+    },
+    {
+      "site": "0x000AA753",
+      "proof_address": "0x000AA753",
+      "prefix": "FF2485A06F4700",
+      "start": "0x00476FA4",
+      "end": "0x0047700C",
+      "stride": 4,
+      "kind": "tail",
+      "evidence": "Original main-mode wrapper checks signed submode bounds [1,1B) before its tail jump through the global handler table at 0x00476FA0. The valid path retains its caller stack; error paths are separate. No callee bodies are inlined during recovery."
+    },
+    {
+      "site": "0x0029F01F",
+      "proof_address": "0x0029F01F",
+      "prefix": "FF2485A06F4700",
+      "start": "0x00477014",
+      "end": "0x00477058",
+      "stride": 4,
+      "kind": "tail",
+      "evidence": "Original main-mode wrapper checks signed submode bounds [1D,2E) before its tail jump through the global handler table at 0x00476FA0. The valid path retains its caller stack; error paths are separate. No callee bodies are inlined during recovery."
+    },
+    {
+      "site": "0x0025360F",
+      "proof_address": "0x0025360F",
+      "prefix": "FF2485A06F4700",
+      "start": "0x00477060",
+      "end": "0x00477160",
+      "stride": 4,
+      "kind": "tail",
+      "evidence": "Original main-mode wrapper checks signed submode bounds [30,70) before its tail jump through the global handler table at 0x00476FA0. The valid path retains its caller stack; error paths are separate. No callee bodies are inlined during recovery."
+    },
+    {
+      "site": "0x000F9E03",
+      "proof_address": "0x000F9E03",
+      "prefix": "FF2485A06F4700",
+      "start": "0x00477244",
+      "end": "0x004772E4",
+      "stride": 4,
+      "kind": "tail",
+      "evidence": "Original main-mode wrapper checks signed submode bounds [A9,D1) before its tail jump through the global handler table at 0x00476FA0. The valid path retains its caller stack; error paths are separate. No callee bodies are inlined during recovery."
+    },
+    {
+      "site": "0x00247E93",
+      "proof_address": "0x00247E93",
+      "prefix": "FF2485A06F4700",
+      "start": "0x00477374",
+      "end": "0x0047739C",
+      "stride": 4,
+      "kind": "tail",
+      "evidence": "Original main-mode wrapper checks signed submode bounds [F5,FF) before its tail jump through the global handler table at 0x00476FA0. The valid path retains its caller stack; error paths are separate. No callee bodies are inlined during recovery."
     }
   ],
   "entry_tables": [
+    {
+      "owner": "0x000F9EB0",
+      "prefix": "A1DC067700565733FF3BC7BEE0304100",
+      "start": "0x004130E4",
+      "end": "0x004131B0",
+      "stride": 16,
+      "evidence": "Original F9EB0 searches thirteen 16-byte mode records from 4130E0; zero mode ID at 4131B0 ends the search. It passes the selected record's three pointer fields at +4/+8/+C to the verified callback-record initializer 1FA50 at F9F18. The two 16-bit IDs in each record's first word and the sentinel are excluded. This interval selects only the field at +4."
+    },
+    {
+      "owner": "0x000F9EB0",
+      "prefix": "A1DC067700565733FF3BC7BEE0304100",
+      "start": "0x004130E8",
+      "end": "0x004131B0",
+      "stride": 16,
+      "evidence": "Original F9EB0 searches thirteen 16-byte mode records from 4130E0; zero mode ID at 4131B0 ends the search. It passes the selected record's three pointer fields at +4/+8/+C to the verified callback-record initializer 1FA50 at F9F18. The two 16-bit IDs in each record's first word and the sentinel are excluded. This interval selects only the field at +8."
+    },
+    {
+      "owner": "0x000F9EB0",
+      "prefix": "A1DC067700565733FF3BC7BEE0304100",
+      "start": "0x004130EC",
+      "end": "0x004131B0",
+      "stride": 16,
+      "evidence": "Original F9EB0 searches thirteen 16-byte mode records from 4130E0; zero mode ID at 4131B0 ends the search. It passes the selected record's three pointer fields at +4/+8/+C to the verified callback-record initializer 1FA50 at F9F18. The two 16-bit IDs in each record's first word and the sentinel are excluded. This interval selects only the field at +C."
+    },
+    {
+      "owner": "0x0029F2A0",
+      "prefix": "E88B75D7FFE85643DDFFA154936C00",
+      "start": "0x00435238",
+      "end": "0x00435310",
+      "stride": 4,
+      "evidence": "Original 29F2A0 forms a callback-record address 435238+(mode-1C)*12 and passes it to 1FA50 at 29F2DD. The mode wrapper 29F000 admits 1D..2D; the table includes the all-null 1C slot and eighteen complete triples, ending at 435310. Each nonzero field is a callable function; no numeric fields are included."
+    },
     {
       "end": "0x006C0938",
       "prefix": "A108DC4500B8D0086C00C3",

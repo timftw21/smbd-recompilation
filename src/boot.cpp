@@ -13,6 +13,9 @@ std::string check_boot(Xbe& image,const std::filesystem::path& disc,std::uint32_
     host.capture=capture;
     Xbox xbox(image,memory,ram,disc,std::move(host));
     const auto result = xbox.run(budget);
+    return boot_report(image,result);
+}
+std::string boot_report(const Xbe& image,const BootResult& result) {
     const bool passed=result.capture_error.empty() && (result.boundary.empty() || result.boundary=="Native window closed" ||
         result.boundary.ends_with("execution diagnostic budget exhausted"));
     std::ostringstream output;
