@@ -1,0 +1,20 @@
+Super Monkey Ball Deluxe - manual Windows playtest
+
+1. Double-click Play.cmd in D:\smbd-recompilation.
+   It opens an interactive session with audio muted.
+2. Click the game window, press Enter for Start, and use the menus to choose
+   Main Game > Story Mode. Start World 1 to play 1-1 SIMPLE.
+3. Close the game window to exit.
+
+Keyboard: Enter = Start/pause; Space = A/confirm; Left Shift = B/back;
+arrow keys = menu/D-pad; W/A/S/D = left stick/stage tilt.
+Movement keys apply full tilt, so use short taps for finer control.
+
+Controller: left stick tilts the stage; A confirms, B goes back, Start pauses.
+
+Optional report, from PowerShell in D:\smbd-recompilation:
+  .\Play.cmd --report build\logs\manual-playtest.json
+
+Verified milestone: first-level GOAL and loading 1-2 DIAMOND.
+Remaining work: 774 unresolved calls, additional Xbox services, visual/timing
+accuracy and wider game-mode coverage. This is a playable prototype.

@@ -2,20 +2,20 @@
   "schema_version": 1,
   "executable_sha256": "9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2",
   "validation_date": "2026-10-26",
-  "stage": "First level 1-1 SIMPLE reaches GOAL and next stage 1-2 DIAMOND loads; unresolved calls remain",
+  "stage": "Playable Windows phase handed off for manual testing; remaining recompilation work deferred by user",
   "original_translation_blockers": {
     "rejected_data_entries": 4,
     "remaining": 0,
     "cache_publication_lowered": true
   },
   "native_generation": {
-    "functions": 9755,
-    "compiled": 9755,
-    "closed_functions": 4904,
+    "functions": 9756,
+    "compiled": 9756,
+    "closed_functions": 4912,
     "native_platform_functions": 31,
-    "unresolved_indirect_sites": 807,
+    "unresolved_indirect_sites": 774,
     "unresolved_report_consistent": true,
-    "compiled_instructions": 815680,
+    "compiled_instructions": 815712,
     "unsupported_instructions": 0
   },
   "shaders": {
@@ -47,8 +47,8 @@
     "controller_cases": 47,
     "audio_mixer_cases": 37,
     "native_game_virtual_controller": true,
-    "generation_functions": 9755,
-    "unresolved_indirect_sites": 807
+    "generation_functions": 9756,
+    "unresolved_indirect_sites": 774
   },
   "build_validation": {
     "compiler": "clang-cl 22.1.8",
@@ -78,8 +78,8 @@
     "draw_record_incremental_seconds": 71.7778283,
     "geometry_node_incremental_seconds": 25.0034194,
     "full_diagnostics_refresh_pending": false,
-    "diagnostics_generation_functions": 9755,
-    "full_tool_build_seconds": 24.1422148,
+    "diagnostics_generation_functions": 9756,
+    "full_tool_build_seconds": 24.5086752,
     "image_copy_hardware_cases": 9,
     "image_copy_warp_cases": 9,
     "d3d11_copy_messages": 0,
@@ -98,9 +98,11 @@
     "shared_thinlto_cache": true,
     "native_dispatcher_outside_thinlto": true,
     "muted_runtime_game_build_seconds": 191.6005925,
-    "shared_cache_full_tool_build_seconds": 24.1422148,
+    "shared_cache_full_tool_build_seconds": 24.5086752,
     "stream_audio_batch_game_build_seconds": 477.8063552,
-    "stream_audio_batch_tool_build_seconds": 24.1422148
+    "stream_audio_batch_tool_build_seconds": 24.1422148,
+    "flow_callback_game_build_seconds": 287.5538966,
+    "flow_callback_tool_build_seconds": 24.5086752
   },
   "frontend_validation": {
     "frames": 901,
@@ -120,14 +122,14 @@
     "generation_functions": 9597
   },
   "latest_run": {
-    "functions": 9755,
-    "frames": 3753,
-    "draws": 1496131,
-    "vertices": 85278093,
-    "blits": 1277,
+    "functions": 9756,
+    "frames": 3807,
+    "draws": 1506985,
+    "vertices": 84609982,
+    "blits": 1330,
     "boundary": "Native window closed",
-    "report": "build/logs/game-0046-full.json",
-    "capture": "build/logs/game-0046.png",
+    "report": "build/logs/game-0047-full.json",
+    "capture": "build/logs/game-0047.png",
     "stage_and_character_assets_read": true,
     "menu_verified": true,
     "playable": true,
@@ -157,10 +159,12 @@
     "shared_slot_dispatch_sites_resolved": 42,
     "shared_callback_and_factory_sites_resolved": 73,
     "table_pointer_flow_sites_resolved": 21,
-    "table_pointer_contracts": 233,
-    "grouped_pointer_source_records": 52,
-    "byte_checked_vptr_loads": 114,
-    "stream_audio_batch_sites_resolved": 114
+    "table_pointer_contracts": 257,
+    "grouped_pointer_source_records": 65,
+    "stream_audio_batch_sites_resolved": 114,
+    "byte_checked_pointer_loads": 129,
+    "shared_global_callback_slots": 10,
+    "flow_callback_batch_sites_resolved": 33
   },
   "first_level_validation": {
     "level": "1-1 SIMPLE",
@@ -192,8 +196,8 @@
     "geometry_and_effects_artifacts_present": true,
     "neutral_generation_functions": 9746,
     "post_goal_exit_code": 0,
-    "post_goal_report": "build/logs/game-0046-full.json",
-    "post_goal_generation_functions": 9755
+    "post_goal_report": "build/logs/game-0047-full.json",
+    "post_goal_generation_functions": 9756
   },
   "controller_automation": {
     "original_menu_state": "0x008B2680",
@@ -208,12 +212,12 @@
   },
   "second_level_validation": {
     "level": "1-2 DIAMOND",
-    "functions": 9755,
+    "functions": 9756,
     "loaded": true,
     "rendered": true,
     "capture_state": "READY",
-    "capture": "build/logs/game-0046.png",
-    "report": "build/logs/game-0046-full.json",
+    "capture": "build/logs/game-0047.png",
+    "report": "build/logs/game-0047-full.json",
     "controller_steps": 34,
     "controller_waits": 6,
     "controller_complete": true,
@@ -225,26 +229,27 @@
     "analysis_command": "tools/Build.ps1 -Stage Analysis -AllowPartial",
     "game_command": "tools/Build.ps1 -Stage Game -AllowPartial",
     "full_command": "tools/Build.ps1 -AllowPartial",
-    "warm_analysis_seconds": 6.5269833,
-    "native_generation_seconds": 3.707551,
+    "warm_analysis_seconds": 6.9125674,
+    "native_generation_seconds": 3.9833955,
     "index": "build/logs/call-recovery.json",
-    "unique_sites": 807,
-    "pattern_groups": 264,
+    "unique_sites": 774,
+    "pattern_groups": 260,
     "object_pointer_stores": 83,
-    "absolute_slot_writes": 159,
-    "known_caller_entries": 7525,
+    "absolute_slot_writes": 150,
+    "known_caller_entries": 7543,
     "generated_files_unchanged": 515,
     "function_reports_identical": true,
     "slot_binding_origins_verified": true,
     "analysis_index_built_in_bootstrap_tool": true,
     "batch_by_shared_slots_and_interfaces": true,
     "defer_full_links_and_platform_checks": true,
-    "batch_sites_resolved": 114,
+    "batch_sites_resolved": 33,
     "batch_sites_introduced": 0,
-    "observed_unresolved_sites": 245,
-    "observed_stream_interface_sites": 106,
+    "observed_unresolved_sites": 168,
+    "observed_stream_interface_sites": 64,
     "observed_queue": "build/logs/call-recovery-observed.json",
-    "observations_require_static_proof": true
+    "observations_require_static_proof": true,
+    "callback_slot_flow_requires_complete_local_jumps": true
   },
   "automation_audio": {
     "hidden_runs_muted": true,
@@ -252,6 +257,17 @@
     "tool_boot_diagnostics_muted": true,
     "explicit_flag": "--mute",
     "normal_mixing_and_playback_continue": true,
-    "verified_report": "build/logs/game-0046.json"
+    "verified_report": "build/logs/game-0047.json"
+  },
+  "handoff": {
+    "user_requested_wrap_up_after_current_batch": true,
+    "playable_phase_complete": true,
+    "full_recompilation_complete": false,
+    "remaining_unresolved_calls": 774,
+    "xbox_service_coverage_complete": false,
+    "manual_launcher": "Play.cmd",
+    "manual_guide": "PLAYTEST.txt",
+    "muted_by_default": true,
+    "launcher_verified_from_another_directory": true
   }
 }

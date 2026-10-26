@@ -1708,95 +1708,6 @@
       "evidence": "The complete five-instruction setter at 21DB20 compares its byte argument with 2. It installs 21D7A0 by default at 21DB25 and overwrites it with 2E2CA0 at 21DB31 for the other branch. Byte-reference searches identify both stores and five absolute CALL sites for slot 86ECDC."
     },
     {
-      "slot": "0x009392E0",
-      "prefix": "FFD0",
-      "kind": "call",
-      "target_literals": [
-        "0x002C66F8"
-      ],
-      "sites": [
-        "0x002CBE57",
-        "0x002CC0CF",
-        "0x002CC10E",
-        "0x002CC13E",
-        "0x002CC175",
-        "0x002CC19E",
-        "0x002CC1DF",
-        "0x002CC20E",
-        "0x002CC24F",
-        "0x002CC2B5",
-        "0x002CC2EE",
-        "0x002CC47F",
-        "0x002CC4E5",
-        "0x002CC5F7",
-        "0x002CC62C",
-        "0x002CC70B"
-      ],
-      "evidence": "Only 2C66F0 calls diagnostic registration 2CC300. It supplies literal 2C66E0 at 2C66F7. The complete setter writes that callback, or null, to 9392E0; its only absolute writers are 2CC30A and 2CC317."
-    },
-    {
-      "slot": "0x009392E0",
-      "prefix": "FFD1",
-      "kind": "call",
-      "target_literals": [
-        "0x002C66F8"
-      ],
-      "sites": [
-        "0x002CC74E"
-      ],
-      "evidence": "Only 2C66F0 calls diagnostic registration 2CC300. It supplies literal 2C66E0 at 2C66F7. The complete setter writes that callback, or null, to 9392E0; its only absolute writers are 2CC30A and 2CC317."
-    },
-    {
-      "slot": "0x009392E0",
-      "prefix": "FFE0",
-      "kind": "tail",
-      "target_literals": [
-        "0x002C66F8"
-      ],
-      "sites": [
-        "0x002CBE33",
-        "0x002CC7D4",
-        "0x002CC7FD",
-        "0x002CC82F"
-      ],
-      "evidence": "Only 2C66F0 calls diagnostic registration 2CC300. It supplies literal 2C66E0 at 2C66F7. The complete setter writes that callback, or null, to 9392E0; its only absolute writers are 2CC30A and 2CC317."
-    },
-    {
-      "slot": "0x00938E2C",
-      "prefix": "FFD0",
-      "kind": "call",
-      "target_literals": [
-        "0x002CC83B"
-      ],
-      "sites": [
-        "0x002CA9DA",
-        "0x002CAC1F",
-        "0x002CACAF",
-        "0x002CACFD",
-        "0x002CAD3F",
-        "0x002CAD9F",
-        "0x002CADD6",
-        "0x002CAE0B",
-        "0x002CAE9F",
-        "0x002CAF9C",
-        "0x002CB0FD",
-        "0x002CB1E6",
-        "0x002CB250",
-        "0x002CB35F",
-        "0x002CB448",
-        "0x002CB4F0",
-        "0x002CB5AC",
-        "0x002CB69F",
-        "0x002CB835",
-        "0x002CB8C8",
-        "0x002CB8F9",
-        "0x002CB932",
-        "0x002CBA92",
-        "0x002CBABC"
-      ],
-      "evidence": "The original named-provider initializer at 2CC83F passes literal diagnostic callback 2CBE20 from 2CC83A. The file-provider interface initializer is 2CAB00, which stores this argument at 938E2C; it has no other absolute slot writer. The two named providers are installed only by 2C66F0."
-    },
-    {
       "slot": "0x00000000",
       "prefix": "FF54240C",
       "kind": "call",
@@ -1808,88 +1719,6 @@
         "0x002CC3C5"
       ],
       "evidence": "2CC390 invokes its callback argument at ESP+0C after saving EBX/ESI. The sole caller is wrapper 2CC7A0, whose sole caller 2C66F0 supplies exactly the two original named-provider factories 2CC850 and 2CA7D0. Their original PUSH literals are retained."
-    },
-    {
-      "slot": "0x009392EC",
-      "prefix": "FFD0",
-      "kind": "call",
-      "target_literals": [
-        "0x002CC83B"
-      ],
-      "sites": [
-        "0x002CC8A8",
-        "0x002CC8DD",
-        "0x002CCA0F",
-        "0x002CCA37",
-        "0x002CCA62",
-        "0x002CCAAF",
-        "0x002CCB3F",
-        "0x002CCB6F",
-        "0x002CCB97",
-        "0x002CCBBF",
-        "0x002CCCDF",
-        "0x002CCD1F",
-        "0x002CCD4F",
-        "0x002CCD7E",
-        "0x002CCDDF"
-      ],
-      "evidence": "The alternate named-provider interface at 6C08D0 uses initializer 2CC930. Its complete five instructions copy argument 0 to 9392EC and argument 1 to 9392F0. The closed registration chain in 2C66F0/2CC7A0 supplies the same literal callback 2CBE20 at 2CC83A as the other provider. A native byte-address search finds this sole writer."
-    },
-    {
-      "slot": "0x00938D9C",
-      "prefix": "FF159C8D9300",
-      "kind": "call",
-      "target_literals": [
-        "0x002C8FC6"
-      ],
-      "sites": [
-        "0x002C8BDB",
-        "0x002C8C18"
-      ],
-      "evidence": "2C8FC0 installs the original callback 2C8F90 before entering normal service initialization. All four literal references to 938D9C are this store, two guarded invocations, and the checking load; the bounded native recovery includes the complete initializer."
-    },
-    {
-      "slot": "0x00938D9C",
-      "prefix": "FFD0",
-      "kind": "call",
-      "target_literals": [
-        "0x002C8FC6"
-      ],
-      "sites": [
-        "0x002C8BA2"
-      ],
-      "evidence": "2C8FC0 installs the original callback 2C8F90 before entering normal service initialization. All four literal references to 938D9C are this store, two guarded invocations, and the checking load; the bounded native recovery includes the complete initializer."
-    },
-    {
-      "slot": "0x009398E4",
-      "prefix": "FFD0",
-      "kind": "call",
-      "target_literals": [
-        "0x002C8CBC"
-      ],
-      "sites": [
-        "0x002D34A0",
-        "0x002D37B0",
-        "0x002D38EC",
-        "0x002D39C8",
-        "0x002D3A60",
-        "0x002D3AC0",
-        "0x002D3B1B"
-      ],
-      "evidence": "The complete setter 2D3570 copies argument 0 to 9398E4. Its two recovered callers are 2C8C70 and the overlapping initialization entry 2C8FC0, both reaching the original PUSH 2C8690 at 2C8CBB. The other writer is the zero initializer 2D3660. Native address searches find no address-taken setter and only these slot writes."
-    },
-    {
-      "slot": "0x009398EC",
-      "prefix": "FF15EC989300",
-      "kind": "call",
-      "target_literals": [
-        "0x002C8CC7"
-      ],
-      "sites": [
-        "0x002D3796",
-        "0x002D387E"
-      ],
-      "evidence": "The complete setter 2D3590 copies argument 0 to 9398EC. Its two recovered callers are 2C8C70 and the overlapping initialization entry 2C8FC0, both reaching the original PUSH 2C86B0 at 2C8CC6. The other writer is the zero initializer 2D3660. The sole raw occurrence of the setter address is a relative CALL displacement to another function, not an address-taken registration."
     },
     {
       "slot": "0x0093930C",
@@ -1904,6 +1733,46 @@
         "0x002D6A4D"
       ],
       "evidence": "The complete original initializer 2CCED0 writes callback 2D6870 to 93930C. Native exact-address search finds only that store and these three guarded reads/calls. Null is checked before invocation. The four-byte target literal is the original immediate at 2CCED6."
+    },
+    {
+      "slot": "0x00000000",
+      "kind": "call",
+      "prefix": "FFD0",
+      "target_literals": [
+        "0x006C0870",
+        "0x006C08D8"
+      ],
+      "sites": [
+        "0x002CC765"
+      ],
+      "evidence": "Complete provider resolver 2CC510 returns null or one of the registered 6C0868/6C08D0 tables, through 2CBE60. 2CC6C0 saves that value in ESI at 2CC736 and dispatches optional operation +8 at 2CC765. The null-provider diagnostic branch does not introduce another provider table. These original table cells contain 2CB810 and 2CC950. The neighboring diagnostic call at 2CC784 instead reads global 9392E0 and is covered by the shared slot proof."
+    },
+    {
+      "slot": "0x009392E0",
+      "prefix": "FFE0",
+      "kind": "tail",
+      "target_literals": [
+        "0x002C66F8"
+      ],
+      "sites": [
+        "0x002CBE33",
+        "0x002CC7D4",
+        "0x002CC7FD",
+        "0x002CC82F"
+      ],
+      "evidence": "Only 2C66F0 calls diagnostic registration 2CC300. It supplies literal 2C66E0 at 2C66F7. The complete setter writes that callback, or null, to 9392E0; its only absolute writers are 2CC30A and 2CC317. This existing byte-checked site proof is retained because the surrounding function still has an opaque exit; the shared slot contract supplements it only where full local control flow is known."
+    },
+    {
+      "slot": "0x009398E4",
+      "prefix": "FFD0",
+      "kind": "call",
+      "target_literals": [
+        "0x002C8CBC"
+      ],
+      "sites": [
+        "0x002D3B1B"
+      ],
+      "evidence": "The complete setter 2D3570 copies argument 0 to 9398E4. Its two recovered callers are 2C8C70 and the overlapping initialization entry 2C8FC0, both reaching the original PUSH 2C8690 at 2C8CBB. The other writer is the zero initializer 2D3660. Native address searches find no address-taken setter and only these slot writes. This existing byte-checked site proof is retained because the surrounding function still has an opaque exit; the shared slot contract supplements it only where full local control flow is known."
     }
   ],
   "pointer_sources": [
@@ -2519,6 +2388,219 @@
         "0x006C0BA0"
       ],
       "evidence": "The complete helper takes its stream in EDI and dispatches the two +24 queries. Its only original callers are 2C75C0 at 2C7750, passing the saved primary 2D2CE0 result at outer +10, and 2DBB70 at 2DBD5A, passing player +1D4 created by 2DAF40 through 2D2CE0. That factory installs exactly 6C0BA0. The helper stores this input at its own record +8; numeric +14 is not a pointer."
+    },
+    {
+      "source": "0x002DC150",
+      "kind": "return-object",
+      "prefix": "568B7424088D460C",
+      "table": "0x006C0BA0",
+      "evidence": "The complete original helper returns either null or the EAX object from 2D2CE0 at 2DC175. Its sole successful constructor caller 2DBB70 stores this value into player +190 at 2DBDD1. The allocator 2D2890 installs precisely interface 6C0BA0."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B08",
+      "sources": [
+        "0x002DC1B0",
+        "0x002DC23E"
+      ],
+      "tables": [
+        "0x006C0BA0"
+      ],
+      "evidence": "The original player constructor 2DBB70 stores the 2DC150 result into player +190 at 2DBDD1. The complete factory returns the 2D2CE0-created object or null; its allocator installs 6C0BA0. Original player initialization clears this field. No other nonzero player +190 assignment occurs in this private module; later MPEG records with the same displacement have different producers and layouts. The two tail helpers and 2DC4B0 read that saved player stream, loaded at 2DC1A4, 2DC234 or 2DC4B4."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B08",
+      "sources": [
+        "0x002DBAF0"
+      ],
+      "tables": [
+        "0x006C0BA0"
+      ],
+      "evidence": "The original release routine reads player +1D4 at 2DBAE6. The sole original constructor 2DBB70 obtains that field through 2DAF40, whose complete body calls 2D2CE0 and returns the resulting stream. Its allocator installs exactly 6C0BA0. The adjacent +1F4 field uses a separate constructor and is not part of this proof."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B10",
+      "sources": [
+        "0x002DBB03"
+      ],
+      "tables": [
+        "0x006C0BD0"
+      ],
+      "evidence": "The original release routine reads player +1F4 at 2DBAF9. Constructor 2DBB70 calls 2D3330 at 2DBCAD and saves the returned object at 2DBCB7. Its underlying allocator 2D2FC0 installs exactly 6C0BD0. Initialization clears the field; the separate packet input +1D4 uses the other constructor."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B10",
+      "sources": [
+        "0x002D1C78"
+      ],
+      "tables": [
+        "0x006C0BA0"
+      ],
+      "evidence": "The original outer-record consumer starts the secondary-stream iteration with LEA ESI,[EBP+18] at 2D1C73 and loads each element at 2D1C76. Sole constructor 2C75C0 fills this array from 2D2CE0 results at 2C770A/2C7714. Its allocator installs precisely 6C0BA0. The loop queries each original stream through +24."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B4500",
+      "sources": [
+        "0x002DC4BA",
+        "0x002DC57A"
+      ],
+      "tables": [
+        "0x006C0BA0"
+      ],
+      "evidence": "2DC4B0 loads the saved player +190 stream into EBP at 2DC4B4 and retains that receiver throughout its four original operations. Sole nonzero player +190 initialization is 2DBDD1, which saves the 2DC150 result; the complete helper returns null or the 2D2CE0-created stream. Its allocator installs exactly 6C0BA0. The original callbacks and row-copy structures are separate from this player field."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B4D00",
+      "sources": [
+        "0x002DC56C"
+      ],
+      "tables": [
+        "0x006C0BA0"
+      ],
+      "evidence": "2DC4B0 loads the saved player +190 stream into EBP at 2DC4B4 and retains that receiver throughout its four original operations. Sole nonzero player +190 initialization is 2DBDD1, which saves the 2DC150 result; the complete helper returns null or the 2D2CE0-created stream. Its allocator installs exactly 6C0BA0. The original callbacks and row-copy structures are separate from this player field."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B5500",
+      "sources": [
+        "0x002DC563"
+      ],
+      "tables": [
+        "0x006C0BA0"
+      ],
+      "evidence": "2DC4B0 loads the saved player +190 stream into EBP at 2DC4B4 and retains that receiver throughout its four original operations. Sole nonzero player +190 initialization is 2DBDD1, which saves the 2DC150 result; the complete helper returns null or the 2D2CE0-created stream. Its allocator installs exactly 6C0BA0. The original callbacks and row-copy structures are separate from this player field."
+    },
+    {
+      "source": "0x002CC510",
+      "kind": "return-table",
+      "prefix": "803B00558B6C240856",
+      "tables": [
+        "0x006C0868",
+        "0x006C08D0"
+      ],
+      "evidence": "The complete provider-name resolver 2CC510 returns null or a result of registry lookup 2CBE60, directly or after filename-prefix normalization. The registry writer is 2CC426, which stores the factory result selected by 2CC390. Its original registration callers in 2C66F0 supply only factories 2CA7D0/2CC850, returning precisely 6C0868/6C08D0. This extends the same checked table-return contract already recorded for 2CBE60."
+    },
+    {
+      "kind": "load-table",
+      "source": "0x002CC0D6",
+      "prefix": "8B16",
+      "tables": [
+        "0x006C0868",
+        "0x006C08D0"
+      ],
+      "evidence": "The original provider registry 9390E0 contains 32 records of 10 bytes. Registration 2CC390 writes the factory result at 2CC426; its original named registrations select only 2CA7D0/2CC850 and therefore tables 6C0868/6C08D0. The only file-wrapper allocator caller is 2CC5B0: it saves the 2CC510-selected table in wrapper +0 at 2CC656 and the opened native handle in +4 at 2CC685, returning only after both succeed. These loads read that wrapper table or the registry table during its original service loop."
+    },
+    {
+      "kind": "load-table",
+      "prefix": "8B11",
+      "tables": [
+        "0x006C0868",
+        "0x006C08D0"
+      ],
+      "evidence": "The original provider registry 9390E0 contains 32 records of 10 bytes. Registration 2CC390 writes the factory result at 2CC426; its original named registrations select only 2CA7D0/2CC850 and therefore tables 6C0868/6C08D0. The only file-wrapper allocator caller is 2CC5B0: it saves the 2CC510-selected table in wrapper +0 at 2CC656 and the opened native handle in +4 at 2CC685, returning only after both succeed. These loads read that wrapper table or the registry table during its original service loop.",
+      "sources": [
+        "0x002CC146",
+        "0x002CC1A6",
+        "0x002CC216"
+      ]
+    },
+    {
+      "kind": "load-table",
+      "source": "0x002CC2C1",
+      "prefix": "8B10",
+      "tables": [
+        "0x006C0868",
+        "0x006C08D0"
+      ],
+      "evidence": "The original provider registry 9390E0 contains 32 records of 10 bytes. Registration 2CC390 writes the factory result at 2CC426; its original named registrations select only 2CA7D0/2CC850 and therefore tables 6C0868/6C08D0. The only file-wrapper allocator caller is 2CC5B0: it saves the 2CC510-selected table in wrapper +0 at 2CC656 and the opened native handle in +4 at 2CC685, returning only after both succeed. These loads read that wrapper table or the registry table during its original service loop."
+    },
+    {
+      "kind": "load-table",
+      "source": "0x002CC266",
+      "prefix": "8B06",
+      "tables": [
+        "0x006C0868",
+        "0x006C08D0"
+      ],
+      "evidence": "The original provider registry 9390E0 contains 32 records of 10 bytes. Registration 2CC390 writes the factory result at 2CC426; its original named registrations select only 2CA7D0/2CC850 and therefore tables 6C0868/6C08D0. The only file-wrapper allocator caller is 2CC5B0: it saves the 2CC510-selected table in wrapper +0 at 2CC656 and the opened native handle in +4 at 2CC685, returning only after both succeed. These loads read that wrapper table or the registry table during its original service loop."
+    }
+  ],
+  "callback_slots": [
+    {
+      "slot": "0x009392E0",
+      "target_literals": [
+        "0x002C66F8"
+      ],
+      "evidence": "Only 2C66F0 calls diagnostic registration 2CC300. It supplies literal 2C66E0 at 2C66F7. The complete setter writes that callback, or null, to 9392E0; its only absolute writers are 2CC30A and 2CC317."
+    },
+    {
+      "slot": "0x00938E2C",
+      "target_literals": [
+        "0x002CC83B"
+      ],
+      "evidence": "The original named-provider initializer at 2CC83F passes literal diagnostic callback 2CBE20 from 2CC83A. The file-provider interface initializer is 2CAB00, which stores this argument at 938E2C; it has no other absolute slot writer. The two named providers are installed only by 2C66F0."
+    },
+    {
+      "slot": "0x009392EC",
+      "target_literals": [
+        "0x002CC83B"
+      ],
+      "evidence": "The alternate named-provider interface at 6C08D0 uses initializer 2CC930. Its complete five instructions copy argument 0 to 9392EC and argument 1 to 9392F0. The closed registration chain in 2C66F0/2CC7A0 supplies the same literal callback 2CBE20 at 2CC83A as the other provider. A native byte-address search finds this sole writer."
+    },
+    {
+      "slot": "0x00938D9C",
+      "target_literals": [
+        "0x002C8FC6"
+      ],
+      "evidence": "2C8FC0 installs the original callback 2C8F90 before entering normal service initialization. All four literal references to 938D9C are this store, two guarded invocations, and the checking load; the bounded native recovery includes the complete initializer."
+    },
+    {
+      "slot": "0x009398E4",
+      "target_literals": [
+        "0x002C8CBC"
+      ],
+      "evidence": "The complete setter 2D3570 copies argument 0 to 9398E4. Its two recovered callers are 2C8C70 and the overlapping initialization entry 2C8FC0, both reaching the original PUSH 2C8690 at 2C8CBB. The other writer is the zero initializer 2D3660. Native address searches find no address-taken setter and only these slot writes."
+    },
+    {
+      "slot": "0x009398EC",
+      "target_literals": [
+        "0x002C8CC7"
+      ],
+      "evidence": "The complete setter 2D3590 copies argument 0 to 9398EC. Its two recovered callers are 2C8C70 and the overlapping initialization entry 2C8FC0, both reaching the original PUSH 2C86B0 at 2C8CC6. The other writer is the zero initializer 2D3660. The sole raw occurrence of the setter address is a relative CALL displacement to another function, not an address-taken registration."
+    },
+    {
+      "slot": "0x00939A88",
+      "target_literals": [
+        "0x000E2F76"
+      ],
+      "evidence": "Original registration setter 2D3AB0 stores argument 0; its wrapper 2C8810 has one caller at E2F7A, which supplies the original BA870 literal at E2F76. The other writer 2D3714 clears the slot. All nine native literal references are these two stores and the seven guarded loads/calls. No address-taken registration implementation or other nonzero writer is present."
+    },
+    {
+      "slot": "0x00755F0C",
+      "target_literals": [
+        "0x00014AD9"
+      ],
+      "evidence": "Complete setter DF840 stores its first argument. Its sole original caller 14ADD supplies callback 6FF70 at original immediate 14AD9. Native exact-address search finds only this store and three readers; the callback is checked before invocation."
+    },
+    {
+      "slot": "0x00938E48",
+      "target_literals": [
+        "0x002CA57D"
+      ],
+      "evidence": "Original one-time initialization 2CA550 stores callback 2CA320 at 2CA577. Native exact-address search has exactly three references: this store and the two invoking loads at 2CB7D0/2CB810. The four-byte target literal starts at 2CA57D."
+    },
+    {
+      "slot": "0x006C92A0",
+      "target_literals": [
+        "0x00283857",
+        "0x00283ED7"
+      ],
+      "evidence": "The original one-shot callback slot is set only to 283820 or 283EA0 by 283851, 283ED1, 284001 and 284203. Its two consumers clear the slot before invoking the saved pointer. Native exact-address search finds all twelve references: four nonzero stores, two clears, four setting checks and two invoking reads. These original target immediates cover both handlers."
     }
   ]
 }

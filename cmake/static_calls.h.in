@@ -15,6 +15,9 @@ inline constexpr StaticCallTable static_call_tables[] = {
 struct EntryTable {std::uint32_t owner;std::string_view prefix;std::uint32_t start,end,stride;};
 inline constexpr EntryTable entry_tables[] = {
 @entry_tables@};
+struct CallbackSlotTarget {std::uint32_t slot,literal;};
+inline constexpr std::array<CallbackSlotTarget,@callback_slot_count@> callback_slot_targets = {{
+@callback_slot_targets@}};
 struct TablePointerSource {
     std::uint32_t source,proof_address;
     std::string_view prefix;

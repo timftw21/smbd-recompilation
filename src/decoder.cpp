@@ -409,30 +409,41 @@ void factory_callbacks(Xbe& image,Function& function) {
             if(target) {image.code_section(target);function.static_callbacks.push_back(target);}
     }
 }
-void resolve_import_aliases(Xbe& image,Function& function) {
-    // A tag is an exact imported function value, not an arbitrary address.
-    // Joins retain it only when all decoded incoming paths agree.
-    using State=std::array<std::uint32_t,8>;
+void resolve_call_sources(Xbe& image,Function& function,bool publish=true) {
+    if(function.budget_exhausted) return;
+    // Track exact import values and global-load origins through the local CFG.
+    // Joins retain a source only when all decoded incoming paths agree.
+    struct Source {
+        std::uint32_t slot=0,ordinal=0;
+        bool operator==(const Source&) const = default;
+        explicit operator bool() const {return slot || ordinal;}
+    };
+    using State=std::array<Source,8>;
     std::map<std::uint32_t,State> states;
     std::deque<std::uint32_t> pending;
+    const bool complete_flow=std::ranges::none_of(function.instructions,[](const auto& item) {
+        const auto& instruction=item.second;
+        return instruction.decoded.meta.category==ZYDIS_CATEGORY_UNCOND_BR && !instruction.target() &&
+            !instruction.kernel_ordinal && instruction.jump_targets.empty();
+    });
     const auto update=[&](std::uint32_t pc,const State& value) {
         if(!function.instructions.contains(pc)) return;
         const auto [found,inserted]=states.emplace(pc,value);
         bool changed=inserted;
         if(!inserted) for(unsigned reg=0;reg<value.size();++reg)
-            if(found->second[reg] && found->second[reg]!=value[reg]) {found->second[reg]=0;changed=true;}
+            if(found->second[reg] && found->second[reg]!=value[reg]) {found->second[reg]={};changed=true;}
         if(changed) pending.push_back(pc);
     };
     update(function.entry,State{});
     unsigned iterations=0;
-    while(!pending.empty() && ++iterations<=function.instructions.size()*16) {
+    while(complete_flow && !pending.empty() && ++iterations<=function.instructions.size()*16) {
         const auto pc=pending.front();pending.pop_front();
         const auto& instruction=function.instructions.at(pc);
         const auto& ins=instruction.decoded;const auto& operands=instruction.operands;
         auto state=states.at(pc);const auto original=state;
         for(unsigned i=0;i<ins.operand_count;++i) if(operands[i].type==ZYDIS_OPERAND_TYPE_REGISTER &&
             (operands[i].actions&ZYDIS_OPERAND_ACTION_MASK_WRITE)) {
-            const auto reg=general(operands[i].reg.value);if(reg>=0) state[reg]=0;
+            const auto reg=general(operands[i].reg.value);if(reg>=0) state[reg]={};
         }
         if(ins.mnemonic==ZYDIS_MNEMONIC_MOV && operands[0].type==ZYDIS_OPERAND_TYPE_REGISTER && operands[0].size==32) {
             const auto target=general(operands[0].reg.value);
@@ -440,15 +451,18 @@ void resolve_import_aliases(Xbe& image,Function& function) {
                 const auto source=general(operands[1].reg.value);if(source>=0) state[target]=original[source];
             } else if(target>=0 && ins.address_width==32 && operands[1].type==ZYDIS_OPERAND_TYPE_MEMORY && operands[1].size==32 &&
                 operands[1].mem.segment==ZYDIS_REGISTER_DS && operands[1].mem.base==ZYDIS_REGISTER_NONE &&
-                operands[1].mem.index==ZYDIS_REGISTER_NONE)
-                if(const auto* import=image.kernel_import(static_cast<std::uint32_t>(operands[1].mem.disp.value))) state[target]=import->ordinal;
+                operands[1].mem.index==ZYDIS_REGISTER_NONE) {
+                const auto slot=static_cast<std::uint32_t>(operands[1].mem.disp.value);
+                if(const auto* import=image.kernel_import(slot)) state[target].ordinal=import->ordinal;
+                else state[target].slot=slot;
+            }
         }
         const auto category=ins.meta.category;const auto destination=instruction.target();const auto next=pc+ins.length;
         if(category==ZYDIS_CATEGORY_CALL) {
             const auto target=operands[0].type==ZYDIS_OPERAND_TYPE_REGISTER && operands[0].size==32?general(operands[0].reg.value):-1;
-            const auto ordinal=instruction.kernel_ordinal.value_or(target>=0?original[target]:0);
+            const auto ordinal=instruction.kernel_ordinal.value_or(target>=0?original[target].ordinal:0);
             for(unsigned reg=0;reg<state.size();++reg)
-                if(state[reg] && !((ordinal && (kernel_preserved_registers&(1U<<reg))) || callback_preserves(image,instruction,reg))) state[reg]=0;
+                if(state[reg] && !((ordinal && (kernel_preserved_registers&(1U<<reg))) || callback_preserves(image,instruction,reg))) state[reg]={};
             update(next,state);
         } else if(category==ZYDIS_CATEGORY_COND_BR) {update(next,state);if(destination) update(*destination,state);}
         else if(category==ZYDIS_CATEGORY_UNCOND_BR) {
@@ -456,14 +470,33 @@ void resolve_import_aliases(Xbe& image,Function& function) {
         } else if(category!=ZYDIS_CATEGORY_RET && category!=ZYDIS_CATEGORY_INTERRUPT &&
                   ins.mnemonic!=ZYDIS_MNEMONIC_INT3 && ins.mnemonic!=ZYDIS_MNEMONIC_HLT) update(next,state);
     }
-    if(!pending.empty()) return;
+    if(complete_flow && !pending.empty()) return;
     for(auto& [pc,instruction]:function.instructions) {
         const auto category=instruction.decoded.meta.category;const auto& operand=instruction.operands[0];
         if((category!=ZYDIS_CATEGORY_CALL && category!=ZYDIS_CATEGORY_UNCOND_BR) || instruction.target() || instruction.kernel_ordinal ||
-            !instruction.jump_targets.empty() || !states.contains(pc) || operand.type!=ZYDIS_OPERAND_TYPE_REGISTER || operand.size!=32) continue;
-        const auto reg=general(operand.reg.value);if(reg<0 || !states.at(pc)[reg]) continue;
-        instruction.kernel_ordinal=states.at(pc)[reg];
-        function.edges.push_back({pc,category==ZYDIS_CATEGORY_CALL?"kernel-call":"kernel-jump",instruction.kernel_ordinal});
+            !instruction.jump_targets.empty()) continue;
+        Source source;
+        if(operand.type==ZYDIS_OPERAND_TYPE_REGISTER && operand.size==32) {
+            if(!complete_flow || !states.contains(pc)) continue;
+            const auto reg=general(operand.reg.value);if(reg>=0) source=states.at(pc)[reg];
+        } else if(operand.type==ZYDIS_OPERAND_TYPE_MEMORY && operand.size==32 && instruction.decoded.address_width==32 &&
+                  operand.mem.segment==ZYDIS_REGISTER_DS && operand.mem.base==ZYDIS_REGISTER_NONE && operand.mem.index==ZYDIS_REGISTER_NONE)
+            source.slot=static_cast<std::uint32_t>(operand.mem.disp.value);
+        if(!source) continue;
+        instruction.source_slot=source.slot?std::optional{source.slot}:std::nullopt;
+        if(!publish) continue;
+        if(source.ordinal) {
+            instruction.kernel_ordinal=source.ordinal;
+            function.edges.push_back({pc,category==ZYDIS_CATEGORY_CALL?"kernel-call":"kernel-jump",source.ordinal});
+        } else {
+            for(const auto& proof:callback_slot_targets) if(proof.slot==source.slot) {
+                const auto target=u32(image.data(proof.literal,4),0);
+                if(!target || target==UINT32_MAX) throw std::runtime_error("Invalid callback slot target at "+hex32(proof.literal));
+                image.code_section(target);instruction.jump_targets.push_back(target);function.static_callbacks.push_back(target);
+                function.edges.push_back({pc,category==ZYDIS_CATEGORY_CALL?"call":"tail-call",target});
+            }
+            if(!instruction.jump_targets.empty()) instruction.tail_dispatch=category==ZYDIS_CATEGORY_UNCOND_BR;
+        }
     }
 }
 // Find a four-byte stack value within one straight-line section. Offsets are
@@ -942,6 +975,7 @@ std::optional<TableGuard> table_guard(Xbe& image, const Function& function, cons
 }
 }
 std::optional<std::uint32_t> indirect_slot(const Function& function,const Instruction& instruction) {
+    if(instruction.source_slot) return instruction.source_slot;
     const auto& operand=instruction.operands[0];
     if(operand.type==ZYDIS_OPERAND_TYPE_REGISTER) return constant_before(function,instruction.address,operand,true);
     if(operand.type==ZYDIS_OPERAND_TYPE_MEMORY && operand.size==32 && instruction.decoded.address_width==32 &&
@@ -1161,6 +1195,7 @@ Function recover(Xbe& image, std::uint32_t address, std::uint32_t instruction_bu
             return function.instructions.contains(target) && std::ranges::find(targets,target)!=targets.end();
         })) {targets.clear();function.unresolved=true;}
     }
+    resolve_call_sources(image,function,false);
     // Address-specific research describes bounded immutable pointer tables. The
     // proof bytes and all targets are checked against the supported executable.
     for (const auto& table : static_call_tables) {
@@ -1199,7 +1234,7 @@ Function recover(Xbe& image, std::uint32_t address, std::uint32_t instruction_bu
             image.code_section(target);function.static_callbacks.push_back(target);
         }
     }
-    resolve_import_aliases(image,function);
+    resolve_call_sources(image,function);
     if(!function.budget_exhausted) resolve_table_pointers(image,function,decoder.pointer_sources(image));
     // Bounds propagation and guard invalidation can both change a dispatch.
     // Report unresolved edges from the final instruction state.

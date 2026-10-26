@@ -202,3 +202,43 @@ game-0046 completes all 34 input steps and six waits with audio_muted:true,
 capture shows READY on 1-2 DIAMOND after the first-level results flow.
 It exits normally. Visual/timing parity and the remaining calls/services
 are still incomplete.
+
+2026-10-26: Callback-source flow and manual-playtest handoff
+
+Callback source recovery now follows register copies through complete local
+control flow, retaining a source only when incoming paths agree. Kernel imports
+and global loads have separate tags. Partial decodes and opaque local jumps
+cannot justify inferred register origins. Existing byte-checked site proofs
+remain where an opaque exit prevents general flow recovery. Ten fully audited
+global callback slots share eleven original target-literal locations, allowing
+other proven consumers to reuse each slot contract without another site list.
+
+Additional source facts cover the original player streams at +190/+1D4/+1F4,
+the outer secondary-stream loop, and file-provider records. Provider resolver
+2CC510 returns null or one of the two registered operation tables. Sole wrapper
+allocator caller 2CC5B0 saves that table at +0 and the opened handle at +4.
+Their operations use 6C0868/6C08D0. These facts extend checked constructor,
+registration and field-writer chains; observations do not establish target sets.
+
+This batch reduces 807 unknowns to 774: 33 closures, no introduced sites, no
+lost calls/callbacks/kernel imports. Generation compiles 9756 functions and
+815712 instructions, with 4912 closed functions and no unsupported instructions
+or exhausted budgets. There are 65 grouped pointer-source records, 257 expanded
+bindings and 129 byte-checked pointer loads. Warm analysis takes 6.91 seconds
+and changes none of the 515 generated source files. The native game build takes
+287.55 seconds and the shared-cache tool build 24.51 seconds with one worker.
+Existing CPU 10, controller 47 and offline audio 37 checks pass.
+
+game-0047 runs through Play.cmd from D:\ rather than the project directory.
+The launcher establishes the correct working directory and mutes output. It
+completes all 34 input steps and six waits in 28.01 seconds, exits normally and
+captures READY on 1-2 DIAMOND: 3807 frames, 1506985 draws, 84609982 vertices,
+1330 blits and audio_muted:true. PLAYTEST.txt documents interactive controls.
+
+At the user request, this playable phase is wrapped for manual testing. The
+full recompilation remains incomplete: 774 calls and wider Xbox-service,
+visual/timing and game-mode validation work remain. The refreshed trace queue
+contains 168 observed remaining sites, including 64 stream-interface candidates.
+933A334 remains unresolved; failure to find or observe a writer is not proof
+that it is always null. Generic MPEG receivers and imported stream descriptors
+still need complete producer proofs. No null-callback assumptions were added.

@@ -13,6 +13,7 @@ struct Instruction {
     std::array<std::byte, ZYDIS_MAX_INSTRUCTION_LENGTH> bytes;
     std::string text;
     std::optional<std::uint32_t> kernel_ordinal;
+    std::optional<std::uint32_t> source_slot;
     std::vector<std::uint32_t> jump_targets;
     std::optional<std::uint32_t> tail_target;
     bool tail_dispatch=false;
