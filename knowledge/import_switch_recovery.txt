@@ -125,3 +125,45 @@ compiler/linker worker. CPU 10, controller 47 and offline audio 37 checks pass
 on the 1015-site generation. game-0041 repeats GOAL on 1-1 SIMPLE; game-0042
 completes the results flow and captures READY on 1-2 DIAMOND. Both input scripts
 complete and exit normally. Graphics and timing parity remain unverified.
+
+2026-10-26: Batch table-pointer recovery and silent automation
+
+Six shared callback slots and the two-provider factory account for 73 sites:
+9392E0 -> 2C66E0; 938E2C/9392EC -> 2CBE20;
+938D9C -> 2C8F90; 9398E4 -> 2C8690; 9398EC -> 2C86B0.
+The named factory uses the original 2CC850/2CA7D0 literals in 2C66F0.
+The complete setter bodies, literal references and known caller chains were
+checked. The other mutex-slot writers in 2D3660 clear the slots.
+
+Sixteen checked pointer-source contracts cover provider getters/registration,
+stream and voice constructors, sound-backend selection and the movie global
+756080. The latter has one constructor-result writer at E5E5A and two clear
+stores at E5947/E5B5F. The alternate sound setter 2CCEB0 has only wrapper
+2C6760 as a caller; that wrapper always supplies first argument zero.
+
+Bounded table-pointer flow tracks registers, nullable results and exact leaf
+getters through the complete local CFG. It requires convergence, checks original
+table bounds and invalidates object aliases at memory writes and ordinary calls.
+This recovers 21 more sites. Generation has 921 unknowns, down from 1015:
+94 closures, no introduced unknowns, no lost calls/callbacks, 9748 functions,
+815593 compiled instructions and no unsupported instructions or budget failures.
+
+The index now covers all 7489 known caller entries. A warm analysis pass takes
+6.98 seconds and rewrites no generated source files. Native registry/dispatcher
+objects stay outside ThinLTO. Both Windows executables share a 1 GiB cache;
+the current full diagnostic tool rebuild takes 44.59 seconds. CPU 10, controller
+47 and offline audio 37 checks pass on the same 921-site generation.
+
+Bounded opt-in native dispatch tracing captured 245 remaining sites across
+first-level runs. The largest observed stream-interface family has 106 sites
+and original table 6C0BA0. Those observations prioritize static producer/alias
+proofs; none are counted as resolved from observations alone. The research queue
+is build/logs/call-recovery-observed.json, produced by tools/Index-Calls.ps1.
+
+game-0043 reaches GOAL on 1-1 SIMPLE. The 90-second extended probe game-0044
+reaches its wall-clock bound before all steps finish. game-0045 uses a longer
+bound and completes all 34 steps/six waits, capturing READY on 1-2 DIAMOND.
+The latter run explicitly reports audio_muted:true. Hidden/scripted runs and
+tool boot diagnostics now mute the SDL output stream before playback starts,
+while normal audio mixing and playback timing continue. Regular game audio
+remains available; --mute provides an explicit output control.

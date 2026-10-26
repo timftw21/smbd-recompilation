@@ -22,9 +22,11 @@ struct Instruction {
 
 class Decoder {
 public:
+    struct PointerSource {std::uint32_t source;unsigned table;bool global,object,leaf;};
     Decoder();
     Instruction decode(Xbe& image, std::uint32_t address);
     std::uint64_t decoded_count() const { return decoded_count_; }
+    const std::vector<PointerSource>& pointer_sources(Xbe& image);
 private:
     ZydisDecoder decoder_{};
     ZydisFormatter formatter_{};
@@ -33,6 +35,8 @@ private:
     std::size_t cache_size_ = 0;
     const Xbe* cache_image_ = nullptr;
     std::uint64_t decoded_count_ = 0;
+    const Xbe* pointer_image_ = nullptr;
+    std::vector<PointerSource> pointer_sources_;
 };
 struct Edge {
     std::uint32_t from;

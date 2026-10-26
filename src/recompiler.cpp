@@ -602,6 +602,7 @@ public:
             else {
                 calls=restores=returns=true;
                 body << "    const auto target=" << read(operands[0]) << ";\n    commit();\n"
+                    << "    cpu.eip=" << constant(instruction.address) << ";\n"
                     << "    smbd::invoke_native(cpu,memory,target);\n    restore();\n    goto done;\n";
             }
             terminator = true; break;

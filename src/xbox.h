@@ -17,7 +17,7 @@ struct XboxHost {
     std::function<std::uint64_t()> frames;
     std::filesystem::path capture;
     std::uint32_t main_address = 0, vblank_callback_slot = 0;
-    bool trace_io = false;
+    bool trace_io = false, mute_audio = true;
 };
 struct BootIo {
     std::uint32_t ordinal=0,status=0,information=0,callsite=0;

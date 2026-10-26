@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <array>
 #include <string_view>
 namespace smbd {
 struct StaticCallTable {
@@ -14,4 +15,12 @@ inline constexpr StaticCallTable static_call_tables[] = {
 struct EntryTable {std::uint32_t owner;std::string_view prefix;std::uint32_t start,end,stride;};
 inline constexpr EntryTable entry_tables[] = {
 @entry_tables@};
+struct TablePointerSource {
+    std::uint32_t source,proof_address;
+    std::string_view prefix;
+    std::uint32_t table;
+    bool global,object;
+};
+inline constexpr std::array<TablePointerSource,@pointer_source_count@> table_pointer_sources = {{
+@table_pointer_sources@}};
 }

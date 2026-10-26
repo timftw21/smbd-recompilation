@@ -77,7 +77,7 @@ std::vector<float> decode_audio(AudioFormat format,std::span<const std::byte> da
         decode_adpcm(format,data.data()+block*format.block_align,std::span(result).subspan(block*64*format.channels,64*format.channels));
     return result;
 }
-Audio::Audio(bool output) {
+Audio::Audio(bool output,bool muted) {
     if(!output) return;
     if(!SDL_InitSubSystem(SDL_INIT_AUDIO)) throw std::runtime_error(SDL_GetError());
     const SDL_AudioSpec specification{SDL_AUDIO_F32,2,48000};
@@ -98,7 +98,7 @@ Audio::Audio(bool output) {
             }
         },this);
     if(!stream_) {const std::string error=SDL_GetError();SDL_QuitSubSystem(SDL_INIT_AUDIO);throw std::runtime_error(error);}
-    if(!SDL_ResumeAudioStreamDevice(stream_)) {
+    if((muted && !SDL_SetAudioStreamGain(stream_,0.0f)) || !SDL_ResumeAudioStreamDevice(stream_)) {
         const std::string error=SDL_GetError();SDL_DestroyAudioStream(stream_);stream_=nullptr;
         SDL_QuitSubSystem(SDL_INIT_AUDIO);throw std::runtime_error(error);
     }

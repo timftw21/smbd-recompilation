@@ -18,7 +18,9 @@ native source plus build/logs/call-recovery.json. The index lists every unique
 unresolved site once, ranks shared calling patterns, and supplies original
 instructions, nearby code, constructors, slot writes and direct callers. Nearby
 address uses are research candidates, not proofs of writes or object types.
-Caller lists include statically resolved target sets. A slot origin is reported
+Caller lists cover the whole known call graph, including resolved target sets.
+build/logs/call-recovery-progress.json records closed and introduced sites for
+each analysis pass. A slot origin is reported
 only when every recovered owner agrees; method offsets alone do not prove type.
 Work through related slot/interface families in this loop before linking.
 Grouped slot bindings verify each site's original pointer source automatically.
@@ -36,9 +38,11 @@ uses one worker; Ghidra has a 3 GiB heap and two analysis threads.
 Windows builds use clang-cl, LLD and Ninja Multi-Config, with a shared CPU
 precompiled header and cached ThinLTO. The script loads the x64 SDK environment
 and refreshes incompatible compiler metadata while retaining extracted files,
-analysis and generated sources. Link caches are bounded to 1 GiB per executable.
+analysis and generated sources. Both executables share a 1 GiB link cache.
 Generated game code uses 512 source partitions, matching the Burnout workflow.
-The changing function registry is a native object; game functions retain ThinLTO.
+The changing function registry and runtime dispatcher are native objects, so
+their changes cannot be imported into every game shard. Game functions retain
+ThinLTO.
 For direct CMake commands, first run . .\tools\Initialize-Toolchain.ps1 in the
 current PowerShell session, then use cmake --preset tools or --preset windows.
 After regenerating a runtime batch, cmake --build --preset release --target smbd
@@ -74,7 +78,10 @@ graphics device has been created.
 The native game executable is build/windows/Release/smbd.exe. Run it from the
 source folder. --frames COUNT, --seconds COUNT, --capture FRAME.png and --hidden
 support bounded game automation. --input TIMELINE.txt connects an SDL virtual
-controller. Each line is FRAME BUTTON [LEFT_X LEFT_Y], with increasing frames;
+controller. Hidden runs, input-script runs and tool boot diagnostics mute the
+output stream while continuing normal mixing and playback timing. --mute also
+mutes an ordinary game run. Each line is FRAME BUTTON [LEFT_X LEFT_Y], with
+increasing frames;
 buttons are a, b, x, y, start, back, up, down, left, right or none. A state lasts
 until the next line. Stick values are -1..1, with positive Y pointing up.
 For example, "120 start" followed by "122 none" presses Start for two frames.
@@ -90,6 +97,15 @@ The first-level research route is knowledge/first_level_input.txt. For example:
 Automation enables SDL background controller input so hidden windows receive
 these events. --report OUTPUT.json saves the shared boot report, including the
 original stack, registers, file activity and service/graphics counters.
+--trace-calls OUTPUT.json records unresolved native function dispatches, bounded
+to 4096 site/target pairs with initial registers, stack and ordinary RAM samples.
+For example, add --trace-calls build/logs/calls.json to the game command, then run:
+
+  .\tools\Index-Calls.ps1 -Trace build/logs/calls.json
+
+This joins observations to the complete unresolved queue and groups candidate
+interfaces and shared targets across all sites. Traces identify useful static
+research; observed targets never establish an exhaustive dispatch set.
 check-image-copy verifies native rectangular copies, overlap, shared color images,
 growth, RGB565, bounds and D3D11 validation on hardware or WARP.
 The current frontend is for development; settings and broader gameplay remain

@@ -2,6 +2,7 @@
 #include "render.h"
 #include "input.h"
 #include "automation.h"
+#include "call_trace.h"
 #include <SDL3/SDL.h>
 #include <charconv>
 #include <chrono>
@@ -15,24 +16,27 @@ struct Sdl {
 };
 int run(int argc,wchar_t** argv) {
     std::uint64_t frame_limit=0,seconds=0;
-    std::filesystem::path capture,timeline,report;
-    bool hidden=false,stop_after_input=false;
+    std::filesystem::path capture,timeline,report,call_trace;
+    bool hidden=false,stop_after_input=false,muted=false;
     for(int i=1;i<argc;++i) {
         const auto option=smbd::utf8(argv[i]);
         if(option=="--hidden") hidden=true;
+        else if(option=="--mute") muted=true;
         else if(option=="--stop-after-input") stop_after_input=true;
         else if(option=="--capture" && i+1<argc) capture=argv[++i];
         else if(option=="--input" && i+1<argc) timeline=argv[++i];
         else if(option=="--report" && i+1<argc) report=argv[++i];
+        else if(option=="--trace-calls" && i+1<argc) call_trace=argv[++i];
         else if((option=="--frames" || option=="--seconds") && i+1<argc) {
             const auto value=smbd::utf8(argv[++i]);
             auto& limit=option=="--frames"?frame_limit:seconds;
             const auto parsed=std::from_chars(value.data(),value.data()+value.size(),limit);
             if(parsed.ec!=std::errc{} || parsed.ptr!=value.data()+value.size() || !limit || (option=="--seconds" && limit>3600))
                 throw std::runtime_error("Limits must be positive; seconds must not exceed 3600");
-        } else throw std::runtime_error("Usage: smbd [--hidden] [--frames COUNT] [--seconds COUNT] [--input TIMELINE.txt] [--stop-after-input] [--capture FRAME.png] [--report OUTPUT.json]");
+        } else throw std::runtime_error("Usage: smbd [--hidden] [--mute] [--frames COUNT] [--seconds COUNT] [--input TIMELINE.txt] [--stop-after-input] [--capture FRAME.png] [--report OUTPUT.json] [--trace-calls OUTPUT.json]");
     }
     if(stop_after_input && timeline.empty()) throw std::runtime_error("--stop-after-input requires --input");
+    muted=muted || hidden || !timeline.empty();
     smbd::Xbe image("data/local/default.xbe");
     std::vector<std::byte> ram(64*1024*1024);
     image.load(std::span(ram).subspan(image.base,image.image_size));
@@ -54,6 +58,7 @@ int run(int argc,wchar_t** argv) {
     smbd::XboxHost host;
     host.renderer=&renderer;host.input=&input;host.main_address=0x00014B90;host.capture=capture;
     host.trace_io=!report.empty();
+    host.mute_audio=muted;
     host.poll=[&] {
         if(automation) automation->update(frames,memory);
         SDL_Event event;
@@ -65,7 +70,13 @@ int run(int argc,wchar_t** argv) {
     host.flip=[&] {renderer.display();renderer.present(false);++frames;};
     host.frames=[&] {return frames;};
     smbd::Xbox xbox(image,memory,ram,"Super Monkey Ball Deluxe/Super Monkey Ball Deluxe (USA).xiso.iso",std::move(host));
+    if(!call_trace.empty()) smbd::enable_call_trace();
     const auto result=xbox.run(0);
+    if(!call_trace.empty()) {
+        std::ofstream output(call_trace,std::ios::binary|std::ios::trunc);
+        output.exceptions(std::ios::failbit|std::ios::badbit);
+        output<<smbd::call_trace_report(image.sha256)<<'\n';
+    }
     if(!report.empty()) {
         std::ofstream output(report,std::ios::binary|std::ios::trunc);
         output.exceptions(std::ios::failbit|std::ios::badbit);
@@ -76,6 +87,7 @@ int run(int argc,wchar_t** argv) {
               << ",\"controller_steps\":" << (automation?automation->applied():0)
               << ",\"controller_waits\":" << (automation?automation->waits_applied():0)
               << ",\"controller_complete\":" << (!automation || automation->finished()?"true":"false")
+              << ",\"audio_muted\":" << (muted?"true":"false")
               << ",\"capture_written\":" << (result.capture_written?"true":"false") << ",\"capture_error\":" << smbd::json(result.capture_error) << "}\n";
     return result.boundary=="Native window closed" && result.capture_error.empty() &&
         (!stop_after_input || automation->finished())?0:3;

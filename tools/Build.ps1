@@ -74,12 +74,27 @@ try {
             throw 'Prepared analysis inputs changed. Run the All stage to refresh them.'
         }
     }
+    $previousRecovery = $null
+    if (Test-Path -LiteralPath 'build/logs/call-recovery.json') {
+        $previousRecovery = Get-Content -LiteralPath 'build/logs/call-recovery.json' -Raw | ConvertFrom-Json
+    }
     $batchArguments = @('batch', 'data/local/default.xbe', 'data/local/analysis/seeds.txt', '65536', '8192',
         'build/generated/game.cpp', '--replace', '--shards', '512', '--report', 'build/generated/batch.json')
     if ($AllowPartial) { $batchArguments += '--allow-partial' }
     Invoke-Checked $tool $batchArguments
     $batch = Get-Content -LiteralPath 'build/generated/batch.json' -Raw | ConvertFrom-Json
     $batch.call_recovery | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath 'build/logs/call-recovery.json' -Encoding utf8
+    if ($null -ne $previousRecovery) {
+        $before = [Collections.Generic.HashSet[string]]::new()
+        $after = [Collections.Generic.HashSet[string]]::new()
+        foreach ($site in $previousRecovery.sites) { [void]$before.Add($site.instruction.address) }
+        foreach ($site in $batch.call_recovery.sites) { [void]$after.Add($site.instruction.address) }
+        $closed = @($before | Where-Object { !$after.Contains($_) } | Sort-Object)
+        $introduced = @($after | Where-Object { !$before.Contains($_) } | Sort-Object)
+        [pscustomobject]@{before=$before.Count;after=$after.Count;closed=$closed;introduced=$introduced} |
+            ConvertTo-Json -Depth 3 | Set-Content -LiteralPath 'build/logs/call-recovery-progress.json' -Encoding utf8
+        Write-Host "Recovered $($closed.Count) sites; introduced $($introduced.Count)."
+    }
     Write-Host "Compiled $($batch.functions_compiled) functions; $($batch.call_recovery.unique_sites) unique unresolved sites."
     $batch.call_recovery.groups | Select-Object -First 12 pattern,count | Format-Table -AutoSize | Out-Host
     if ($Stage -eq 'Analysis') { $succeeded = $true; return }

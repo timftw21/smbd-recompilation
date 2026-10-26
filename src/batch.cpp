@@ -153,10 +153,9 @@ void recovery_report(std::ostream& out,const std::map<std::uint32_t,RecoverySite
         const std::vector<std::uint32_t> ordered(values.begin(),values.end());addresses(out,ordered);
     };
     std::map<std::string,std::vector<std::uint32_t>> groups;
-    std::set<std::uint32_t> slots,needed;
+    std::set<std::uint32_t> slots;
     for(const auto& [pc,site]:sites) {
         groups[site.group].push_back(pc);if(site.slot) slots.insert(*site.slot);
-        needed.insert(site.owners.begin(),site.owners.end());
     }
     std::vector<std::pair<std::string,std::vector<std::uint32_t>>> ranked(groups.begin(),groups.end());
     std::ranges::sort(ranked,[](const auto& a,const auto& b) {return a.second.size()!=b.second.size()?a.second.size()>b.second.size():a.first<b.first;});
@@ -178,7 +177,6 @@ void recovery_report(std::ostream& out,const std::map<std::uint32_t,RecoverySite
         if(!first) out<<',';first=false;
         out<<"{\"instruction\":"<<store.instruction<<",\"value\":"<<json(hex32(store.value))<<",\"owners\":";
         set_addresses(store.owners);out<<'}';
-        needed.insert(store.owners.begin(),store.owners.end());
     }
     out<<"],\"absolute_slot_writes\":[";first=true;
     for(const auto& [pc,write]:writes) {
@@ -186,7 +184,7 @@ void recovery_report(std::ostream& out,const std::map<std::uint32_t,RecoverySite
         if(slot==slots.end() || *slot>=static_cast<std::uint64_t>(write.address)+write.bytes) continue;
         if(!first) out<<',';first=false;
         out<<"{\"instruction\":"<<write.instruction<<",\"address\":"<<json(hex32(write.address))<<",\"bytes\":"<<write.bytes<<",\"owners\":";
-        set_addresses(write.owners);out<<'}';needed.insert(write.owners.begin(),write.owners.end());
+        set_addresses(write.owners);out<<'}';
     }
     // Nearby address literals expose aggregate initializers and base+field
     // stores without treating those possible aliases as proven slot writes.
@@ -196,11 +194,11 @@ void recovery_report(std::ostream& out,const std::map<std::uint32_t,RecoverySite
         if(slot==slots.end() || *slot-use.value>=128) continue;
         if(!first) out<<',';first=false;
         out<<"{\"instruction\":"<<use.instruction<<",\"value\":"<<json(hex32(use.value))<<",\"owners\":";
-        set_addresses(use.owners);out<<'}';needed.insert(use.owners.begin(),use.owners.end());
+        set_addresses(use.owners);out<<'}';
     }
     std::map<std::uint32_t,std::set<std::uint32_t>> callers;
     for(const auto& [entry,unit]:units) if(unit.emit) for(auto target:unit.calls)
-        if(needed.contains(target)) callers[target].insert(entry);
+        callers[target].insert(entry);
     out<<"],\"direct_callers\":[";first=true;
     for(const auto& [entry,values]:callers) {
         if(!first) out<<',';first=false;

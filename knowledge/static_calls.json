@@ -1698,6 +1698,320 @@
         "0x0021E68F"
       ],
       "evidence": "The complete five-instruction setter at 21DB20 compares its byte argument with 2. It installs 21D7A0 by default at 21DB25 and overwrites it with 2E2CA0 at 21DB31 for the other branch. Byte-reference searches identify both stores and five absolute CALL sites for slot 86ECDC."
+    },
+    {
+      "slot": "0x009392E0",
+      "prefix": "FFD0",
+      "kind": "call",
+      "target_literals": [
+        "0x002C66F8"
+      ],
+      "sites": [
+        "0x002CBE57",
+        "0x002CC0CF",
+        "0x002CC10E",
+        "0x002CC13E",
+        "0x002CC175",
+        "0x002CC19E",
+        "0x002CC1DF",
+        "0x002CC20E",
+        "0x002CC24F",
+        "0x002CC2B5",
+        "0x002CC2EE",
+        "0x002CC47F",
+        "0x002CC4E5",
+        "0x002CC5F7",
+        "0x002CC62C",
+        "0x002CC70B"
+      ],
+      "evidence": "Only 2C66F0 calls diagnostic registration 2CC300. It supplies literal 2C66E0 at 2C66F7. The complete setter writes that callback, or null, to 9392E0; its only absolute writers are 2CC30A and 2CC317."
+    },
+    {
+      "slot": "0x009392E0",
+      "prefix": "FFD1",
+      "kind": "call",
+      "target_literals": [
+        "0x002C66F8"
+      ],
+      "sites": [
+        "0x002CC74E"
+      ],
+      "evidence": "Only 2C66F0 calls diagnostic registration 2CC300. It supplies literal 2C66E0 at 2C66F7. The complete setter writes that callback, or null, to 9392E0; its only absolute writers are 2CC30A and 2CC317."
+    },
+    {
+      "slot": "0x009392E0",
+      "prefix": "FFE0",
+      "kind": "tail",
+      "target_literals": [
+        "0x002C66F8"
+      ],
+      "sites": [
+        "0x002CBE33",
+        "0x002CC7D4",
+        "0x002CC7FD",
+        "0x002CC82F"
+      ],
+      "evidence": "Only 2C66F0 calls diagnostic registration 2CC300. It supplies literal 2C66E0 at 2C66F7. The complete setter writes that callback, or null, to 9392E0; its only absolute writers are 2CC30A and 2CC317."
+    },
+    {
+      "slot": "0x00938E2C",
+      "prefix": "FFD0",
+      "kind": "call",
+      "target_literals": [
+        "0x002CC83B"
+      ],
+      "sites": [
+        "0x002CA9DA",
+        "0x002CAC1F",
+        "0x002CACAF",
+        "0x002CACFD",
+        "0x002CAD3F",
+        "0x002CAD9F",
+        "0x002CADD6",
+        "0x002CAE0B",
+        "0x002CAE9F",
+        "0x002CAF9C",
+        "0x002CB0FD",
+        "0x002CB1E6",
+        "0x002CB250",
+        "0x002CB35F",
+        "0x002CB448",
+        "0x002CB4F0",
+        "0x002CB5AC",
+        "0x002CB69F",
+        "0x002CB835",
+        "0x002CB8C8",
+        "0x002CB8F9",
+        "0x002CB932",
+        "0x002CBA92",
+        "0x002CBABC"
+      ],
+      "evidence": "The original named-provider initializer at 2CC83F passes literal diagnostic callback 2CBE20 from 2CC83A. The file-provider interface initializer is 2CAB00, which stores this argument at 938E2C; it has no other absolute slot writer. The two named providers are installed only by 2C66F0."
+    },
+    {
+      "slot": "0x00000000",
+      "prefix": "FF54240C",
+      "kind": "call",
+      "target_literals": [
+        "0x002C6704",
+        "0x002C671A"
+      ],
+      "sites": [
+        "0x002CC3C5"
+      ],
+      "evidence": "2CC390 invokes its callback argument at ESP+0C after saving EBX/ESI. The sole caller is wrapper 2CC7A0, whose sole caller 2C66F0 supplies exactly the two original named-provider factories 2CC850 and 2CA7D0. Their original PUSH literals are retained."
+    },
+    {
+      "slot": "0x009392EC",
+      "prefix": "FFD0",
+      "kind": "call",
+      "target_literals": [
+        "0x002CC83B"
+      ],
+      "sites": [
+        "0x002CC8A8",
+        "0x002CC8DD",
+        "0x002CCA0F",
+        "0x002CCA37",
+        "0x002CCA62",
+        "0x002CCAAF",
+        "0x002CCB3F",
+        "0x002CCB6F",
+        "0x002CCB97",
+        "0x002CCBBF",
+        "0x002CCCDF",
+        "0x002CCD1F",
+        "0x002CCD4F",
+        "0x002CCD7E",
+        "0x002CCDDF"
+      ],
+      "evidence": "The alternate named-provider interface at 6C08D0 uses initializer 2CC930. Its complete five instructions copy argument 0 to 9392EC and argument 1 to 9392F0. The closed registration chain in 2C66F0/2CC7A0 supplies the same literal callback 2CBE20 at 2CC83A as the other provider. A native byte-address search finds this sole writer."
+    },
+    {
+      "slot": "0x00938D9C",
+      "prefix": "FF159C8D9300",
+      "kind": "call",
+      "target_literals": [
+        "0x002C8FC6"
+      ],
+      "sites": [
+        "0x002C8BDB",
+        "0x002C8C18"
+      ],
+      "evidence": "2C8FC0 installs the original callback 2C8F90 before entering normal service initialization. All four literal references to 938D9C are this store, two guarded invocations, and the checking load; the bounded native recovery includes the complete initializer."
+    },
+    {
+      "slot": "0x00938D9C",
+      "prefix": "FFD0",
+      "kind": "call",
+      "target_literals": [
+        "0x002C8FC6"
+      ],
+      "sites": [
+        "0x002C8BA2"
+      ],
+      "evidence": "2C8FC0 installs the original callback 2C8F90 before entering normal service initialization. All four literal references to 938D9C are this store, two guarded invocations, and the checking load; the bounded native recovery includes the complete initializer."
+    },
+    {
+      "slot": "0x009398E4",
+      "prefix": "FFD0",
+      "kind": "call",
+      "target_literals": [
+        "0x002C8CBC"
+      ],
+      "sites": [
+        "0x002D34A0",
+        "0x002D37B0",
+        "0x002D38EC",
+        "0x002D39C8",
+        "0x002D3A60",
+        "0x002D3AC0",
+        "0x002D3B1B"
+      ],
+      "evidence": "The complete setter 2D3570 copies argument 0 to 9398E4. Its two recovered callers are 2C8C70 and the overlapping initialization entry 2C8FC0, both reaching the original PUSH 2C8690 at 2C8CBB. The other writer is the zero initializer 2D3660. Native address searches find no address-taken setter and only these slot writes."
+    },
+    {
+      "slot": "0x009398EC",
+      "prefix": "FF15EC989300",
+      "kind": "call",
+      "target_literals": [
+        "0x002C8CC7"
+      ],
+      "sites": [
+        "0x002D3796",
+        "0x002D387E"
+      ],
+      "evidence": "The complete setter 2D3590 copies argument 0 to 9398EC. Its two recovered callers are 2C8C70 and the overlapping initialization entry 2C8FC0, both reaching the original PUSH 2C86B0 at 2C8CC6. The other writer is the zero initializer 2D3660. The sole raw occurrence of the setter address is a relative CALL displacement to another function, not an address-taken registration."
+    }
+  ],
+  "pointer_sources": [
+    {
+      "source": "0x002CC390",
+      "kind": "return-table",
+      "proof_address": "0x002CC390",
+      "prefix": "53568BF08D50018A084084C9",
+      "table": "0x006C0868",
+      "evidence": "The only original named-provider registrations are the two literal factories in 2C66F0, through the sole 2CC7A0 caller. 2CC390 returns its factory result in EBX at 2CC452, or null; lookup 2CBE60 reads the same table pointer from the 32-record registry at 9390E0, or returns null. The complete registration and lookup paths were checked."
+    },
+    {
+      "source": "0x002CC390",
+      "kind": "return-table",
+      "proof_address": "0x002CC390",
+      "prefix": "53568BF08D50018A084084C9",
+      "table": "0x006C08D0",
+      "evidence": "The only original named-provider registrations are the two literal factories in 2C66F0, through the sole 2CC7A0 caller. 2CC390 returns its factory result in EBX at 2CC452, or null; lookup 2CBE60 reads the same table pointer from the 32-record registry at 9390E0, or returns null. The complete registration and lookup paths were checked."
+    },
+    {
+      "source": "0x002CBE60",
+      "kind": "return-table",
+      "proof_address": "0x002CBE60",
+      "prefix": "53558B6C240C568BC5578D50",
+      "table": "0x006C0868",
+      "evidence": "The only original named-provider registrations are the two literal factories in 2C66F0, through the sole 2CC7A0 caller. 2CC390 returns its factory result in EBX at 2CC452, or null; lookup 2CBE60 reads the same table pointer from the 32-record registry at 9390E0, or returns null. The complete registration and lookup paths were checked."
+    },
+    {
+      "source": "0x002CBE60",
+      "kind": "return-table",
+      "proof_address": "0x002CBE60",
+      "prefix": "53558B6C240C568BC5578D50",
+      "table": "0x006C08D0",
+      "evidence": "The only original named-provider registrations are the two literal factories in 2C66F0, through the sole 2CC7A0 caller. 2CC390 returns its factory result in EBX at 2CC452, or null; lookup 2CBE60 reads the same table pointer from the 32-record registry at 9390E0, or returns null. The complete registration and lookup paths were checked."
+    },
+    {
+      "source": "0x002CE310",
+      "kind": "return-object",
+      "proof_address": "0x002CE310",
+      "prefix": "83EC14538B5C241C",
+      "table": "0x006C0950",
+      "evidence": "Original sound voice constructor installs this 26-slot interface. The first three slots are zero, and the following 23 entries implement voice operations. 6C09B8 is a separately read buffer-size setting. The original consumer at 2CDDDF calls its +2C operation."
+    },
+    {
+      "source": "0x002D2890",
+      "kind": "return-object",
+      "proof_address": "0x002D2890",
+      "prefix": "33D233C0B9A4F59500",
+      "table": "0x006C0BA0",
+      "evidence": "Original stream-object constructor writes this 12-slot interface into the returned object. Three leading slots are zero; nine code entries implement the same original stream operations used by the consumer at 2D01E0. Consecutive interfaces are 48 bytes, with the final interface followed by the MARK:lsc_obj string."
+    },
+    {
+      "source": "0x002D2FC0",
+      "kind": "return-object",
+      "proof_address": "0x002D2FC0",
+      "prefix": "33C9B808F1950056",
+      "table": "0x006C0BD0",
+      "evidence": "Original stream-object constructor writes this 12-slot interface into the returned object. Three leading slots are zero; nine code entries implement the same original stream operations used by the consumer at 2D01E0. Consecutive interfaces are 48 bytes, with the final interface followed by the MARK:lsc_obj string."
+    },
+    {
+      "source": "0x002DBB70",
+      "kind": "return-object",
+      "proof_address": "0x002DBB70",
+      "prefix": "83EC20538B5C2428",
+      "table": "0x006C0ED8",
+      "evidence": "Original Sofdec player constructor installs the 18-slot interface at 6C0ED8, including three leading null entries and a final optional null entry. The next address begins a separate data record pointing to a descriptive string. The game invokes the +20 time-query operation at E5F6A; the original release routine restores the same interface before returning the object to its pool."
+    },
+    {
+      "source": "0x002CA7D0",
+      "kind": "return-table",
+      "proof_address": "0x002CA7D0",
+      "prefix": "B868086C00C3",
+      "table": "0x006C0868",
+      "evidence": "The exact original leaf getter returns this static interface address in EAX. The complete MOV/RET sequence and the table are checked against the verified image."
+    },
+    {
+      "source": "0x002CC850",
+      "kind": "return-table",
+      "proof_address": "0x002CC850",
+      "prefix": "A108DC4500B8D0086C00C3",
+      "table": "0x006C08D0",
+      "evidence": "The exact original leaf getter returns this static interface address in EAX. The complete MOV/RET sequence and the table are checked against the verified image."
+    },
+    {
+      "source": "0x002CEC70",
+      "kind": "return-table",
+      "proof_address": "0x002CEC70",
+      "prefix": "B838096C00C3",
+      "table": "0x006C0938",
+      "evidence": "The exact original leaf getter returns this static interface address in EAX. The complete MOV/RET sequence and the table are checked against the verified image."
+    },
+    {
+      "source": "0x009392FC",
+      "kind": "global-table",
+      "proof_address": "0x002CCE7F",
+      "prefix": "E8EC1D0000A3FC929300",
+      "table": "0x006C0938",
+      "evidence": "Startup 2CCE30 calls exact getter 2CEC70 and stores its interface at 2CCE84. The only alternate setter is 2CCEB0, called only by 2C6760, whose complete wrapper always supplies first argument zero. Thus the alternate path writes either null or the fallback table, never an arbitrary table. Raw searches find no address-taken alternate setter."
+    },
+    {
+      "source": "0x009392FC",
+      "kind": "global-table",
+      "proof_address": "0x002CCEC1",
+      "prefix": "C705FC929300480C6C00",
+      "table": "0x006C0C48",
+      "evidence": "The zero-context branch of 2CCEB0 installs this six-word fallback interface. Its only caller 2C6760 always supplies first argument zero, so the other branch can only clear the slot. The only other nonnull writer installs the exact 2CEC70 getter result."
+    },
+    {
+      "source": "0x00756080",
+      "kind": "global-object",
+      "proof_address": "0x000E5E50",
+      "prefix": "E81B5D1F0083C4043BC3A380607500",
+      "table": "0x006C0ED8",
+      "evidence": "Movie creation E5CB0 stores the result of the verified 2DBB70 constructor at E5E5A. All original literal references to 756080 were checked: the only other writes are the zero initialization at E5947 and zero release store at E5B5F. Consumers reload this global and dereference its installed 6C0ED8 interface; no arbitrary table is admitted."
+    },
+    {
+      "source": "0x002D2CE0",
+      "kind": "return-object",
+      "proof_address": "0x002D2CE0",
+      "prefix": "56E8DADEFFFF8B442410",
+      "table": "0x006C0BA0",
+      "evidence": "The complete wrapper enters the original service lock, invokes its verified stream-object constructor, saves the returned object in ESI, leaves the service lock through 2D6770, then returns that same object in EAX. The complete 12/14-instruction paths and constructor vptr stores were checked."
+    },
+    {
+      "source": "0x002D3330",
+      "kind": "return-object",
+      "proof_address": "0x002D3330",
+      "prefix": "56E88AD8FFFF8B442408",
+      "table": "0x006C0BD0",
+      "evidence": "The complete wrapper enters the original service lock, invokes its verified stream-object constructor, saves the returned object in ESI, leaves the service lock through 2D6770, then returns that same object in EAX. The complete 12/14-instruction paths and constructor vptr stores were checked."
     }
   ]
 }

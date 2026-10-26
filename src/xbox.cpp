@@ -992,7 +992,7 @@ struct Xbox::State {
         const auto address=cpu.eip;
         if(api=="DirectSoundCreate") {
             if(argument(cpu,0) || argument(cpu,2)) {finish(cpu,12,0x80070057);return;}
-            if(!audio) audio=std::make_unique<Audio>();
+            if(!audio) audio=std::make_unique<Audio>(true,host.mute_audio);
             if(!audio_device) {
                 const auto raw=allocate(44,page,true,PAGE_READWRITE);
                 if(!raw){finish(cpu,12,0x8007000E);return;}
