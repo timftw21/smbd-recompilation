@@ -2,7 +2,7 @@ Super Monkey Ball Deluxe: native recompilation and bring-up
 
 Windows prerequisites: LLVM 22.1+ (clang-cl, LLD), Ninja, Visual Studio 2026 C++
 tools and Windows SDK, CMake 4.2+, Git, PowerShell and JDK 21+.
-No Python is used. Gameplay is not yet verified.
+No Python is used. Controller-driven play through the first level is verified.
 
 Run from the source folder:
 
@@ -10,7 +10,7 @@ Run from the source folder:
 
 Use -Disc 'D:\path\game.xiso.iso' to select a different image location.
 The script verifies/extracts the whole disc, reuses indexed Ghidra analysis,
-generates 64 native C++ shards, compiles shaders offline, builds the game and
+generates 512 native C++ shards, compiles shaders offline, builds the game and
 its diagnostic tool, and checks isolated original CPU routines. Compiler work
 uses one worker; Ghidra has a 3 GiB heap and two analysis threads.
 Windows builds use clang-cl, LLD and Ninja Multi-Config, with a shared CPU
@@ -58,13 +58,22 @@ controller. Each line is FRAME BUTTON [LEFT_X LEFT_Y], with increasing frames;
 buttons are a, b, x, y, start, back, up, down, left, right or none. A state lasts
 until the next line. Stick values are -1..1, with positive Y pointing up.
 For example, "120 start" followed by "122 none" presses Start for two frames.
+wait32 HEX_ADDRESS HEX_MASK HEX_VALUE [BUTTON] waits for an original game state;
+the optional button pulses until it matches. Following frame numbers are relative
+to that match. --stop-after-input stops when all steps finish and returns 3 if a
+limit or boundary interrupts the script. The short JSON output reports completion
+and the number of completed waits.
+The first-level research route is knowledge/first_level_input.txt. For example:
+
+  .\build\windows\Release\smbd.exe --hidden --input knowledge/first_level_input.txt --stop-after-input --seconds 60 --frames 6000 --capture build/logs/first-level.png --report build/logs/first-level.json
+
 Automation enables SDL background controller input so hidden windows receive
 these events. --report OUTPUT.json saves the shared boot report, including the
 original stack, registers, file activity and service/graphics counters.
 check-image-copy verifies native rectangular copies, overlap, shared color images,
 growth, RGB565, bounds and D3D11 validation on hardware or WARP.
-The current frontend is for development; settings and the
-complete playable path remain in progress.
+The current frontend is for development; settings and broader gameplay remain
+in progress.
 
 Private outputs:
 
@@ -81,6 +90,9 @@ startup screen and full-color title artwork render, and automated Start input
 advances beyond the prompt. The Mode Select menu renders with its 3D background,
 including native framebuffer-to-texture copies. CPU checks (10), controller checks
 (47), mixer checks (37), and image-copy checks (9 each on hardware and WARP) pass.
-First-level gameplay, settings, complete audio behaviour, Linux/macOS,
-visual parity and performance require further work. See runtime_progress.json
+Story Mode's first level, 1-1 SIMPLE, loads and responds to controller input;
+the automated forward-input run reaches GOAL while the neutral comparison stays
+still. Unresolved calls, the black opening movie, settings, complete audio
+behaviour, Linux/macOS, visual parity and performance require further work.
+See runtime_progress.json
 in knowledge for the current execution boundary; initial_coverage.json is historical.

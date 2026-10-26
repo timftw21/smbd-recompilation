@@ -2,6 +2,56 @@
   "executable_sha256": "9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2",
   "tables": [
     {
+      "site": "0x0010885A",
+      "proof_address": "0x0010885A",
+      "prefix": "FF2485C8715800",
+      "start": "0x005871C8",
+      "end": "0x005871E4",
+      "stride": 4,
+      "kind": "tail",
+      "evidence": "108840 reads the object's signed word type at +6, rejects negative values at 10884B and values >=7 at 108851, then sign-extends that same AX into the seven-entry setup table. Its stack argument is forwarded unchanged and the frameless dispatcher tail-jumps at 10885A. The following seven slots are the separate update table used at 1088B7."
+    },
+    {
+      "site": "0x001088B7",
+      "proof_address": "0x001088B7",
+      "prefix": "FF1485E4715800",
+      "start": "0x005871E4",
+      "end": "0x00587200",
+      "stride": 4,
+      "kind": "call",
+      "evidence": "108870 checks the same signed word type at object +6 against 0..6 at 108879..108882. AX remains unchanged while the function copies the object's position and rotation, then MOVSX EAX,AX at 1088AB selects the seven-entry update table. The original object pointer is pushed immediately before the call. The next table starts at 587200 and is consumed separately by 108B50."
+    },
+    {
+      "site": "0x00108B6A",
+      "proof_address": "0x00108B6A",
+      "prefix": "FF248500725800",
+      "start": "0x00587200",
+      "end": "0x0058721C",
+      "stride": 4,
+      "kind": "tail",
+      "evidence": "108B50 rejects signed word types below 0 or >=7 at 108B5B/108B61, sign-extends AX and forwards the object's original stack argument before the frameless tail jump at 108B6A. Exactly seven target slots are selected; all were read from the verified image."
+    },
+    {
+      "site": "0x0010EE0F",
+      "proof_address": "0x0010EE0F",
+      "prefix": "FF2485347A5800",
+      "start": "0x00587A38",
+      "end": "0x00587A48",
+      "stride": 4,
+      "kind": "tail",
+      "evidence": "The complete frameless dispatcher at 10EE00 reads 6C9330, returns for signed values <1 or >4, and otherwise jumps through 587A34+EAX*4. Only slots 1..4, at 587A38..587A48, are reachable. Slot zero and the following data are excluded; no guest return address is added."
+    },
+    {
+      "site": "0x00283356",
+      "proof_address": "0x00283356",
+      "prefix": "FF248578BC6900",
+      "start": "0x0069BC78",
+      "end": "0x0069BCE8",
+      "stride": 4,
+      "kind": "tail",
+      "evidence": "Scene-mode dispatcher 283320 consumes the pending signed state at 6C928A, stores the active state at 6C9288, then indexes this fixed table at 283356. The table has 27 standalone state handlers and a final null slot. The following array at 69BCE8 contains text pointers, including 434440 (DMD_SCEN_1ST_INIT) and 434428 (DMD_SCEN_RETURN_INIT), and is excluded. The dispatcher has no stack frame and tail-jumps, preserving the original caller's guest return address. The separate mutable transition hook at 6C92A0 remains unresolved."
+    },
+    {
       "site": "0x000BA051",
       "proof_address": "0x000BA051",
       "prefix": "FF148548585700",
@@ -1233,6 +1283,38 @@
     }
   ],
   "entry_tables": [
+    {
+      "owner": "0x000850A0",
+      "prefix": "A13001730083EC08",
+      "start": "0x00555088",
+      "end": "0x005550A0",
+      "stride": 4,
+      "evidence": "850A0 creates extension records for the stage's A4-byte group array. At 85170..851A2 it copies exactly six code fields from template 555088..5550A0 into object +8/+C/+10/+14/+18/+1C, then calls setup +8 at 851A5. The normal group update invokes +10 at 7FB51; its alternate path invokes +1C at 7FB6F. Runtime-reached 80D30 is the initial +10 method. The template's leading allocation size 78 and flags 4 at 555080/555084, plus the unrelated data starting at 5550A0, are excluded. This recovers the complete six-method template while retaining unproven object dispatches."
+    },
+    {
+      "owner": "0x000A3530",
+      "prefix": "8B4424040FBE8886000000",
+      "start": "0x00566B30",
+      "end": "0x00566B54",
+      "stride": 4,
+      "evidence": "The complete frameless A3530 dispatcher reads the character record's signed action byte at +86, forwards the original record argument, and tail-jumps through 566B30 at A353F. There are nine action callbacks. The adjacent nine-entry label array starts at 566B54: debug function 78B40 reads the same signed +86 byte at 78C68 and selects its label at 78C6F. Labels include RC_MOTION, RC_MOVE, RC_LOSE, RC_GOAL, RC_SUSPEND, RC_GAMESTART, RC_CONTINUE, RC_COMMEND and RC_GUEST. The labels and following byte-index data at 566B78 are excluded. This seeds every initial action handler while leaving the unbounded action-byte dispatch explicitly unresolved."
+    },
+    {
+      "owner": "0x00061200",
+      "prefix": "803DE07E4700020F8580000000",
+      "start": "0x004B4060",
+      "end": "0x004B40E0",
+      "stride": 4,
+      "evidence": "61200 manages 24-byte records in the pool rooted at 7092E0. A nonzero type argument selects a 16-byte descriptor at 4B4060+type*16 and stores that descriptor at record +14. The descriptor fields are four code pointers: setup +0 at 6126E, cleanup +4 at 61232/61284/612BE, update +8 at 61100, and draw +C at 611C9. The image contains one null descriptor and seven complete descriptors, ending with type 7 at 4B40D0 (66220/64610/66980/66CA0). The following bytes at 4B40E0 form byte-index data FE00010203040506..., not another descriptor, and are excluded. This seeds every callback in the typed descriptor family; the calls remain open because type zero preserves a descriptor supplied through the caller's record."
+    },
+    {
+      "owner": "0x002AA370",
+      "prefix": "51A0147F6C00A248268B00",
+      "start": "0x006AB8A0",
+      "end": "0x006ABF18",
+      "stride": 16,
+      "evidence": "There are 104 menu descriptors in [6AB898,6ABF18), each with packed IDs, a configuration pointer, a callback at +8, and flags at +C. Original 2AA370 selects base+(signed mode)*16 and calls field +8 at 2AA4FF. The last descriptor starts at 6ABF08 and contains callback 2A5E80 at 6ABF10. The adjacent label-pointer array begins at 6ABF18 and is separately indexed by 2AA7D0 at 2AA92E; it is excluded along with IDs/configuration pointers/flags. This seeds all 65 distinct nonzero initial callbacks, including runtime-reached descriptor 8's 2A2DA0, without closing an unproven mutable dispatch."
+    },
     {
       "owner": "0x000A8AB0",
       "prefix": "6A5FE8791C0400A014218900",

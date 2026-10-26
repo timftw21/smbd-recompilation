@@ -1,0 +1,27 @@
+0 none
+240 start
+252 none
+300 start
+312 none
+360 start
+372 none
+420 start
+432 none
+480 start
+492 none
+540 start
+552 none
+wait32 008B2680 000000FF 00000008 a
+0 none
+12 none
+wait32 006C9288 0000FFFF 00000007 a
+0 none
+12 none
+wait32 006C9288 0000FFFF 0000000B start
+0 none
+12 none
+wait32 006C9288 0000FFFF 0000000D a
+0 none
+12 none
+360 none 0 1
+900 none 0 0

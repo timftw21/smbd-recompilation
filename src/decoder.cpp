@@ -345,8 +345,8 @@ void factory_callbacks(Xbe& image,Function& function) {
         used=true;
     }
     if(!used) return;
-    // Track only exact returned-object aliases. Other calls and register writes
-    // discard them; joins keep a type only when every incoming path agrees.
+    // Track only exact returned-object aliases. Calls retain only registers
+    // covered by verified preservation contracts; joins require agreement.
     using State=std::array<unsigned,8>;
     std::map<std::uint32_t,State> states;
     std::deque<std::uint32_t> pending;
@@ -375,7 +375,11 @@ void factory_callbacks(Xbe& image,Function& function) {
             if(target>=0 && source>=0) state[target]=original[source];
         }
         const auto next=pc+ins.length;const auto target=instruction.target();
-        if(ins.meta.category==ZYDIS_CATEGORY_CALL) {state={};state[0]=factory_at(instruction);update(next,state);}
+        if(ins.meta.category==ZYDIS_CATEGORY_CALL) {
+            for(unsigned reg=0;reg<state.size();++reg)
+                if(state[reg] && !callback_preserves(image,instruction,reg)) state[reg]=0;
+            state[0]=factory_at(instruction);update(next,state);
+        }
         else if(ins.meta.category==ZYDIS_CATEGORY_COND_BR) {update(next,state);if(target) update(*target,state);}
         else if(ins.meta.category==ZYDIS_CATEGORY_UNCOND_BR) {
             if(target) update(*target,state);else for(auto address:instruction.jump_targets) update(address,state);

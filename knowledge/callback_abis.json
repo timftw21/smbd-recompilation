@@ -834,6 +834,36 @@
   "evidence": "The kernel parameter layouts match the native host service contracts. The XAPI routine was checked from 00309872 through RET 18h; it forwards argument 2 as the start routine to PsCreateSystemThreadEx, with system entry 003097DA. The original entry pushes user routine 00309426. Only literal callback values proven in the contiguous argument-building block are recovered.",
   "preservers": [
     {
+      "address": "0x000163D0",
+      "mask": 232,
+      "prefix": "8B4424088B4C240456",
+      "evidence": "The allocation wrapper saves/restores ESI at 163D8/16402. Its returning path uses 2DAA0, which tail-forwards to 200F0: that routine saves ESI/EDI and obtains the allocation through 3076A0. The latter's original SEH prologue 30DD58 saves EBX/ESI/EDI at 30DD72..30DD74 and EBP at 30DD68; its common epilogue 30DD93 restores them at 30DD9E..30DDA1 before RET 0C at 307DFC. Neither wrapper writes EBX/EBP. Allocation failure enters the nonreturning error loop 2EC60, so it cannot return clobbered registers to the caller. UI constructors 6C520/6C650 retain their exact object in EBX across 163D0 before installing 6AAE0/6BB50."
+    },
+    {
+      "address": "0x000748C0",
+      "mask": 224,
+      "prefix": "E99B99FFFF",
+      "evidence": "This complete one-instruction wrapper tail-jumps to 6E260. That string-width routine saves EBP/EDI at 6E264/6E26C and restores them at 6E2B8/6E2B7. Its nonempty-string path saves ESI at 6E281 and restores it at 6E2AC; the empty path never changes ESI. Its local glyph-result pointers at entry-4 and entry+4 do not overlap those saved registers. EBX is deliberately excluded because it is not saved around the font helper calls. Constructor 3C7B0 keeps its exact UI object in ESI across the call at 3C82F before installing callbacks 391A0/39380."
+    },
+    {
+      "address": "0x0006E260",
+      "mask": 224,
+      "prefix": "510F57D2558B6C240C",
+      "evidence": "The original string-width implementation also has direct callers. EBP/EDI are saved/restored at 6E264/6E26C and 6E2B8/6E2B7; ESI is saved/restored at 6E281/6E2AC on its nonempty-string path and untouched on the empty path. Local glyph-result storage is separate from the saved-register slots. This is the same verified implementation reached by wrapper 748C0; no preservation of EBX or the scratch registers is assumed."
+    },
+    {
+      "address": "0x000744C0",
+      "mask": 232,
+      "prefix": "F30F1005B87B3400F30F100D20BD3600",
+      "evidence": "The complete 30-instruction leaf resets UI drawing globals and returns at 74580. It has no calls or branches and writes only EAX/ECX, XMM0/XMM1 and absolute data slots. EBX/EBP/ESI/EDI are unchanged."
+    },
+    {
+      "address": "0x00073900",
+      "mask": 232,
+      "prefix": "8B15B4936C00568B74240857B8F8897200",
+      "evidence": "The complete 20-instruction lookup has no calls. It scans 80 active slots and returns a matching UI record, saving ESI/EDI at 73906/7390B and restoring them at the common exit 7392F/7392E. EBX/EBP are untouched; EAX/ECX/EDX are scratch."
+    },
+    {
       "address": "0x0001F7E0",
       "mask": 232,
       "prefix": "8B4C2404390D74356D00",
@@ -883,6 +913,12 @@
     }
   ],
   "factories": [
+    {
+      "address": "0x00073900",
+      "prefix": "8B15B4936C00568B74240857B8F8897200",
+      "fields": [48, 52, 56],
+      "evidence": "This returns an existing object from the same typed UI pool as 736C0/73820. It starts EAX at 7289F8, advances by D0 for 80 slots, checks the corresponding active byte and matches signed record ID +F to argument 0. It returns that exact record or null. The shared release/update/draw consumers use callback fields +30/+34/+38. Object-return tracking applies to this verified lookup as well as allocation."
+    },
     {
       "address": "0x000736C0",
       "prefix": "6A0268A8936C00E84426FAFF",

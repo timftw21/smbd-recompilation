@@ -1,4 +1,5 @@
 #pragma once
+#include "cpu.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <array>
@@ -13,10 +14,23 @@
 namespace smbd {
 // Opt-in game automation uses SDL's normal controller path. Each line is
 // FRAME BUTTON [LEFT_X LEFT_Y]; "none" releases buttons, positive Y is up.
+// wait32 HEX_ADDRESS HEX_MASK HEX_VALUE [BUTTON] waits for an original game
+// state, optionally pulsing BUTTON until it matches. Later frames are relative
+// to that match. This only reads guest state and sends ordinary SDL inputs.
 class Automation {
-    struct Step {std::uint64_t frame;int button;std::array<Sint16,2> stick;};
+    struct Step {
+        std::uint64_t frame=0;
+        int button=SDL_GAMEPAD_BUTTON_INVALID;
+        std::array<Sint16,2> stick{};
+        bool wait=false;
+        std::uint32_t address=0,mask=0,value=0;
+    };
     std::vector<Step> steps_;
     std::size_t next_=0;
+    std::uint64_t origin_=0,wait_start_=0;
+    std::size_t waits_=0;
+    bool waiting_=false;
+    int current_button_=SDL_GAMEPAD_BUTTON_INVALID;
     SDL_JoystickID id_=0;
     SDL_Joystick* joystick_=nullptr;
 public:
@@ -32,11 +46,24 @@ public:
         while(std::getline(input,line)) {
             if(line.empty() || line[0]=='#') continue;
             std::istringstream fields(line);std::uint64_t frame;std::string name,extra;float x=0,y=0;
+            fields>>name;
+            if(name=="wait32") {
+                Step step;step.wait=true;name="none";
+                if(!(fields>>std::hex>>step.address>>step.mask>>step.value) || !step.mask || (step.value&~step.mask))
+                    throw std::runtime_error("Invalid controller wait address, mask or value");
+                fields>>std::ws;
+                if(!fields.eof() && !(fields>>name)) throw std::runtime_error("Invalid controller wait button");
+                const auto found=std::ranges::find_if(names,[&](const char* value){return name==value;});
+                if(found==names.end() || fields>>extra || steps_.size()==4096)
+                    throw std::runtime_error("Invalid controller wait button or size");
+                step.button=buttons[found-names.begin()];steps_.push_back(step);continue;
+            }
+            fields.clear();fields.str(line);
             if(!(fields>>frame>>name)) throw std::runtime_error("Invalid controller timeline line");
             fields>>std::ws;
             if(!fields.eof() && !(fields>>x>>y)) throw std::runtime_error("Controller timeline sticks require X and Y");
             if(fields>>extra || frame>UINT32_MAX || !std::isfinite(x) || !std::isfinite(y) || std::abs(x)>1 || std::abs(y)>1 ||
-                steps_.size()==4096 || (!steps_.empty() && frame<=steps_.back().frame))
+                steps_.size()==4096 || (!steps_.empty() && !steps_.back().wait && frame<=steps_.back().frame))
                 throw std::runtime_error("Invalid controller timeline order, size or stick values");
             const auto found=std::ranges::find_if(names,[&](const char* value){return name==value;});
             if(found==names.end()) throw std::runtime_error("Unknown controller timeline button");
@@ -60,12 +87,29 @@ public:
     Automation& operator=(const Automation&)=delete;
     SDL_JoystickID device() const {return id_;}
     std::size_t applied() const {return next_;}
-    void update(std::uint64_t frame) {
+    std::size_t waits_applied() const {return waits_;}
+    bool finished() const {return next_==steps_.size();}
+    void update(std::uint64_t frame,Memory& memory) {
         bool changed=false;
-        while(next_<steps_.size() && steps_[next_].frame<=frame) {
-            const auto& step=steps_[next_++];
+        const auto button=[&](int value) {
+            if(value==current_button_) return;
             for(int i=0;i<SDL_GAMEPAD_BUTTON_COUNT;++i)
-                if(!SDL_SetJoystickVirtualButton(joystick_,i,i==step.button)) throw std::runtime_error(SDL_GetError());
+                if(!SDL_SetJoystickVirtualButton(joystick_,i,i==value)) throw std::runtime_error(SDL_GetError());
+            current_button_=value;changed=true;
+        };
+        while(next_<steps_.size()) {
+            const auto& step=steps_[next_];
+            if(step.wait) {
+                if(!waiting_) {wait_start_=frame;waiting_=true;}
+                if((memory.load<std::uint32_t>(step.address)&step.mask)!=step.value) {
+                    button((frame-wait_start_)%60<12?step.button:SDL_GAMEPAD_BUTTON_INVALID);
+                    break;
+                }
+                button(SDL_GAMEPAD_BUTTON_INVALID);
+                origin_=frame;waiting_=false;++waits_;++next_;continue;
+            }
+            if(step.frame>frame-origin_) break;
+            ++next_;button(step.button);
             for(int i=0;i<2;++i) if(!SDL_SetJoystickVirtualAxis(joystick_,i,step.stick[i])) throw std::runtime_error(SDL_GetError());
             changed=true;
         }

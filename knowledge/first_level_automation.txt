@@ -1,0 +1,38 @@
+First-level controller research, 2026-10-26
+
+Supported XBE SHA256:
+9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2
+
+knowledge/first_level_input.txt reproduces the observed initial Story Mode route.
+It sends normal SDL controller input and reads four bytes for each state check.
+
+Menu selection is the signed byte at 008B2680. Original 2AA370 reads it at
+2AA4C8 to index 16-byte descriptors at 6AB898, then calls descriptor +8 at
+2AA4FF. Descriptor 8 handles Main Game Select. The language index is 006C7F14.
+
+Scene state is the signed word at 006C9288, read by 283320 at 28334F. The
+27-entry handler table at 69BC78 and its adjacent names at 69BCE8 identify:
+  7  DMD_SCEN_SCENEPLAY_LOADING
+  11 DMD_SCEN_SEL_FLOOR_MAIN
+  13 DMD_SCEN_GAME_MAIN
+
+Button pulses continue until each condition matches. Twelve released frames
+separate phases. Numeric frame positions after a wait are relative to its match.
+The forward stick is held from frame 360 through 899 after scene state 13.
+The neutral comparison uses zero stick input for the same interval.
+
+The canonical route uses the initial Story Mode flow. A different saved-game
+state can require a different route; an unfinished script returns exit code 3
+when --stop-after-input is selected. Waiting never changes guest game state.
+
+Verified with 9746 compiled native functions on RTX 5060 Ti at 640x480:
+  game-0035: neutral, 2920 frames, 4 waits, 27 steps, 0 mph, first stage visible.
+  game-0036: forward, 2922 frames, 4 waits, 27 steps, GOAL on 1-1 SIMPLE, 22 mph.
+Both scripts completed and exited normally. Captures and full reports are private
+under build/logs. The matching-header wait check exits 0; the unmatched-header
+check exits 3 with controller_complete=false. The legacy frame format also ran.
+
+This proves loading, controller movement and reaching the first goal. Later
+stages, post-goal flow, original-video parity, timing and in-game audio remain
+unverified. The opening movie still captures black; geometry/effects artifacts
+are visible and require separate investigation.

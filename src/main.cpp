@@ -16,10 +16,11 @@ struct Sdl {
 int run(int argc,wchar_t** argv) {
     std::uint64_t frame_limit=0,seconds=0;
     std::filesystem::path capture,timeline,report;
-    bool hidden=false;
+    bool hidden=false,stop_after_input=false;
     for(int i=1;i<argc;++i) {
         const auto option=smbd::utf8(argv[i]);
         if(option=="--hidden") hidden=true;
+        else if(option=="--stop-after-input") stop_after_input=true;
         else if(option=="--capture" && i+1<argc) capture=argv[++i];
         else if(option=="--input" && i+1<argc) timeline=argv[++i];
         else if(option=="--report" && i+1<argc) report=argv[++i];
@@ -29,8 +30,9 @@ int run(int argc,wchar_t** argv) {
             const auto parsed=std::from_chars(value.data(),value.data()+value.size(),limit);
             if(parsed.ec!=std::errc{} || parsed.ptr!=value.data()+value.size() || !limit || (option=="--seconds" && limit>3600))
                 throw std::runtime_error("Limits must be positive; seconds must not exceed 3600");
-        } else throw std::runtime_error("Usage: smbd [--hidden] [--frames COUNT] [--seconds COUNT] [--input TIMELINE.txt] [--capture FRAME.png] [--report OUTPUT.json]");
+        } else throw std::runtime_error("Usage: smbd [--hidden] [--frames COUNT] [--seconds COUNT] [--input TIMELINE.txt] [--stop-after-input] [--capture FRAME.png] [--report OUTPUT.json]");
     }
+    if(stop_after_input && timeline.empty()) throw std::runtime_error("--stop-after-input requires --input");
     smbd::Xbe image("data/local/default.xbe");
     std::vector<std::byte> ram(64*1024*1024);
     image.load(std::span(ram).subspan(image.base,image.image_size));
@@ -53,11 +55,12 @@ int run(int argc,wchar_t** argv) {
     host.renderer=&renderer;host.input=&input;host.main_address=0x00014B90;host.capture=capture;
     host.trace_io=!report.empty();
     host.poll=[&] {
-        if(automation) automation->update(frames);
+        if(automation) automation->update(frames,memory);
         SDL_Event event;
         while(SDL_PollEvent(&event)) input.event(event);
         input.update();
-        return !input.quit_requested && (!frame_limit || frames<frame_limit) && std::chrono::steady_clock::now()<deadline;
+        return !input.quit_requested && (!stop_after_input || !automation->finished()) &&
+            (!frame_limit || frames<frame_limit) && std::chrono::steady_clock::now()<deadline;
     };
     host.flip=[&] {renderer.display();renderer.present(false);++frames;};
     host.frames=[&] {return frames;};
@@ -71,8 +74,11 @@ int run(int argc,wchar_t** argv) {
     std::cout << "{\"boundary\":" << smbd::json(result.boundary) << ",\"eip\":" << smbd::json(smbd::hex32(result.cpu.eip))
               << ",\"frames\":" << result.frames << ",\"draws\":" << result.draws
               << ",\"controller_steps\":" << (automation?automation->applied():0)
+              << ",\"controller_waits\":" << (automation?automation->waits_applied():0)
+              << ",\"controller_complete\":" << (!automation || automation->finished()?"true":"false")
               << ",\"capture_written\":" << (result.capture_written?"true":"false") << ",\"capture_error\":" << smbd::json(result.capture_error) << "}\n";
-    return result.boundary=="Native window closed" && result.capture_error.empty()?0:3;
+    return result.boundary=="Native window closed" && result.capture_error.empty() &&
+        (!stop_after_input || automation->finished())?0:3;
 }
 }
 int wmain(int argc,wchar_t** argv) {
