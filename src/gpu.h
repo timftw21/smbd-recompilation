@@ -5,7 +5,7 @@
 namespace smbd {
 class Memory;
 struct GpuStats {
-    std::uint64_t submissions=0,packets=0,methods=0,draws=0,vertices=0,clears=0,flips=0,fences=0;
+    std::uint64_t submissions=0,packets=0,methods=0,draws=0,vertices=0,clears=0,flips=0,fences=0,blits=0;
 };
 struct GraphicsObject {std::uint32_t handle,kind;};
 // The original SDK produces NV2A packets. This bridge shares the native renderer

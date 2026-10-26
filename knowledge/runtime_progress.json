@@ -2,7 +2,7 @@
   "schema_version": 1,
   "executable_sha256": "9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2",
   "validation_date": "2026-10-25",
-  "stage": "Verified title and Start input; menu transition reaches native image-blit boundary",
+  "stage": "Mode Select menu and 3D background verified; additional menu actions pending",
   "original_translation_blockers": {
     "rejected_data_entries": 4,
     "remaining": 0,
@@ -44,7 +44,8 @@
     "cpu_failures": 0,
     "controller_cases": 47,
     "audio_mixer_cases": 37,
-    "native_game_virtual_controller": true
+    "native_game_virtual_controller": true,
+    "generation_functions": 9597
   },
   "build_validation": {
     "compiler": "clang-cl 22.1.8",
@@ -74,32 +75,40 @@
     "mode_pair_incremental_seconds": 47.7643013,
     "draw_record_incremental_seconds": 71.7778283,
     "geometry_node_incremental_seconds": 25.0034194,
-    "full_diagnostics_refresh_pending": true
+    "full_diagnostics_refresh_pending": false,
+    "diagnostics_generation_functions": 9597,
+    "full_tool_build_seconds": 795.2081255,
+    "image_copy_hardware_cases": 9,
+    "image_copy_warp_cases": 9,
+    "d3d11_copy_messages": 0
   },
   "frontend_validation": {
-    "frames": 500,
-    "draws": 15982,
-    "controller_steps": 11,
+    "frames": 901,
+    "draws": 160474,
+    "controller_steps": 24,
     "title_artwork_verified": true,
     "start_input_verified": true,
-    "menu_verified": false,
+    "menu_verified": true,
     "playable": false,
-    "capture": "build/logs/menu-probe-500.png",
-    "boundary": "Native window closed",
+    "capture": "build/logs/game-0019.png",
+    "boundary": "Native boundary at 0x002A2DA0: function is absent from the fixed native table",
     "automation_issue": "SDL suppressed virtual controller events without keyboard focus; enabling its background joystick hint allowed Start to advance",
     "code_fix_validation_pending": false,
-    "report": "build/logs/menu-probe-500-full.json"
+    "report": "build/logs/game-0019-full.json",
+    "scene": "Mode Select, Main Game, animated jungle background",
+    "image_blits": 147
   },
   "latest_run": {
     "functions": 9597,
-    "frames": 693,
-    "draws": 86495,
-    "vertices": 423586,
-    "boundary": "Unimplemented graphics class 0x9F, handle 0x10, method 0x308, value 0x1E00280",
-    "report": "build/logs/game-0017-full.json",
-    "capture": "build/logs/game-0017.png",
+    "frames": 901,
+    "draws": 160474,
+    "vertices": 3849826,
+    "blits": 147,
+    "boundary": "Native boundary at 0x002A2DA0: function is absent from the fixed native table",
+    "report": "build/logs/game-0019-full.json",
+    "capture": "build/logs/game-0019.png",
     "stage_and_character_assets_read": true,
-    "menu_verified": false,
+    "menu_verified": true,
     "playable": false
   },
   "callback_recovery": {

@@ -2190,6 +2190,7 @@ struct Xbox::State {
         if(gpu) {
             const auto stats=gpu->stats();
             result.draws=stats.draws;result.frames=stats.flips;result.submissions=stats.submissions;result.vertices=stats.vertices;
+            result.blits=stats.blits;
             result.adapter=graphics->adapter();
             if(!host.capture.empty() && (stats.draws || stats.clears || stats.flips)) try {
                 gpu->snapshot();save_png(graphics->readback(),host.capture,true);result.capture_written=true;

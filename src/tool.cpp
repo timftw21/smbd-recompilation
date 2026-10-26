@@ -15,6 +15,7 @@
 #endif
 #ifdef SMBD_HAS_BATCH
 #include "xbox.h"
+#include "render.h"
 #include "input.h"
 #include "audio.h"
 #endif
@@ -47,6 +48,7 @@ constexpr auto usage =
     "  smbd-tool check-cpu XBE\n"
     "  smbd-tool check-input\n"
     "  smbd-tool check-audio\n"
+    "  smbd-tool check-image-copy [--warp]\n"
     "  smbd-tool boot XBE ISO CHECKPOINT_BUDGET OUTPUT.json [FRAME.png]\n"
 #endif
     "Addresses accept decimal or hexadecimal. Decode/data: 64 KiB; analysis: 8192 instructions.\n"
@@ -78,6 +80,9 @@ int tool_main(int argc, char** argv) {
             output = smbd::verify_analysis(image, paths[3]);
             if (output.find("\"passed\":false") != std::string::npos) result = 3;
 #ifdef SMBD_HAS_BATCH
+        } else if(command=="check-image-copy" && (argc==2 || (argc==3 && std::string_view(argv[2])=="--warp"))) {
+            output=smbd::check_image_copy(argc==3,true);
+            if(output.find("\"passed\":false")!=std::string::npos) result=3;
         } else if(command=="check-input" && argc==2) {
             output=smbd::check_input();
         } else if(command=="check-audio" && argc==2) {

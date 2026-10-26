@@ -41,7 +41,7 @@ struct BootResult {
     std::uint32_t active_thread=0,threads_created=0;
     std::uint64_t vblank_callbacks=0;
     std::uint64_t apcs_delivered=0;
-    std::uint64_t draws=0,frames=0,submissions=0,vertices=0;
+    std::uint64_t draws=0,frames=0,submissions=0,vertices=0,blits=0;
     std::string adapter;
     std::string capture_error;
     bool capture_written=false;

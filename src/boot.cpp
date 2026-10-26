@@ -29,6 +29,7 @@ std::string boot_report(const Xbe& image,const BootResult& result) {
            << ",\"apcs_delivered\":" << result.apcs_delivered
            << ",\"graphics\":{\"adapter\":" << json(result.adapter) << ",\"draws\":" << result.draws
            << ",\"frames\":" << result.frames << ",\"submissions\":" << result.submissions << ",\"vertices\":" << result.vertices
+           << ",\"blits\":" << result.blits
            << ",\"capture_written\":" << (result.capture_written?"true":"false") << ",\"capture_error\":" << json(result.capture_error) << "},\"registers\":[";
     bool first = true;
     for (const auto value : result.cpu.registers) { if (!first) output << ','; first=false; output << json(hex32(value)); }

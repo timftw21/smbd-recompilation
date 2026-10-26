@@ -40,6 +40,8 @@ Developer commands:
   .\build\windows\Release\smbd-tool.exe --help
   .\build\windows\Release\smbd-tool.exe check-image data/local/default.xbe
   .\build\windows\Release\smbd-tool.exe check-cpu data/local/default.xbe
+  .\build\windows\Release\smbd-tool.exe check-image-copy
+  .\build\windows\Release\smbd-tool.exe check-image-copy --warp
   .\build\windows\Release\smbd-tool.exe boot data/local/default.xbe 'Super Monkey Ball Deluxe/Super Monkey Ball Deluxe (USA).xiso.iso' 1000000 build/logs/boot.json build/logs/frame.png
   .\tools\Analyze.ps1
 
@@ -59,6 +61,8 @@ For example, "120 start" followed by "122 none" presses Start for two frames.
 Automation enables SDL background controller input so hidden windows receive
 these events. --report OUTPUT.json saves the shared boot report, including the
 original stack, registers, file activity and service/graphics counters.
+check-image-copy verifies native rectangular copies, overlap, shared color images,
+growth, RGB565, bounds and D3D11 validation on hardware or WARP.
 The current frontend is for development; settings and the
 complete playable path remain in progress.
 
@@ -74,7 +78,9 @@ Private outputs:
 Only Windows x64 execution has been exercised. Native Xbox services, D3D11 and
 SDL3 input/audio are being brought up against the original program. The SEGA
 startup screen and full-color title artwork render, and automated Start input
-advances beyond the prompt. CPU checks (10), controller checks (47), and mixer checks
-(37) pass. Menus, gameplay, settings, complete audio behaviour, Linux/macOS,
+advances beyond the prompt. The Mode Select menu renders with its 3D background,
+including native framebuffer-to-texture copies. CPU checks (10), controller checks
+(47), mixer checks (37), and image-copy checks (9 each on hardware and WARP) pass.
+First-level gameplay, settings, complete audio behaviour, Linux/macOS,
 visual parity and performance require further work. See runtime_progress.json
 in knowledge for the current execution boundary; initial_coverage.json is historical.

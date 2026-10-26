@@ -95,10 +95,15 @@ public:
     Renderer& operator=(const Renderer&) = delete;
     std::uint32_t upload(const TextureData&);
     std::uint32_t create_target(std::uint32_t width,std::uint32_t height,
-                                SurfaceColor=SurfaceColor::rgba8,SurfaceDepth=SurfaceDepth::z24s8);
+                                SurfaceColor=SurfaceColor::rgba8,SurfaceDepth=SurfaceDepth::z24s8,
+                                std::uint32_t shared_color=UINT32_MAX);
     void grow_target(std::uint32_t target,std::uint32_t width,std::uint32_t height);
     void set_target(std::uint32_t target=0);
     void copy_target(std::uint32_t destination); // GPU copy for later sampling.
+    void copy_region(std::uint32_t destination,std::uint32_t source,
+                     std::uint32_t source_x,std::uint32_t source_y,
+                     std::uint32_t destination_x,std::uint32_t destination_y,
+                     std::uint32_t width,std::uint32_t height);
     void copy_to_main();
     void resize(std::uint32_t width, std::uint32_t height);
     void attach_window(void* native_window);
@@ -134,6 +139,7 @@ private:
 };
 
 std::string check_render(const std::filesystem::path& directory, bool warp, bool debug);
+std::string check_image_copy(bool warp,bool debug);
 std::string render_texture(const std::filesystem::path& input, TextureFormat format,
                            std::uint32_t width, std::uint32_t height,
                            const std::filesystem::path& output, bool warp);

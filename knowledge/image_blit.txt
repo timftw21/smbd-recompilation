@@ -1,0 +1,74 @@
+Native image-blit investigation
+
+Supported executable SHA-256:
+9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2
+
+Native generation: 9597 functions, 801227 instructions, 4797 closed functions,
+1099 unique unresolved indirect sites. Native game build and automation passed
+through the prior missing callbacks to the graphics boundary. Menu visibility
+and first-level playability remain unverified. Cold 512-partition build took
+1360.6703678 seconds; subsequent real batches took 112.2867217, 47.7643013,
+71.7778283 and 25.0034194 seconds, using one compiler/link worker and ThinLTO.
+
+Actual command state from build/logs/game-0018.json and its full report:
+- Image-blit class 9F, object handle 10, SIZE method 308, value 01E00280.
+- Bound surface object 11, operation 3, source/destination points both zero.
+- Surface format A; source/destination pitches both A00 (2560 bytes).
+- Source offset 01724000; destination offset 03091000; DMA handles 3/B.
+- Source is live native target 2, 640x480, NV097 format 128.
+- Other live 640x480 targets: color offsets 014CC000 and 015F8000.
+- All three share guest depth offset 01850000 and packed pitch 0A000A00.
+- Destination has no live native render target at this boundary.
+- Flushing pending draws before the diagnostic still produces a black capture.
+
+Primary register definitions identify operation 3 as source copy, surface format
+A as little-endian A8R8G8B8, and SIZE's halves as width/height. References:
+https://raw.githubusercontent.com/xemu-project/xemu/master/hw/xbox/nv2a/nv2a_regs.h
+https://github.com/xqemu/xqemu/blob/master/hw/xbox/nv2a/nv2a_pgraph.c
+Only register facts were consulted; no third-party implementation was copied.
+
+The initial diagnostic stopped at class 9F method 308 and included bounded
+surface/target details. Its state capture is retained above for reproducibility.
+Burnout's GPU bridge also rejects non-3D object operations, so it supplies no
+working 2D blit implementation to port.
+
+The required copy must use the source's native GPU color contents. Copying its
+original guest RAM allocation would lose rendered pixels. The destination must
+remain sampleable as an updated GPU image. Flush queued draws, preserve command
+order, validate format, pitches and rectangle bounds, and retain explicit stops
+for unsupported operations. Investigate color-image identity if a copied image
+is later bound as a render target; do not introduce separate stale color copies.
+Renderer::copy_target currently copies the entire current target to another
+same-size target. It lacks arbitrary source/rectangle support. Renderer targets
+already have D3D11 texture, render-target and shader-resource views. Existing
+Gpu::texture resolves matching GPU-produced render targets before RAM uploads.
+
+Commit cb805a0 contains the preceding callback recovery and build changes.
+
+Implemented and verified, 2026-10-25:
+The earlier diagnostic has been replaced by native linear source-copy handling.
+It flushes submitted draws, validates bound surfaces/format/pitches/rectangles,
+and copies live native GPU color images with D3D11 CopySubresourceRegion.
+New destinations define complete rows from the origin; existing native images
+support rectangular and overlapping copies. Nonresident sources, unsupported
+operations/formats and incomplete initial destinations retain explicit errors.
+No stale framebuffer RAM is substituted for native rendered content.
+
+Color images can be shared by render targets with different depth attachments.
+Growth preserves shared color identity and each attachment's prior depth bits.
+Linear GPU-produced texture coordinates receive the same normalization as
+ordinary linear textures. Repeated copies reuse the destination image.
+
+check-image-copy passed nine focused cases on both the RTX 5060 Ti and WARP:
+rectangles/surroundings, overlap, whole copy, shared color views, growth, alias
+growth, RGB565, rejected bounds and a clean D3D11 debug queue. Core diagnostics
+passed 10 CPU cases, 47 controller cases and 37 offline mixer cases. These audio
+checks do not establish in-game audio behaviour. Full diagnostic image: 9597
+functions. The cold tool refresh took 795.2081255 seconds.
+
+Automation game-0019 rendered the Mode Select menu and animated 3D jungle
+background at frame 901, after 147 native blits, 160474 draws and 3849826 vertices.
+Capture build/logs/game-0019.png was visually inspected. The next stop is missing
+menu action 2A2DA0. First-level playability and visual parity remain unverified.
+Copy evidence: build/logs/image-copy-validation-summary.json and the hardware,
+WARP, CPU, controller and audio reports with the same prefix.

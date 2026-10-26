@@ -465,7 +465,8 @@ struct Renderer::Impl {
     }
     void draw(const RenderState&, Bytes, std::size_t, std::span<const std::uint32_t>,
               const Program* = nullptr, const ProgramUniforms* = nullptr,const StreamDraw* = nullptr);
-    FrameTarget make_target(std::uint32_t w,std::uint32_t h,SurfaceColor color_format=SurfaceColor::rgba8,SurfaceDepth depth_format=SurfaceDepth::z24s8) {
+    FrameTarget make_target(std::uint32_t w,std::uint32_t h,SurfaceColor color_format=SurfaceColor::rgba8,
+                           SurfaceDepth depth_format=SurfaceDepth::z24s8,const FrameTarget* shared=nullptr) {
         extent(w,h);
         FrameTarget output{w,h,color_format,depth_format};
         const auto native_color=color_format==SurfaceColor::rgb565?DXGI_FORMAT_B5G6R5_UNORM:DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -473,9 +474,15 @@ struct Renderer::Impl {
         texture.Width=w; texture.Height=h; texture.MipLevels=texture.ArraySize=1;
         texture.Format=native_color; texture.SampleDesc.Count=1;
         texture.BindFlags=D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-        checked(device->CreateTexture2D(&texture,nullptr,&output.color), "Offscreen target");
-        checked(device->CreateRenderTargetView(output.color.Get(),nullptr,&output.color_view), "Offscreen view");
-        checked(device->CreateShaderResourceView(output.color.Get(),nullptr,&output.texture_view),"Target texture view");
+        if(shared) {
+            if(shared->width!=w || shared->height!=h || shared->color_format!=color_format)
+                throw std::runtime_error("Shared color image dimensions or format differ");
+            output.color=shared->color;output.color_view=shared->color_view;output.texture_view=shared->texture_view;
+        } else {
+            checked(device->CreateTexture2D(&texture,nullptr,&output.color), "Offscreen target");
+            checked(device->CreateRenderTargetView(output.color.Get(),nullptr,&output.color_view), "Offscreen view");
+            checked(device->CreateShaderResourceView(output.color.Get(),nullptr,&output.texture_view),"Target texture view");
+        }
         texture.Format=depth_format==SurfaceDepth::z16?DXGI_FORMAT_D16_UNORM:DXGI_FORMAT_D24_UNORM_S8_UINT; texture.BindFlags=D3D11_BIND_DEPTH_STENCIL;
         checked(device->CreateTexture2D(&texture,nullptr,&output.depth), "Depth target");
         checked(device->CreateDepthStencilView(output.depth.Get(),nullptr,&output.depth_view), "Depth view");
@@ -517,13 +524,16 @@ Renderer::Renderer(std::uint32_t width, std::uint32_t height, bool warp, bool de
 }
 Renderer::~Renderer() = default;
 void Renderer::resize(std::uint32_t width, std::uint32_t height) { impl_->resize(width,height); }
-std::uint32_t Renderer::create_target(std::uint32_t width,std::uint32_t height,SurfaceColor color,SurfaceDepth depth) {
+std::uint32_t Renderer::create_target(std::uint32_t width,std::uint32_t height,SurfaceColor color,SurfaceDepth depth,std::uint32_t shared_color) {
     auto& r=*impl_;extent(width,height);
     if(r.recording) throw std::runtime_error("Create render targets before frame submission");
     const auto required=std::size_t(width)*height*12;
     if(r.textures.size()>=4096 || required>256*1024*1024-r.target_bytes)
         throw std::runtime_error("Render target resource limit reached");
-    auto output=r.make_target(width,height,color,depth);
+    const auto shared=r.targets.find(shared_color);
+    if(shared_color!=UINT32_MAX && (!shared_color || shared==r.targets.end()))
+        throw std::runtime_error("Share the color image of an existing auxiliary target");
+    auto output=r.make_target(width,height,color,depth,shared==r.targets.end()?nullptr:&shared->second);
     const auto id=static_cast<std::uint32_t>(r.textures.size());
     r.textures.push_back(output.texture_view);r.texture_dimensions.push_back(1);
     r.targets.emplace(id,std::move(output));r.target_bytes+=required;
@@ -538,17 +548,25 @@ void Renderer::grow_target(std::uint32_t target,std::uint32_t width,std::uint32_
     auto& r=*impl_;extent(width,height);
     const auto found=r.targets.find(target);
     if(!target || found==r.targets.end() || r.recording) throw std::runtime_error("Grow an existing auxiliary target outside submission");
-    const auto& prior=found->second;
-    if(width<prior.width || height<prior.height) throw std::runtime_error("Target growth cannot shrink either dimension");
-    if(width==prior.width && height==prior.height) return;
-    const auto previous=std::size_t(prior.width)*prior.height*12,required=std::size_t(width)*height*12;
+    const auto original=found->second;
+    if(width<original.width || height<original.height) throw std::runtime_error("Target growth cannot shrink either dimension");
+    if(width==original.width && height==original.height) return;
+    std::vector<std::uint32_t> aliases{target};
+    for(const auto& [id,image]:r.targets) if(id!=target && image.color==original.color) aliases.push_back(id);
+    const auto previous=std::size_t(original.width)*original.height*12*aliases.size();
+    const auto required=std::size_t(width)*height*12*aliases.size();
     if(required>256*1024*1024-(r.target_bytes-previous)) throw std::runtime_error("Render targets exceed 256 MiB");
-    auto output=r.make_target(width,height,prior.color_format,prior.depth_format);
     r.unbind_textures();r.context->OMSetRenderTargets(0,nullptr,nullptr);
+    for(const auto identifier:aliases) {
+    const auto prior=r.targets.at(identifier);
+    auto output=r.make_target(width,height,prior.color_format,prior.depth_format,
+        identifier==target?nullptr:&r.targets.at(target));
     constexpr float black[4]{};
-    r.context->ClearRenderTargetView(output.color_view.Get(),black);
+    if(identifier==target) {
+        r.context->ClearRenderTargetView(output.color_view.Get(),black);
+        r.context->CopySubresourceRegion(output.color.Get(),0,0,0,0,prior.color.Get(),0,nullptr);
+    }
     r.context->ClearDepthStencilView(output.depth_view.Get(),D3D11_CLEAR_DEPTH|(prior.depth_format==SurfaceDepth::z16?0:D3D11_CLEAR_STENCIL),1,0);
-    r.context->CopySubresourceRegion(output.color.Get(),0,0,0,0,prior.color.Get(),0,nullptr);
     // Depth/stencil resources require whole copies with matching dimensions.
     // Migrate their packed bits through ordinary typeless textures, then copy
     // the complete enlarged image back into its depth/stencil resource.
@@ -562,7 +580,8 @@ void Renderer::grow_target(std::uint32_t target,std::uint32_t width,std::uint32_
     r.context->CopyResource(grown_depth.Get(),output.depth.Get());
     r.context->CopySubresourceRegion(grown_depth.Get(),0,0,0,0,previous_depth.Get(),0,nullptr);
     r.context->CopyResource(output.depth.Get(),grown_depth.Get());
-    found->second=std::move(output);r.textures[target]=found->second.texture_view;
+    r.targets.at(identifier)=std::move(output);r.textures[identifier]=r.targets.at(identifier).texture_view;
+    }
     r.target_bytes=r.target_bytes-previous+required;r.select_target(r.current_target);
 }
 void Renderer::copy_target(std::uint32_t destination) {
@@ -573,6 +592,31 @@ void Renderer::copy_target(std::uint32_t destination) {
         throw std::runtime_error("Target copy requires a distinct target with matching dimensions");
     r.unbind_textures();r.context->OMSetRenderTargets(0,nullptr,nullptr);
     r.context->CopyResource(found->second.color.Get(),r.target.Get());
+    auto view=r.rtv.Get();r.context->OMSetRenderTargets(1,&view,r.dsv.Get());
+}
+void Renderer::copy_region(std::uint32_t destination,std::uint32_t source,
+                          std::uint32_t sx,std::uint32_t sy,std::uint32_t dx,std::uint32_t dy,
+                          std::uint32_t width,std::uint32_t height) {
+    auto& r=*impl_;
+    const auto from=r.targets.find(source),to=r.targets.find(destination);
+    if(r.recording || from==r.targets.end() || to==r.targets.end())
+        throw std::runtime_error("Copy color images between ended native targets");
+    const auto& input=from->second;const auto& output=to->second;
+    if(input.color_format!=output.color_format || sx>input.width || sy>input.height ||
+       width>input.width-sx || height>input.height-sy || dx>output.width || dy>output.height ||
+       width>output.width-dx || height>output.height-dy)
+        throw std::runtime_error("Image copy rectangle or format differs from its surfaces");
+    if(!width || !height || (input.color==output.color && sx==dx && sy==dy)) return;
+    r.unbind_textures();r.context->OMSetRenderTargets(0,nullptr,nullptr);
+    const D3D11_BOX region{sx,sy,0,sx+width,sy+height,1};
+    if(input.color==output.color) {
+        D3D11_TEXTURE2D_DESC description{};input.color->GetDesc(&description);
+        description.Width=width;description.Height=height;description.BindFlags=0;
+        ComPtr<ID3D11Texture2D> temporary;
+        checked(r.device->CreateTexture2D(&description,nullptr,&temporary),"Overlapping image copy");
+        r.context->CopySubresourceRegion(temporary.Get(),0,0,0,0,input.color.Get(),0,&region);
+        r.context->CopySubresourceRegion(output.color.Get(),0,dx,dy,0,temporary.Get(),0,nullptr);
+    } else r.context->CopySubresourceRegion(output.color.Get(),0,dx,dy,0,input.color.Get(),0,&region);
     auto view=r.rtv.Get();r.context->OMSetRenderTargets(1,&view,r.dsv.Get());
 }
 void Renderer::copy_to_main() {
@@ -1230,5 +1274,54 @@ std::vector<std::string> Renderer::errors() const {
             messages.emplace_back(message->pDescription, message->DescriptionByteLength - 1);
     }
     return messages;
+}
+std::string check_image_copy(bool warp,bool debug) {
+    Renderer renderer(8,8,warp,debug);
+    std::vector<std::pair<std::string,bool>> cases;
+    const auto copy=[](Image& destination,const Image& source,unsigned sx,unsigned sy,unsigned dx,unsigned dy,unsigned w,unsigned h) {
+        for(unsigned y=0;y<h;++y) std::memcpy(destination.rgba.data()+(std::size_t(dy+y)*destination.width+dx)*4,
+            source.rgba.data()+(std::size_t(sy+y)*source.width+sx)*4,std::size_t(w)*4);
+    };
+    const auto compare=[&](std::string name,const Image& expected) {
+        const auto actual=renderer.readback();
+        cases.emplace_back(std::move(name),actual.width==expected.width && actual.height==expected.height && actual.rgba==expected.rgba);
+    };
+    const auto source=renderer.create_target(8,8),destination=renderer.create_target(8,8);
+    renderer.set_target(source);renderer.clear(0xFF204060);const auto original=renderer.readback();
+    renderer.set_target(destination);renderer.clear(0xFFCC8844);auto expected=renderer.readback();
+    renderer.copy_region(destination,source,1,2,3,1,3,4);copy(expected,original,1,2,3,1,3,4);
+    compare("partial rectangle preserves surrounding pixels",expected);
+    const auto before_overlap=expected;
+    renderer.copy_region(destination,destination,1,0,2,2,5,5);copy(expected,before_overlap,1,0,2,2,5,5);
+    compare("overlapping copy retains source pixels",expected);
+    renderer.copy_region(destination,source,0,0,0,0,8,8);compare("whole image copy",original);
+    const auto alias=renderer.create_target(8,8,SurfaceColor::rgba8,SurfaceDepth::z16,destination);
+    renderer.set_target(alias);renderer.clear(0xFF5A3C78);const auto shared=renderer.readback();
+    renderer.set_target(destination);compare("color image shared across depth views",shared);
+    renderer.grow_target(destination,10,9);
+    Image grown{10,9,std::vector<std::byte>(10*9*4)};copy(grown,shared,0,0,0,0,8,8);
+    compare("shared image growth preserves pixels",grown);
+    renderer.set_target(alias);compare("alias follows image growth",grown);
+    const auto rgb_source=renderer.create_target(3,3,SurfaceColor::rgb565,SurfaceDepth::z16);
+    const auto rgb_destination=renderer.create_target(3,3,SurfaceColor::rgb565,SurfaceDepth::z16);
+    renderer.set_target(rgb_source);renderer.clear(0xFF00FF00);const auto green=renderer.readback();
+    renderer.set_target(rgb_destination);renderer.clear(0xFF000000);auto rgb_expected=renderer.readback();
+    renderer.copy_region(rgb_destination,rgb_source,1,0,0,1,2,2);copy(rgb_expected,green,1,0,0,1,2,2);
+    compare("RGB565 rectangle copy",rgb_expected);
+    bool rejected=false;
+    try {renderer.copy_region(destination,source,UINT32_MAX,0,0,0,1,1);} catch(const std::runtime_error&) {rejected=true;}
+    cases.emplace_back("invalid rectangle rejected",rejected);
+    const auto errors=renderer.errors();
+    cases.emplace_back("D3D11 validation clean",errors.empty());
+    const auto passed=std::ranges::all_of(cases,[](const auto& test){return test.second;});
+    std::string report="{\"format\":\"smbd-image-copy-v1\",\"adapter\":"+json(renderer.adapter())+
+        ",\"passed\":"+(passed?"true":"false")+",\"cases\":[";
+    for(std::size_t i=0;i<cases.size();++i) {
+        if(i) report+=',';
+        report+="{\"name\":"+json(cases[i].first)+",\"passed\":"+(cases[i].second?"true":"false")+'}';
+    }
+    report+="],\"errors\":[";
+    for(std::size_t i=0;i<errors.size();++i) {if(i) report+=',';report+=json(errors[i]);}
+    return report+"]}";
 }
 }

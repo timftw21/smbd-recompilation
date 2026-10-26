@@ -74,6 +74,14 @@ struct Gpu::Impl {
         } catch(...) {renderer.end();draw_count=0;throw;}
         renderer.end();draw_count=0;
     }
+    static bool same_color(const std::array<std::uint32_t,4>& a,const std::array<std::uint32_t,4>& b) {
+        return a[0]==b[0] && (a[2]&~255U)==(b[2]&~255U) && ((a[2]&15)==3)==((b[2]&15)==3) &&
+            (a[3]&0xFFFF)==(b[3]&0xFFFF);
+    }
+    void grow_color(const std::array<std::uint32_t,4>& key,Surface& surface,std::uint32_t width,std::uint32_t height) {
+        flush();renderer.grow_target(surface.identifier,width,height);
+        for(auto& [other,image]:targets) if(same_color(key,other)) {image.width=width;image.height=height;}
+    }
     void select_target() {
         const auto horizontal=reg(0x200),vertical=reg(0x204);
         const auto clip_width=horizontal>>16,clip_height=vertical>>16;
@@ -91,12 +99,16 @@ struct Gpu::Impl {
         const std::array key{reg(0x210),reg(0x214),format,reg(0x20C)};
         auto found=targets.find(key);
         if(found==targets.end()) {
+            std::uint32_t shared=UINT32_MAX;
+            for(const auto& [other,image]:targets) if(same_color(key,other) && image.width==width && image.height==height) {
+                shared=image.identifier;break;
+            }
             flush();found=targets.emplace(key,Surface{renderer.create_target(width,height,color==3?SurfaceColor::rgb565:SurfaceColor::rgba8,
-                zeta==1?SurfaceDepth::z16:SurfaceDepth::z24s8),width,height}).first;
+                zeta==1?SurfaceDepth::z16:SurfaceDepth::z24s8,shared),width,height}).first;
         } else if(width>found->second.width || height>found->second.height) {
             flush();auto& surface=found->second;
             const auto w=std::max(width,surface.width),h=std::max(height,surface.height);
-            renderer.grow_target(surface.identifier,w,h);surface.width=w;surface.height=h;
+            grow_color(key,surface,w,h);
         }
         if(target!=found->second.identifier) {flush();target=found->second.identifier;renderer.set_target(target);}
     }
@@ -116,7 +128,10 @@ struct Gpu::Impl {
             const auto surface_format=key[2],surface_color=surface_format&15,surface_type=(surface_format>>8)&15;
             const bool matching_color=surface_color==3?code==5:(code==6 || code==7 || code==0x12 || code==0x1E);
             if(key[0]==(reg(method)&0x0FFFFFFF) && surface.width==width && surface.height==height && matching_color &&
-                ((surface_type==1)==linear) && (!linear || (key[3]&0xFFFF)==pitch)) return surface.identifier;
+                ((surface_type==1)==linear) && (!linear || (key[3]&0xFFFF)==pitch)) {
+                if(linear) view.texture_scales[stage]={1.0f/width,1.0f/height,1,1};
+                return surface.identifier;
+            }
         }
         unsigned bpp=0,block=0;
         switch(code) {case 4:case 5:case 0x1A:bpp=2;break;case 6:case 7:case 0x12:case 0x1E:bpp=4;break;
@@ -225,6 +240,49 @@ struct Gpu::Impl {
         draw.indices.assign(elements.begin(),elements.end());
         if(++draw_count==draws.size()) flush();
     }
+    void blit(const std::array<std::uint32_t,2048>& state,std::uint32_t size) {
+        const auto handle=state[0x19C/4];
+        if(!object_classes.contains(handle) || object_classes.at(handle)!=0x62)
+            throw std::runtime_error("Image blit has no bound linear surface object");
+        if(state[0x2FC/4]!=3) throw std::runtime_error("Image blit operation is not source copy");
+        const auto& context=object_state.at(handle);
+        const auto format=context[0x300/4];
+        const auto bpp=format==4?2U:(format==6 || format==7 || format==10)?4U:0U;
+        if(!bpp) throw std::runtime_error(std::format("Unsupported image-blit color format 0x{:X}",format));
+        const auto source=context[0x308/4]&0x07FFFFFF,destination=context[0x30C/4]&0x07FFFFFF;
+        const auto source_pitch=context[0x304/4]&0xFFFF,destination_pitch=context[0x304/4]>>16;
+        const auto sx=state[0x300/4]&0xFFFF,sy=state[0x300/4]>>16;
+        const auto dx=state[0x304/4]&0xFFFF,dy=state[0x304/4]>>16;
+        const auto width=size&0xFFFF,height=size>>16;
+        if(!width || !height) return;
+        if(!source_pitch || !destination_pitch || source_pitch%bpp || destination_pitch%bpp ||
+           sx+width>source_pitch/bpp || dx+width>destination_pitch/bpp || sy+height>4096 || dy+height>4096)
+            throw std::runtime_error("Image blit rectangle exceeds its linear surfaces");
+        memory.access(source,std::size_t(sy+height-1)*source_pitch+std::size_t(sx+width)*bpp);
+        memory.access(destination,std::size_t(dy+height-1)*destination_pitch+std::size_t(dx+width)*bpp);
+        const auto find=[&](std::uint32_t address,std::uint32_t pitch) {
+            return std::ranges::find_if(targets,[&](const auto& item) {
+                const auto& [key,image]=item;
+                return key[0]==address && ((key[2]>>8)&15)==1 && (key[3]&0xFFFF)==pitch &&
+                    ((key[2]&15)==3)==(bpp==2);
+            });
+        };
+        auto from=find(source,source_pitch);
+        if(from==targets.end() || sx+width>from->second.width || sy+height>from->second.height)
+            throw std::runtime_error("Image blit source is not a resident native color image");
+        auto to=find(destination,destination_pitch);
+        flush();
+        if(to==targets.end()) {
+            if(dx || dy || width!=destination_pitch/bpp)
+                throw std::runtime_error("Initial image blit must define complete rows from the origin");
+            const auto color=bpp==2?SurfaceColor::rgb565:SurfaceColor::rgba8;
+            const std::array key{destination,0U,bpp==2?0x123U:0x128U,destination_pitch|(destination_pitch<<16)};
+            to=targets.emplace(key,Surface{renderer.create_target(width,height,color),width,height}).first;
+        } else if(dx+width>to->second.width || dy+height>to->second.height)
+            grow_color(to->first,to->second,std::max(dx+width,to->second.width),std::max(dy+height,to->second.height));
+        renderer.copy_region(to->second.identifier,from->second.identifier,sx,sy,dx,dy,width,height);
+        ++statistics.blits;
+    }
     void fence(std::uint32_t address,std::uint32_t value) {
         flush();if(fence_count==fences.size()) poll(true);
         auto& result=fences[(fence_head+fence_count)%fences.size()];result.address=address;result.value=value;
@@ -285,6 +343,9 @@ struct Gpu::Impl {
                 break;
             case 0x9F: // Blit inputs; SIZE at 308 performs the copy.
                 if(method==0x2FC || method==0x300 || method==0x304) return;
+                if(method==0x308) {
+                    blit(state,data);return;
+                }
                 break;
             }
             throw std::runtime_error(std::format("Unimplemented graphics class 0x{:X}, handle 0x{:X}, method 0x{:X}, value 0x{:X}",
