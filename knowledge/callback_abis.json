@@ -834,6 +834,12 @@
   "evidence": "The kernel parameter layouts match the native host service contracts. The XAPI routine was checked from 00309872 through RET 18h; it forwards argument 2 as the start routine to PsCreateSystemThreadEx, with system entry 003097DA. The original entry pushes user routine 00309426. Only literal callback values proven in the contiguous argument-building block are recovered.",
   "preservers": [
     {
+      "address": "0x003433BB",
+      "mask": 64,
+      "prefix": "8B410CFF74240483C018",
+      "evidence": "This six-instruction XAPI cancellation wrapper forwards its object and argument to 344B32, then returns at 3433CB. It never writes ESI. The complete callee saves the incoming ESI at 344B32 before using it as the request pointer, and both its fast and long paths restore it at the common 344BE5 exit before RET 8. Caller 3428C6 keeps imported KeWaitForSingleObject in ESI across cancellation at 3428FE and calls it again at 34290A. Only ESI preservation is asserted."
+    },
+    {
       "address": "0x000163D0",
       "mask": 232,
       "prefix": "8B4424088B4C240456",

@@ -1,0 +1,50 @@
+Imported calls and guarded switch recovery, 2026-10-26
+
+Supported XBE SHA256:
+9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2
+
+Register calls to imported functions
+
+The original code often loads an import slot into a register and reuses it.
+The decoder now follows exact 32-bit register copies through the decoded control
+flow. Incoming paths must agree. Other writes discard the value; calls discard
+it unless the native kernel ABI or a checked preservation contract retains it.
+Only imports read directly from a verified absolute IAT slot receive this tag.
+Unknown object methods and stack aliases do not become imported calls.
+
+This resolves 39 unique sites. At 33C19F, EBX receives import 347684, ordinal 107
+(KeInitializeDpc). Calls 33C1B2 and 33C1D0 register literal callbacks 33BF81 and
+33BE12, respectively. Both three-instruction callbacks are now compiled.
+
+The additional ESI contract for 3433BB is recorded in callback_abis.json. Its
+callee 344B32 saves and restores ESI on both exits. This preserves the import
+loaded at 3428D2 across cancellation at 3428FE, proving call ESI at 34290A.
+
+Guarded switches
+
+At F4AA3, the byte-remap index is EBX, while the bounds comparison uses
+LEA EDX,[EBX-1E] followed by CMP EDX,1C and JA. The remap domain therefore
+starts at F4C24, not the instruction's unadjusted displacement F4C06, and has
+29 bytes. Its pointer table starts at F4BDC. The proof includes the LEA;
+branches bypassing it invalidate the local guard.
+
+Some incoming branches bypass a nearby comparison but explicitly supply an
+in-range constant. The decoder rechecks their complete decoded candidate graph
+with finite register ranges before retaining targets. It accepts only targets
+already present in that graph. This resolves 1B8160 and 2C5C5E. Unproved global
+indices and mutable hooks, including 9EFA6, A353F and 28334D, remain explicit.
+
+Validation
+
+Compared with the preceding batch: 9746 -> 9748 compiled functions,
+1099 -> 1057 unique unresolved sites, 815593 translated instructions, and
+4886 closed functions. No earlier functions or callback targets were lost;
+there are no unsupported instructions or exhausted function budgets.
+
+The native game and diagnostics tool were rebuilt with one clang-cl/LLD worker.
+CPU 10, controller 47 and offline audio 37 checks pass on this generation.
+game-0038 reaches GOAL on 1-1 SIMPLE with the canonical controller script.
+game-0039 completes the first results flow, enters the next stage and falls
+using the straight-line input, reaching RETRY and exiting normally.
+game-0040 captures READY on 1-2 DIAMOND with neutral input after loading.
+Detailed reports and generation comparisons remain private under build/logs.

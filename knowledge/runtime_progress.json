@@ -2,20 +2,20 @@
   "schema_version": 1,
   "executable_sha256": "9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2",
   "validation_date": "2026-10-26",
-  "stage": "First level 1-1 SIMPLE loads, responds to controller input and reaches GOAL; unresolved calls remain",
+  "stage": "First level 1-1 SIMPLE reaches GOAL and next stage 1-2 DIAMOND loads; unresolved calls remain",
   "original_translation_blockers": {
     "rejected_data_entries": 4,
     "remaining": 0,
     "cache_publication_lowered": true
   },
   "native_generation": {
-    "functions": 9746,
-    "compiled": 9746,
-    "closed_functions": 4858,
+    "functions": 9748,
+    "compiled": 9748,
+    "closed_functions": 4886,
     "native_platform_functions": 31,
-    "unresolved_indirect_sites": 1099,
+    "unresolved_indirect_sites": 1057,
     "unresolved_report_consistent": true,
-    "compiled_instructions": 815529,
+    "compiled_instructions": 815593,
     "unsupported_instructions": 0
   },
   "shaders": {
@@ -47,7 +47,7 @@
     "controller_cases": 47,
     "audio_mixer_cases": 37,
     "native_game_virtual_controller": true,
-    "generation_functions": 9597
+    "generation_functions": 9748
   },
   "build_validation": {
     "compiler": "clang-cl 22.1.8",
@@ -77,8 +77,8 @@
     "mode_pair_incremental_seconds": 47.7643013,
     "draw_record_incremental_seconds": 71.7778283,
     "geometry_node_incremental_seconds": 25.0034194,
-    "full_diagnostics_refresh_pending": true,
-    "diagnostics_generation_functions": 9597,
+    "full_diagnostics_refresh_pending": false,
+    "diagnostics_generation_functions": 9748,
     "full_tool_build_seconds": 795.2081255,
     "image_copy_hardware_cases": 9,
     "image_copy_warp_cases": 9,
@@ -89,7 +89,9 @@
     "character_action_batch_seconds": 25.8248063,
     "ui_width_batch_seconds": 11.7366511,
     "state_input_batch_seconds": 44.8947411,
-    "stage_extension_batch_seconds": 35.4693974
+    "stage_extension_batch_seconds": 35.4693974,
+    "import_switch_tool_build_seconds": 103.8432333,
+    "import_switch_game_build_seconds": 138.9605083
   },
   "frontend_validation": {
     "frames": 901,
@@ -109,20 +111,21 @@
     "generation_functions": 9597
   },
   "latest_run": {
-    "functions": 9746,
-    "frames": 2922,
-    "draws": 1025669,
-    "vertices": 53467694,
-    "blits": 1166,
+    "functions": 9748,
+    "frames": 3749,
+    "draws": 1485258,
+    "vertices": 83853242,
+    "blits": 1276,
     "boundary": "Native window closed",
-    "report": "build/logs/game-0036-full.json",
-    "capture": "build/logs/game-0036.png",
+    "report": "build/logs/game-0040-full.json",
+    "capture": "build/logs/game-0040.png",
     "stage_and_character_assets_read": true,
     "menu_verified": true,
     "playable": true,
     "first_level_goal_reached": true,
-    "controller_steps": 27,
-    "controller_waits": 4,
+    "second_level_loaded": true,
+    "controller_steps": 34,
+    "controller_waits": 6,
     "controller_complete": true
   },
   "callback_recovery": {
@@ -130,7 +133,7 @@
     "named_node_visitor_interfaces": 2,
     "branch_callback_alternatives_verified": 4,
     "ui_loop_callbacks_verified": 4,
-    "register_preserver_contracts": 13,
+    "register_preserver_contracts": 14,
     "draw_record_producers_verified": 2,
     "lost_previous_callback_targets": 0,
     "dynamic_dispatch_target_sets_remain_explicit": true,
@@ -138,18 +141,20 @@
     "scene_mode_handlers": 27,
     "menu_action_descriptors": 104,
     "character_action_handlers": 9,
-    "stage_extension_methods": 6
+    "stage_extension_methods": 6,
+    "imported_register_call_sites_resolved": 39,
+    "guarded_switch_sites_resolved": 3
   },
   "first_level_validation": {
     "level": "1-1 SIMPLE",
     "mode": "Story Mode",
-    "functions": 9746,
+    "functions": 9748,
     "loaded": true,
     "rendered": true,
     "controller_movement_verified": true,
     "goal_reached": true,
     "neutral_frames": 2920,
-    "forward_frames": 2922,
+    "forward_frames": 2857,
     "frames_after_game_state": 900,
     "neutral_speed_mph": 0,
     "forward_goal_speed_mph": 22,
@@ -157,17 +162,20 @@
     "goal_timer_seconds": 53.18,
     "neutral_report": "build/logs/game-0035-full.json",
     "neutral_capture": "build/logs/game-0035.png",
-    "forward_report": "build/logs/game-0036-full.json",
-    "forward_capture": "build/logs/game-0036.png",
+    "forward_report": "build/logs/game-0038-full.json",
+    "forward_capture": "build/logs/game-0038.png",
     "input": "knowledge/first_level_input.txt",
     "barriers_completed": 4,
     "steps_completed": 27,
-    "post_goal_flow_verified": false,
+    "post_goal_flow_verified": true,
     "original_video_comparison_complete": false,
     "timing_accuracy_verified": false,
     "in_game_audio_verified": false,
     "opening_movie_capture_black": true,
-    "geometry_and_effects_artifacts_present": true
+    "geometry_and_effects_artifacts_present": true,
+    "neutral_generation_functions": 9746,
+    "post_goal_exit_code": 0,
+    "post_goal_report": "build/logs/game-0039-full.json"
   },
   "controller_automation": {
     "original_menu_state": "0x008B2680",
@@ -179,5 +187,20 @@
     "legacy_format_checked": true,
     "wait_match_exit_code": 0,
     "wait_unmatched_exit_code": 3
+  },
+  "second_level_validation": {
+    "level": "1-2 DIAMOND",
+    "functions": 9748,
+    "loaded": true,
+    "rendered": true,
+    "capture_state": "READY",
+    "capture": "build/logs/game-0040.png",
+    "report": "build/logs/game-0040-full.json",
+    "controller_steps": 34,
+    "controller_waits": 6,
+    "controller_complete": true,
+    "goal_reached": false,
+    "straight_input_fall_and_retry_verified": true,
+    "fall_report": "build/logs/game-0039-full.json"
   }
 }

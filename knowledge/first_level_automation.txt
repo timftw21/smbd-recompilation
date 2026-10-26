@@ -32,7 +32,15 @@ Both scripts completed and exited normally. Captures and full reports are privat
 under build/logs. The matching-header wait check exits 0; the unmatched-header
 check exits 3 with controller_complete=false. The legacy frame format also ran.
 
-This proves loading, controller movement and reaching the first goal. Later
-stages, post-goal flow, original-video parity, timing and in-game audio remain
-unverified. The opening movie still captures black; geometry/effects artifacts
-are visible and require separate investigation.
+With 9748 compiled functions, game-0038 repeats GOAL on 1-1 SIMPLE. The same
+route followed by a wait for scene 11, twelve released frames, and an A pulse
+until scene 13 enters the next stage. game-0040 captures READY on 1-2 DIAMOND
+after 360 neutral frames. game-0039 instead applies the same straight forward
+input used on SIMPLE and falls, reaching RETRY normally. That input is not a
+route for completing DIAMOND. game-0037 previously verified the first results
+flow returning to Stage Select on generation 9746.
+
+This proves loading, controller movement, reaching the first goal and entering
+the next stage. Completing later stages, original-video parity, timing and
+in-game audio remain unverified. The opening movie still captures black;
+geometry/effects artifacts are visible and require separate investigation.
