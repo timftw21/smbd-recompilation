@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="resources/smbd.png" alt="Super Monkey Ball Deluxe project icon" width="160">
+  <img src="resources/smbd.png" alt="Super Monkey Ball Deluxe project icon" width="128">
 </p>
 
 <h1 align="center">Super Monkey Ball Deluxe — Static Recompilation</h1>
 
-From the creator of the [Burnout 2 recompilation](https://github.com/timftw21/burnout2-recompilation).
+*From the creator of the [Burnout 2 recompilation](https://github.com/timftw21/burnout2-recompilation).*
 
 An unofficial native version of the original Xbox game for Windows, built around accurate gameplay, the original presentation, and higher refresh rates.
 
@@ -15,6 +15,12 @@ This fan project is independent of SEGA. You must provide your own US Xbox game 
 ## AI disclosure
 
 OpenAI Codex has assisted with development and research. Changes are checked using native diagnostics, scripted gameplay, and rendering comparisons. Those checks establish specific results, rather than complete game compatibility.
+
+## Screenshots
+
+| Mode Select | Stage Select | Gameplay |
+| :---: | :---: | :---: |
+| [<img src="resources/screenshots/mode-select.jpg" alt="Mode Select menu" width="260">](resources/screenshots/mode-select.jpg) | [<img src="resources/screenshots/stage-select.jpg" alt="World 3 Stage Select" width="260">](resources/screenshots/stage-select.jpg) | [<img src="resources/screenshots/gameplay.jpg" alt="AIAI on a stage" width="260">](resources/screenshots/gameplay.jpg) |
 
 ## Current status
 
