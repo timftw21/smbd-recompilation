@@ -50,7 +50,7 @@ OpenAI Codex has assisted with development and research. Changes are checked usi
 
 You need a Direct3D 11-capable graphics card and an XISO image of the **US Xbox release of Super Monkey Ball Deluxe**. A full raw-disc dump must first be converted to XISO. The executable is checked against [the supported-target registry](knowledge/supported_target.json).
 
-This repository currently uses a source build. There is no automatic installer.
+**Downloadable builds are coming soon.** For now, build from source using the instructions below. There is no automatic installer yet.
 
 Install these build prerequisites:
 
