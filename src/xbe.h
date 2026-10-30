@@ -39,6 +39,7 @@ public:
     void load(std::span<std::byte> destination, bool preload_only = true);
     void load_section(const Section&, std::span<std::byte> destination);
     std::string report();
+    std::string references(std::uint32_t first,std::uint32_t end);
 private:
     File file_;
     std::uint32_t headers_size_ = 0;

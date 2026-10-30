@@ -1,4 +1,5 @@
 #include "batch.h"
+#include "native_guest_roots.h"
 #include <algorithm>
 #include <deque>
 #include <format>
@@ -17,7 +18,9 @@ struct Unit {
     std::size_t instruction_count = 0;
     bool truncated = false, unresolved = false, ready = false, emit = false;
     std::vector<std::uint32_t> indirect;
-    std::vector<std::string> indirect_instructions,indexed_writes;
+    std::vector<std::uint32_t> fixed_zero_faults;
+    std::vector<std::uint32_t> dormant_indirect;
+    std::vector<std::string> indirect_instructions,resolved_indirect_instructions,indexed_writes,field_writes;
     std::vector<std::uint32_t> static_callbacks;
     std::vector<std::uint32_t> indirect_slots;
     std::vector<std::pair<std::uint32_t,std::uint32_t>> callback_stores;
@@ -50,6 +53,79 @@ struct RecoverySite {
 };
 struct PointerStore {std::uint32_t value;std::string instruction;std::set<std::uint32_t> owners;};
 struct SlotWrite {std::uint32_t address;unsigned bytes;std::string instruction;std::set<std::uint32_t> owners;};
+struct GameReachability {
+    std::set<std::uint32_t> roots,reached,missing,live_indirect;
+    std::map<std::uint32_t,RecoverySite> dormant;
+    bool closed=false;
+};
+GameReachability close_dormant_dispatches(const Xbe& image,std::map<std::uint32_t,Unit>& units,
+    std::map<std::uint32_t,RecoverySite>& sites,bool all_discovered) {
+    GameReachability result;result.roots.insert(image.entry);
+    result.roots.insert(native_graphics_helpers.begin(),native_graphics_helpers.end());
+    result.roots.insert(native_goal_queries.begin(),native_goal_queries.end());
+    if(image.tls) result.roots.insert(image.tls->callbacks.begin(),image.tls->callbacks.end());
+    for(const auto& [entry,unit]:units) {
+        // Conservatively include verified callbacks even in otherwise unused
+        // code. This covers asynchronous native entries and metadata handlers.
+        result.roots.insert(unit.static_callbacks.begin(),unit.static_callbacks.end());
+        if(!unit.native_api.empty()) result.roots.insert(entry);
+    }
+    std::deque<std::uint32_t> pending(result.roots.begin(),result.roots.end());
+    while(!pending.empty()) {
+        const auto entry=pending.front();pending.pop_front();
+        if(!result.reached.insert(entry).second) continue;
+        const auto at=units.find(entry);
+        if(at==units.end()) {result.missing.insert(entry);continue;}
+        const auto& unit=at->second;
+        result.live_indirect.insert(unit.indirect.begin(),unit.indirect.end());
+        pending.insert(pending.end(),unit.calls.begin(),unit.calls.end());
+        pending.insert(pending.end(),unit.static_callbacks.begin(),unit.static_callbacks.end());
+    }
+    result.closed=all_discovered && !image.non_kernel_imports && result.missing.empty() &&
+        result.live_indirect.empty() && std::ranges::all_of(units,[](const auto& item) {return item.second.emit;});
+    if(!result.closed) return result;
+    for(auto at=sites.begin();at!=sites.end();) {
+        if(std::ranges::any_of(at->second.owners,[&](auto entry) {return result.reached.contains(entry);})) {++at;continue;}
+        result.dormant.emplace(at->first,at->second);at=sites.erase(at);
+    }
+    for(auto& [entry,unit]:units) {
+        for(auto pc:unit.indirect) if(const auto at=result.dormant.find(pc);at!=result.dormant.end()) {
+            unit.dormant_indirect.push_back(pc);
+            std::erase(unit.indirect_instructions,at->second.instruction);
+            auto binding=at->second.instruction;binding.pop_back();
+            binding+=",\"game_unreachable\":true,\"diagnostic_dispatch\":true}";
+            unit.resolved_indirect_instructions.push_back(std::move(binding));
+        }
+        if(unit.dormant_indirect.empty()) continue;
+        std::erase_if(unit.indirect,[&](auto pc) {return result.dormant.contains(pc);});
+        unit.unresolved=!unit.indirect.empty();unit.ready=unit.emit && !unit.unresolved;
+        // Keep unit.source unchanged: isolated diagnostics still execute the
+        // original operand through the fixed, verified AOT function registry.
+    }
+    return result;
+}
+void reachability_report(std::ostream& out,const Xbe& image,const GameReachability& proof) {
+    const auto write_set=[&](const auto& values) {
+        const std::vector<std::uint32_t> ordered(values.begin(),values.end());addresses(out,ordered);
+    };
+    out<<"{\"format\":\"smbd-game-reachability-v1\",\"closed\":"<<(proof.closed?"true":"false")
+       <<",\"entry\":"<<json(hex32(image.entry))<<",\"fixed_native_roots\":[";
+    bool first=true;
+    for(auto roots:{std::span<const std::uint32_t>(native_graphics_helpers),std::span<const std::uint32_t>(native_goal_queries)})
+        for(auto entry:roots) {if(!first) out<<',';first=false;out<<json(hex32(entry));}
+    out<<"],\"tls_callbacks\":";
+    if(image.tls) addresses(out,image.tls->callbacks);else out<<"[]";
+    out<<",\"roots\":";write_set(proof.roots);
+    out<<",\"reachable_functions\":";write_set(proof.reached);
+    out<<",\"missing_entries\":";write_set(proof.missing);
+    out<<",\"reachable_unresolved_sites\":";write_set(proof.live_indirect);
+    out<<",\"dormant_sites\":[";first=true;
+    for(const auto& [pc,site]:proof.dormant) {
+        if(!first) out<<',';first=false;
+        out<<"{\"instruction\":"<<site.instruction<<",\"owners\":";write_set(site.owners);out<<'}';
+    }
+    out<<"]}";
+}
 // This is a local origin proof, not a guess about the object's type. Incoming
 // branches, calls and other writes stop the walk before they can hide an alias.
 std::optional<ZydisDecodedOperand> load_origin(const Function& function,std::uint32_t pc,ZydisRegister reg) {
@@ -159,7 +235,11 @@ void recovery_report(std::ostream& out,const std::map<std::uint32_t,RecoverySite
     }
     std::vector<std::pair<std::string,std::vector<std::uint32_t>>> ranked(groups.begin(),groups.end());
     std::ranges::sort(ranked,[](const auto& a,const auto& b) {return a.second.size()!=b.second.size()?a.second.size()>b.second.size():a.first<b.first;});
-    out << "{\"unique_sites\":" << sites.size() << ",\"groups\":[";
+    std::set<std::uint32_t> fixed_zero_faults;
+    for(const auto& [entry,unit]:units) fixed_zero_faults.insert(unit.fixed_zero_faults.begin(),unit.fixed_zero_faults.end());
+    out << "{\"unique_sites\":" << sites.size() << ",\"fixed_zero_fault_sites\":";
+    set_addresses(fixed_zero_faults);
+    out << ",\"groups\":[";
     bool first=true;
     for(const auto& [name,values]:ranked) {
         if(!first) out<<',';first=false;
@@ -180,8 +260,6 @@ void recovery_report(std::ostream& out,const std::map<std::uint32_t,RecoverySite
     }
     out<<"],\"absolute_slot_writes\":[";first=true;
     for(const auto& [pc,write]:writes) {
-        const auto slot=slots.lower_bound(write.address-3);
-        if(slot==slots.end() || *slot>=static_cast<std::uint64_t>(write.address)+write.bytes) continue;
         if(!first) out<<',';first=false;
         out<<"{\"instruction\":"<<write.instruction<<",\"address\":"<<json(hex32(write.address))<<",\"bytes\":"<<write.bytes<<",\"owners\":";
         set_addresses(write.owners);out<<'}';
@@ -270,13 +348,48 @@ Batch recompile_batch(Xbe& image, std::span<const std::uint32_t> seeds,
             for (const auto& [pc, instruction] : function.instructions) {
                 unit.clock |= instruction.decoded.mnemonic == ZYDIS_MNEMONIC_RDTSC;
                 unit.traps |= instruction.decoded.mnemonic == ZYDIS_MNEMONIC_INT3 || instruction.decoded.mnemonic == ZYDIS_MNEMONIC_INT;
+                if(instruction.invalid_target) {unit.fixed_zero_faults.push_back(pc);unit.traps=true;}
+                unit.traps |= !instruction.null_sources.empty();
                 if(std::ranges::contains(unit.indirect,pc)) unit.indirect_instructions.push_back(instruction.report());
-                const auto& destination=instruction.operands[0];
-                if(instruction.decoded.mnemonic==ZYDIS_MNEMONIC_MOV && destination.type==ZYDIS_OPERAND_TYPE_MEMORY &&
-                   destination.size==32 && destination.mem.segment==ZYDIS_REGISTER_DS && destination.mem.base==ZYDIS_REGISTER_NONE &&
-                   destination.mem.index!=ZYDIS_REGISTER_NONE && destination.mem.scale==4 && destination.mem.disp.has_displacement) {
-                    const auto base=static_cast<std::uint32_t>(destination.mem.disp.value);
-                    if(base>=image.base && base-image.base<image.image_size) unit.indexed_writes.push_back(instruction.report());
+                if(!instruction.target() &&
+                   (instruction.decoded.meta.category==ZYDIS_CATEGORY_CALL || instruction.decoded.meta.category==ZYDIS_CATEGORY_UNCOND_BR) &&
+                   (instruction.kernel_ordinal || instruction.tail_target || instruction.zero_guard || instruction.invalid_target || !instruction.jump_targets.empty()))
+                    unit.resolved_indirect_instructions.push_back(instruction.report());
+                // Reuse the decoded batch for object-field writer research.
+                // These are possible aliases, not object-type or closure proofs.
+                for(unsigned i=0;i<instruction.decoded.operand_count;++i) {
+                    const auto& operand=instruction.operands[i];
+                    if(operand.type!=ZYDIS_OPERAND_TYPE_MEMORY || !(operand.actions&ZYDIS_OPERAND_ACTION_MASK_WRITE) ||
+                       instruction.decoded.address_width!=32 || operand.mem.base==ZYDIS_REGISTER_NONE ||
+                       operand.mem.base==ZYDIS_REGISTER_ESP || operand.mem.disp.value<-8192 || operand.mem.disp.value>8192) continue;
+                    auto write=instruction.report();write.pop_back();
+                    write+=",\"base\":"+json(ZydisRegisterGetString(operand.mem.base))+
+                        ",\"segment\":"+json(ZydisRegisterGetString(operand.mem.segment))+
+                        ",\"offset\":"+std::to_string(operand.mem.disp.value)+
+                        ",\"width_bytes\":"+std::to_string((operand.size+7)/8)+
+                        ",\"repeated\":"+((instruction.decoded.attributes&(ZYDIS_ATTRIB_HAS_REP|ZYDIS_ATTRIB_HAS_REPE|ZYDIS_ATTRIB_HAS_REPNE))?"true":"false")+
+                        ",\"indexed\":"+(operand.mem.index==ZYDIS_REGISTER_NONE?"false":"true")+'}';
+                    unit.field_writes.push_back(std::move(write));
+                }
+                // Global arrays also use a base register as their index, byte
+                // stores and read/modify/write operations. Report all such
+                // possible writers; the index is research evidence, not a type proof.
+                for(unsigned i=0;i<instruction.decoded.operand_count;++i) {
+                    const auto& operand=instruction.operands[i];
+                    if(operand.type!=ZYDIS_OPERAND_TYPE_MEMORY || !(operand.actions&ZYDIS_OPERAND_ACTION_MASK_WRITE) ||
+                       instruction.decoded.address_width!=32 || operand.mem.segment!=ZYDIS_REGISTER_DS ||
+                       (operand.mem.base==ZYDIS_REGISTER_NONE && operand.mem.index==ZYDIS_REGISTER_NONE) ||
+                       !operand.mem.disp.has_displacement) continue;
+                    const auto base=static_cast<std::uint32_t>(operand.mem.disp.value);
+                    if(base>=image.base && base-image.base<image.image_size) {
+                        auto write=instruction.report();write.pop_back();
+                        write+=",\"table_base\":"+json(hex32(base))+
+                            ",\"base\":"+json(ZydisRegisterGetString(operand.mem.base))+
+                            ",\"index\":"+json(ZydisRegisterGetString(operand.mem.index))+
+                            ",\"scale\":"+std::to_string(operand.mem.scale)+
+                            ",\"width_bytes\":"+std::to_string((operand.size+7)/8)+'}';
+                        unit.indexed_writes.push_back(std::move(write));
+                    }
                 }
             }
             std::ranges::sort(unit.calls);
@@ -288,7 +401,9 @@ Batch recompile_batch(Xbe& image, std::span<const std::uint32_t> seeds,
             unit.native_api=std::move(lowered.native_api);
             if(!unit.native_api.empty()) {
                 unit.unresolved=false;unit.calls.clear();unit.indirect.clear();unit.kernel.clear();unit.clock=unit.traps=false;
-                unit.indirect_instructions.clear();unit.indexed_writes.clear();
+                unit.indirect_instructions.clear();unit.resolved_indirect_instructions.clear();unit.indexed_writes.clear();
+                unit.fixed_zero_faults.clear();
+                unit.field_writes.clear();
             }
             unit.issues = std::move(lowered.issues);
             for (const auto& issue : unit.issues)
@@ -304,6 +419,7 @@ Batch recompile_batch(Xbe& image, std::span<const std::uint32_t> seeds,
         if (generated_bytes > source_limit) throw std::runtime_error("Generated batch exceeds the 256 MiB source limit");
         units.emplace(address, std::move(unit));
     }
+    const auto game_reachability=close_dormant_dispatches(image,units,recovery_sites,pending.empty());
     // Keep proven closed coverage separate from executable partial coverage.
     // Missing dependencies are explicit diagnostic stops, never interpreted.
     bool changed;
@@ -441,6 +557,8 @@ Batch recompile_batch(Xbe& image, std::span<const std::uint32_t> seeds,
     }
     report << "]},\"call_recovery\":";
     recovery_report(report,recovery_sites,object_pointer_stores,absolute_slot_writes,address_uses,units);
+    report << ",\"game_reachability\":";
+    reachability_report(report,image,game_reachability);
     report << ",\"functions\":[";
     first = true;
     for (const auto& [address, unit] : units) {
@@ -454,10 +572,16 @@ Batch recompile_batch(Xbe& image, std::span<const std::uint32_t> seeds,
         addresses(report, unit.calls);
         report << ",\"unresolved_indirect_sites\":";
         addresses(report,unit.indirect);
+        report << ",\"diagnostic_only_indirect_sites\":";
+        addresses(report,unit.dormant_indirect);
         report << ",\"unresolved_instructions\":";
         instruction_reports(report,unit.indirect_instructions);
+        report << ",\"resolved_indirect_instructions\":";
+        instruction_reports(report,unit.resolved_indirect_instructions);
         report << ",\"indexed_writes\":";
         instruction_reports(report,unit.indexed_writes);
+        report << ",\"field_writes\":";
+        instruction_reports(report,unit.field_writes);
         report << ",\"static_callback_targets\":";
         addresses(report,unit.static_callbacks);
         report << ",\"indirect_pointer_slots\":";

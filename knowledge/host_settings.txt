@@ -1,0 +1,174 @@
+Native video, storage and settings research, 2026-10-28
+
+Verified executable SHA256:
+9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2
+
+Movie capture frame-1793206542611-212598932000 has decoded 640x480 linear
+ARGB pixels at 031BD000, resource 436. Fresh replay restores the movie behind
+the subtitles (305179 changed pixels), establishing stale GPU cache contents.
+Original SDK texture lock 31F560 forwards six arguments to 321BA0, including
+face zero; surface lock 320E30 forwards face/mip zero. Their original RET
+cleanups are 20/16 bytes. The complete 57-instruction 321BA0 routine computes
+mip, pitch, rectangle and tiled address through original 321970. Both wrappers
+now invoke that compiled helper unchanged, then retire overlapping GPU views
+before a CPU write. This complements allocation-lifetime invalidation; it does
+not hash textures or decode movie instructions at runtime. Xbox READONLY is
+80h; 10h is NOFLUSH, 20h NOOVERWRITE, 40h TILED. Independent ABI reference:
+https://github.com/Cxbx-Reloaded/Cxbx-Reloaded/blob/master/src/core/hle/D3D8/XbD3D8Types.h
+Only the flag values are used, not emulator implementation code.
+
+Silent native opening capture build/checks/fmv/native-opening shows movie
+frames. A real F8 key capture at 2x, frame-1793209237398-32602429400, replays
+all 52 draws with zero RGB pixel differences and no D3D11 warnings/errors.
+Its color/depth captures account for physical resolution; guest layouts stay
+unchanged. The replay reads the optional scale header, preserving old captures.
+
+Save capture frame-1793206909435-30885498600 reports damaged game data.
+Original file requests append a separator to the saved directory, producing
+DD1C2ED2DAE3\\save.dat. The native path validator previously rejected that empty
+component with STATUS_OBJECT_NAME_NOT_FOUND. Object-name resolution now
+coalesces repeated separators before and after resolving symbolic links.
+Traversal, invalid components and reparse-point checks remain enforced.
+The XboxHDKey import at 347698 was also left pointing to an unbound import
+stub. A persistent, randomly generated native identity in storage.key now backs
+that data export and derives the per-title key data from the XBE certificate,
+following the functioning Burnout 2 native storage implementation. Original
+game SHA/HMAC, save formatting and validation remain ahead-of-time compiled.
+No checks, error states or file contents are bypassed.
+
+The isolated save-profile-v2 controller run creates the original SaveMeta.xbx,
+saveimage.xbx and 16384-byte save.dat. A fresh runtime reads all 16384 bytes
+and accepts the file without the damaged-data dialog. Detailed evidence is in
+build/logs/save-create-v2.json, save-reopen-v2.json and their storage_io session
+records. --storage selects an isolated profile; normal play uses data/user.
+An initial diagnostic exposed a moved-from constructor argument in that new
+option; it was corrected before isolated save acceptance. Existing user saves
+were not removed. Back up storage.key together with the entire save directory.
+
+The original Pause > Save Game Data route then exposed a separate missing
+compiled callback, 279500, at task dispatcher 7344E. Original 2796B0 writes
+that address into descriptor +1C at 27972E and registers the descriptor with
+71ED0 at 279736. The complete 170-instruction 71ED0 CFG copies argument 2's
+callback to the 34-byte task record +1C at 720EA/720EE. A shared callback ABI
+contract now discovers those original code pointers through their real stack
+descriptor publications. It adds the 72-instruction save callback, not a native
+replacement. The recovery audit passes with no lost code/bindings or new unknown
+sites: 10329 original/native functions, 33 platform bindings, 170 unresolved
+dispatches. The task dispatch remains open until its entire mutable domain is
+proved; compiling an original registered callback does not falsely close it.
+
+The first complete manual overwrite then exposed the directory API mismatch:
+after deleting only save.dat, XDeleteSaveGame failed because SaveMeta.xbx and
+saveimage.xbx remained in the directory. Original recursive helper 309AA7 queries
+326 bytes at 309ACF, consumes only FileName at +40, and queries again after each
+deletion. It never follows NextEntryOffset. Xbox's ten-argument
+NtQueryDirectoryFile always returns one entry; our native provider had packed
+several into one response and advanced past all of them. Returning one entry
+per request preserves the remaining entries for the original helper's loop.
+Independent API behavior reference (ReturnSingleEntry=TRUE):
+https://github.com/Cxbx-Reloaded/Cxbx-Reloaded/blob/master/src/core/kernel/exports/EmuKrnlNt.cpp
+The original helper and native API evidence, not the observed error alone,
+establish this fix. Burnout's overwrite-in-place path did not expose this case.
+--trace-storage records cold storage requests explicitly; ordinary play and
+F8's bounded recent-IO ring do not enable that verbose diagnostic.
+
+The next overwrite reached saveimage.xbx but failed with ACCESS_DENIED. That
+file really is read-only. Our directory records had dropped its read-only bit,
+so original 309B5B skipped its explicit attribute-clear operation at 309B8B.
+Directory records and file information now retain actual native attributes;
+the original helper clears read-only, deletes all entries and removes the
+directory before creating the replacement. No delete errors are suppressed.
+
+Correct enumeration also exposed waste in native object allocation. The
+startup snapshot had 5160 separate 4096-byte allocations, including cached
+72-byte file objects. Small file/event/semaphore/link objects now share
+128-byte slots in native pages; the last released slot returns its page.
+Thread/stack, texture and virtual-memory allocation rules are unchanged.
+The SDK's diagnostic print trap now retains its original error text, which
+identified the resulting movie work-buffer failure at SofdecMovies.cpp:205.
+
+Complete isolated validation: save-profile-v4 creates a 16384-byte save, clears
+SIMPLE, then manually saves again through the original callback. Both writes
+complete, all old directory entries are removed correctly, and a fresh process
+accepts the replacement and starts at DIAMOND. Saved SHA256:
+3976CFCBF7DCAC7012413603DB3AACFD9F28DCDD5DFC816DA490EC4360DF8CC0.
+Evidence: build/logs/save-confirm-v4.json and save-reopen-v4.json, their silent
+controller captures and storage_io session records. Existing user data still
+contains only an old failed SaveMeta.xbx, not a recoverable save.dat; it remains
+untouched and can be removed using the game's normal damaged-save dialog.
+
+Default preferences, captures and storage are anchored to the application
+distribution (or verified project root in this source checkout), independently
+of the shell's working directory. Explicit diagnostic paths remain caller-relative.
+
+Native widescreen uses ExQueryNonVolatileSetting XC_VIDEO_FLAGS (index 8,
+10000h) and the matching AV capability flag. Original 308C9F returns its SDK
+widescreen bit; game initializer 279F0 tests it at 279FB and sets 6C934C at
+27A04. Request-time RAM in save-create-v2 confirms that original game flag is 1.
+The game supplies its own widescreen camera/layout. Presentation fits the
+anamorphic image to 16:9. No dashboard code or guest display device is emulated.
+The same original setting with zero flags retains native 4:3.
+
+The 21:9 extension uses original widescreen aspect/canvas inputs 402428/40242C,
+verified as 3FE38E39/44555555, changed only in RAM to 21/9 and 1120. Indexed
+readers are ADCCC, ADD83 and 1E6A95 for aspect, ADCBC and 1E6A85 for width.
+ADCA0 updates canvas 73F198 and aspect 73F0EC; ADD70 updates the five camera
+aspect fields at 73F1D4 + 28C*i. The original projection calculations remain.
+Initial 21:9 capture confirmed those fields but exposed stretched UI/previews.
+Projection setter 31540 explicitly separates perspective mode 0 (W=-Z) and
+orthographic mode 1 (W=1). Only mode 1's X-scale/offset stores 31563/3157B
+gain the 16/21 adjustment when the native ultrawide option is active. Both
+instruction signatures are checked during recompilation. SSE status is saved
+and restored around that setting adjustment; 4:3/16:9 keep original stores.
+This changes the original shared projection used by CPU/GPU calculations,
+not a post-process stretch or a shader-specific guess. Window diagnostics
+record active/requested aspect modes independently of pending preferences.
+
+Final Windows checks: ultrawide-final-frame replays all 782 draws with zero RGB
+differences and no D3D11 errors. standard-4x-final captures native 4:3 movie
+playback at 2560x1920; all 52 draws replay identically with no errors. Its
+three raw depth buffers plus shaders/resources require 76631400 bytes, and
+four RGBA images require 78643200 bytes. The opt-in streaming capture caps are
+now 128 MiB binary and 160 MiB images, retaining the 48 MiB trace/2048 draw caps;
+that representative 4x frame is complete without truncation. No extra images
+are retained together in memory.
+
+The real F9 minute recording performance-1793214409615-259509228700 contains
+4242 complete GPU frames, no partial/pending frames and no dropped records.
+The native inspect-performance round trip passes. Recorder capacity 32768
+frames keeps recordings beyond the former 4096-frame limit, below 16 MiB RAM.
+All-stage validation with three workers passes CPU 10, input 47, audio 37.
+Live settings checks exposed old clicks queued while the menu was hidden;
+ImGui now advances every display frame, with no D3D submission for empty UI.
+Escape opens settings after game clicks with recording/FPS overlays disabled.
+
+Settings use the same pinned Dear ImGui version and SDL3/D3D11 backends as
+Burnout 2. Categories are Game Files, General (refresh rate and FPS), Audio (master volume,
+mute and mute on focus loss), Graphics and Diagnostics. Preferences persist
+atomically, and game paths are validated against the supported executable and
+mounted XISO. Native scale applies to target allocation, viewport/scissor,
+copies, depth migration and readbacks. Game coordinates, texture sizes and
+timing remain original. Restart rebuilds the native session with the saved
+scale/aspect. Game inputs are neutral while settings owns navigation.
+The supplied PNG is retained unchanged and packaged in the window/executable
+icon. The five-page native image diagnostic is build/checks/settings-final.
+
+Live UI verification selected/validated files, toggled FPS, set master volume
+to 50%, muted audio, selected 2x and launched playback. All values persisted in
+build/checks/ui-interaction.cfg. F9 start/save and F8 keys were exercised during
+2x movie playback. The F8 directory includes the active performance snapshot;
+both binary recordings pass bounded offline inspection. The stopped F9 report
+contains 1594 complete GPU frames, no partial GPU frames and one capture frame
+excluded from percentiles. Detail recording remains opt-in, bounded to about
+less than 16 MiB plus explicit output files, and stops at 60 seconds. Reports identify
+CPU/GPU/build, frame distributions, exclusive CPU phases, original code samples,
+native service costs, GPU command spans, CPU/GPU memory and audio mixing work.
+GPU spans exclude the settings overlay and idle gaps; checkpoint samples are
+leads rather than exact function timings. The renderer queries resources only
+while recording. Frame/resource/cost limits and missing GPU samples are explicit.
+
+The unattended title demo separately reaches unresolved original actor call
+9DAFC -> 8BF80 (not in the fixed native table). This is recorded in
+attract-missing-call*.json and is not hidden by the settings implementation.
+Normal interactive runtime failures return a clear Diagnostics page with an
+original-state report; scripted diagnostics retain their failure exit code.

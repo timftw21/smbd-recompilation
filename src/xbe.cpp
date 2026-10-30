@@ -176,6 +176,48 @@ const Section& Xbe::code_section(std::uint32_t address) const {
             static_cast<std::uint64_t>(address) - section.address < std::min(section.size, section.raw_size)) return section;
     throw std::runtime_error("Address is not executable code: " + hex32(address));
 }
+std::string Xbe::references(std::uint32_t first,std::uint32_t end) {
+    if(!supported() || end<=first || end-first>65536)
+        throw std::runtime_error("Reference search requires the verified image and a 1..65536-byte address range");
+    std::ostringstream out;unsigned matches=0;std::uint64_t searched=0;
+    out<<"{\"format\":\"smbd-references-v1\",\"sha256\":"<<json(sha256)
+       <<",\"first\":"<<json(hex32(first))<<",\"end\":"<<json(hex32(end))
+       <<",\"note\":\"Byte candidates; verify instruction boundaries and pointer use in original CFGs\",\"references\":[";
+    const auto scan=[&](std::uint32_t base,std::uint32_t offset,std::uint32_t size,bool executable) {
+        for(std::uint32_t start=0;start<size;) {
+            const auto count=std::min<std::uint32_t>(65536,size-start);
+            const auto bytes=file_.read(std::uint64_t(offset)+start,std::min<std::uint32_t>(count+5,size-start));
+            for(unsigned i=0;i<count;++i) {
+                const auto pc=base+start+i;
+                const auto record=[&](std::string_view kind,std::uint32_t target,unsigned width) {
+                    if(target<first || target>=end) return;
+                    if(matches==4096) throw std::runtime_error("Reference search exceeds 4096 candidates; narrow the range");
+                    if(matches++) out<<',';
+                    out<<"{\"address\":"<<json(hex32(pc))<<",\"target\":"<<json(hex32(target))
+                       <<",\"kind\":"<<json(kind)<<",\"bytes\":"<<json(hex_bytes(Bytes(bytes).subspan(i,width)))<<'}';
+                };
+                if(i+4<=bytes.size()) record("literal",u32(bytes,i),4);
+                if(executable && i+5<=bytes.size() && (bytes[i]==std::byte{0xE8} || bytes[i]==std::byte{0xE9}))
+                    record(bytes[i]==std::byte{0xE8}?"call":"jump",pc+5+u32(bytes,i+1),5);
+                if(executable && i+6<=bytes.size() && bytes[i]==std::byte{0x0F} &&
+                   std::to_integer<unsigned>(bytes[i+1])>=0x80 && std::to_integer<unsigned>(bytes[i+1])<=0x8F)
+                    record("conditional",pc+6+u32(bytes,i+2),6);
+                if(executable && i+2<=bytes.size()) {
+                    const auto opcode=std::to_integer<unsigned>(bytes[i]);
+                    if(opcode==0xEB || (opcode>=0x70 && opcode<=0x7F) || (opcode>=0xE0 && opcode<=0xE3)) {
+                        const auto target=pc+2+static_cast<std::int8_t>(std::to_integer<unsigned>(bytes[i+1]));
+                        record(opcode==0xEB?"short-jump":opcode>=0xE0?"loop":"short-conditional",target,2);
+                    }
+                }
+            }
+            start+=count;searched+=count;
+        }
+    };
+    scan(base,0,headers_size_,false);
+    for(const auto& section:sections)
+        scan(section.address,section.raw_offset,std::min(section.size,section.raw_size),section.executable());
+    return out.str()+"],\"candidates\":"+std::to_string(matches)+",\"bytes_searched\":"+std::to_string(searched)+'}';
+}
 
 std::size_t Xbe::code_bytes(std::uint32_t address, std::span<std::byte> output) {
     const auto& section = code_section(address);

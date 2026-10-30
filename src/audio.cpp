@@ -1,4 +1,5 @@
 #include "audio.h"
+#include "performance.h"
 
 
 #include "file.h"
@@ -87,6 +88,8 @@ Audio::Audio(bool output,bool muted) {
             std::array<float,1024> buffer{};
             while(additional>0) {
                 const auto frames=std::min<std::size_t>((static_cast<unsigned>(additional)+7)/8,buffer.size()/2);
+                const bool recording=audio.recording_.load(std::memory_order_relaxed);
+                const auto started=recording?performance_clock():0;
                 try {audio.mix_unlocked(std::span(buffer).first(frames*2));}
                 catch(const std::exception& error) {
                     audio.failed_=true;std::snprintf(audio.failure_.data(),audio.failure_.size(),"%s",error.what());break;
@@ -95,6 +98,11 @@ Audio::Audio(bool output,bool muted) {
                 if(!SDL_PutAudioStreamData(stream,buffer.data(),bytes)) {audio.failed_=true;
                     std::snprintf(audio.failure_.data(),audio.failure_.size(),"%s",SDL_GetError());break;}
                 additional-=bytes;
+                if(recording) {
+                    const auto ns=performance_clock()-started;audio.mix_ns_.fetch_add(ns,std::memory_order_relaxed);
+                    audio.batches_.fetch_add(1,std::memory_order_relaxed);
+                    if(ns>frames*1000000000ULL/48000) audio.overruns_.fetch_add(1,std::memory_order_relaxed);
+                }
             }
         },this);
     if(!stream_) {const std::string error=SDL_GetError();SDL_QuitSubSystem(SDL_INIT_AUDIO);throw std::runtime_error(error);}
@@ -104,6 +112,10 @@ Audio::Audio(bool output,bool muted) {
     }
 }
 Audio::~Audio(){if(stream_){SDL_DestroyAudioStream(stream_);SDL_QuitSubSystem(SDL_INIT_AUDIO);}}
+void Audio::output_gain(float gain) {
+    if(!std::isfinite(gain) || gain<0 || gain>1) throw std::runtime_error("Audio gain must be 0..1");
+    if(stream_ && !SDL_SetAudioStreamGain(stream_,gain)) throw std::runtime_error(SDL_GetError());
+}
 Audio::Voice& Audio::voice(std::uint32_t id) {
     if(failed_) throw std::runtime_error(failure_.data());
     if(!id || id>voices_.size() || !voices_[id-1].used) throw std::runtime_error("Invalid native audio voice");

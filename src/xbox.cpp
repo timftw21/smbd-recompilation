@@ -1,22 +1,29 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include "xbox.h"
+#include "frame_clock.h"
+#include "diagnostics.h"
+#include "thread_abi.h"
 #include "disc.h"
 #include "disc_cache.h"
 #include "crypto.h"
 #include "native_apis.h"
+#include "native_guest_roots.h"
 #include "input.h"
 #include "audio.h"
 #include "gpu.h"
 #include <Windows.h>
 #include <iphlpapi.h>
+#include <bcrypt.h>
 #include <algorithm>
+#include <bit>
 #include <chrono>
 #include <cmath>
 #include <deque>
 #include <map>
 #include <optional>
 #include <set>
+#include <sstream>
 
 namespace smbd {
 namespace {
@@ -38,6 +45,7 @@ std::string folded(std::string_view text) {
     return result;
 }
 bool wildcard(std::string_view pattern,std::string_view name) {
+    if(pattern=="*.*") pattern="*";
     const auto a=folded(pattern),b=folded(name);
     std::size_t i=0,j=0,star=std::string::npos,matched=0;
     while(j<b.size()) {
@@ -145,6 +153,7 @@ struct Xbox::State {
     std::uint32_t next_input_handle=0xF2000000;
     std::unique_ptr<Audio> audio;
     std::uint32_t audio_device=0,audio_references=0;
+    float output_gain=1;
     struct AudioBuffer {
         std::uint32_t raw,descriptor,voice,identifier,references=1,data=0,size=0,owned_data=0;
         AudioFormat format;
@@ -178,8 +187,10 @@ struct Xbox::State {
     std::deque<std::uint32_t> dpcs;
     std::map<std::uint32_t,unsigned> object_references;
     std::map<std::uint32_t,Object> objects;
+    std::map<std::uint32_t,std::uint32_t> object_pages;
     std::vector<std::unique_ptr<Thread>> threads;
     Thread* current=nullptr;
+    Thread* frame_thread=nullptr;
     void* scheduler=nullptr;
     bool converted=false,stopping=false,entry_returned=false;
     std::string boundary;
@@ -194,9 +205,21 @@ struct Xbox::State {
     std::chrono::steady_clock::time_point quantum_due;
     std::chrono::steady_clock::time_point video_started;
     std::uint64_t video_ticks=0,vblank_callbacks=0;
+    FrameClock source_clock;
+    FrameClock::Time frame_started{};
+    double frame_debt=0,logic_fraction=0,stage_time=0;
+    std::uint32_t stage_expected=UINT32_MAX;
+    bool in_frame_loop=false;
+    struct GoalCrossing { bool pending=false;std::uint32_t goal=0,group=0;std::uint8_t type=0; };
+    std::array<std::array<GoalCrossing,2>,8> goal_crossings{};
+    bool sampling_goals=false;
+    FrameClock::Time timing_started{},timing_finished{};
+    std::uint64_t simulation_steps=0,timing_epochs=0;
+    std::uint32_t timing_mode=UINT32_MAX,timing_scene=UINT32_MAX;
 
     State(Xbe& image,Memory& memory,std::span<std::byte> ram,const std::filesystem::path& disc_path,XboxHost host):image(image),memory(memory),ram(ram),host(std::move(host)) {
         if(ram.size()!=64*1024*1024 || !image.supported()) throw std::runtime_error("Native Xbox requires the verified image and 64 MiB RAM");
+        frame_step={};
         if(!disc_path.empty()) {
             disc=std::make_unique<Disc>(disc_path);
             const auto executable=disc->find("default.xbe");
@@ -206,7 +229,7 @@ struct Xbox::State {
                 FILE_FLAG_OVERLAPPED|FILE_FLAG_RANDOM_ACCESS,nullptr);
             if(disc_io->native==INVALID_HANDLE_VALUE) throw std::runtime_error("Cannot open mounted disc for native asynchronous reads");
         }
-        user_root=std::filesystem::absolute("data/user").lexically_normal();
+        user_root=std::filesystem::absolute(this->host.storage.empty()?std::filesystem::path("data/user"):this->host.storage).lexically_normal();
         if(std::filesystem::weakly_canonical(user_root)!=user_root)
             throw std::runtime_error("Native storage path crosses a reparse point");
         std::filesystem::create_directories(user_root/"TDATA");
@@ -215,6 +238,14 @@ struct Xbox::State {
         memory.map(kernel_base,kernel_image);
         memory.map(0x80000000U+heap_begin,ram.subspan(heap_begin));
         memory.map(0xF0000000U+heap_begin,ram.subspan(heap_begin));
+        if(this->host.ultrawide) {
+            // Shared original camera aspect and horizontal canvas width. Their
+            // only indexed readers configure cameras/culling and the UI canvas.
+            if(memory.load<std::uint32_t>(0x402428)!=0x3FE38E39U || memory.load<std::uint32_t>(0x40242C)!=0x44555555U)
+                throw std::runtime_error("Original widescreen constants do not match the supported game");
+            memory.store<std::uint32_t>(0x402428,std::bit_cast<std::uint32_t>(21.0f/9));
+            memory.store<std::uint32_t>(0x40242C,std::bit_cast<std::uint32_t>(480.0f*21/9));
+        }
         QueryPerformanceFrequency(&performance_frequency);
         clock={this,[](void* context) {
             const auto& host=*static_cast<State*>(context);
@@ -286,6 +317,7 @@ struct Xbox::State {
         memory.store<std::uint16_t>(name+2,static_cast<std::uint16_t>(executable.size()+1));
         memory.store<std::uint32_t>(name+4,name+8);
         std::memcpy(memory.access(name+8,executable.size()+1),executable.data(),executable.size()+1);
+        initialize_save_identity();
     }
     ~State() {
         for(auto& request:pending_io) if(request.active) {
@@ -304,6 +336,31 @@ struct Xbox::State {
         kernel_cursor+=size;
         for(const auto& import : image.imports) if(import.ordinal==ordinal) memory.store<std::uint32_t>(import.address,address);
         return address;
+    }
+    void initialize_save_identity() {
+        const auto path=user_root/"storage.key";
+        const auto attributes=GetFileAttributesW(path.c_str());
+        if(attributes!=INVALID_FILE_ATTRIBUTES && (attributes&FILE_ATTRIBUTE_REPARSE_POINT))
+            throw std::runtime_error("Native save identity is a reparse point");
+        std::array<std::byte,32> identity{};
+        if(!std::filesystem::exists(path)) {
+            if(BCryptGenRandom(nullptr,reinterpret_cast<PUCHAR>(identity.data()),static_cast<ULONG>(identity.size()),BCRYPT_USE_SYSTEM_PREFERRED_RNG)<0)
+                throw std::runtime_error("Cannot create native save identity");
+            write_text(path,std::string_view(reinterpret_cast<const char*>(identity.data()),identity.size()),false);
+        }
+        File file(path);
+        if(file.size()!=identity.size()) throw std::runtime_error("Invalid storage.key; preserve it with your saves");
+        file.read(0,identity);
+        std::memcpy(memory.access(export_data(323,16),16),identity.data(),16);
+        const auto certificate=image.data(u32(image.data(image.base+0x118,4),0),0x1D0);
+        const auto derive=[&](std::uint32_t destination,unsigned offset) {
+            const auto digest=xbox_hmac(Bytes(identity).subspan(16),Bytes(certificate).subspan(offset,16));
+            std::memcpy(memory.access(destination,16),digest.data(),16);
+        };
+        derive(export_data(325,16),0xC0);derive(export_data(353,16),0xB0);
+        const auto alternate=export_data(354,256);
+        for(unsigned i=0;i<16;++i) derive(alternate+i*16,0xD0+i*16);
+        diagnostic_record("{\"type\":\"storage_ready\",\"root\":"+json(path_text(user_root))+'}');
     }
     std::uint32_t allocate(std::uint32_t size,std::uint32_t alignment,bool committed,std::uint32_t protect,
                            std::uint32_t requested=0,std::uint32_t lowest=0,std::uint32_t highest=UINT32_MAX,bool clear=true,bool top_down=false) {
@@ -344,11 +401,17 @@ struct Xbox::State {
         --found;
         return address-found->first<found->second.size?found:allocations.end();
     }
+    void release_allocation(std::uint32_t base) {
+        const auto found=allocations.find(base);
+        if(found==allocations.end()) return;
+        if(gpu) gpu->invalidate_memory(found->first,found->second.size);
+        allocations.erase(found);
+    }
     std::uint32_t cache_size(std::uint32_t pages) {
         if(pages>ram.size()/page) return invalid_parameter;
         const auto previous=cache_allocation,previous_pages=cache_pages;
         read_cache.storage({});
-        if(previous) allocations.erase(previous);
+        if(previous) release_allocation(previous);
         cache_allocation=pages?allocate(pages*page,page,true,PAGE_READWRITE):0;
         if(pages && !cache_allocation) {
             cache_allocation=previous_pages?allocate(previous_pages*page,page,true,PAGE_READWRITE,previous):0;
@@ -380,7 +443,8 @@ struct Xbox::State {
         const auto object_page=allocate(page,page,true,PAGE_READWRITE);
         if(!thread->stack || !object_page || tls_size+32>thread->stack_size) throw std::runtime_error("Cannot allocate a native guest thread");
         allocations.at(thread->stack).kind=AllocationKind::stack;
-        thread->object=object_page|0x80000000U; thread->tib=thread->object+0x400; thread->tls_size=tls_size;
+        static_assert(NativeThreadAbi::optional_callbacks+4<=NativeThreadAbi::tib);
+        thread->object=object_page|0x80000000U; thread->tib=thread->object+NativeThreadAbi::tib; thread->tls_size=tls_size;
         memory.store<std::uint8_t>(thread->object,6);
         // StackBase includes the TLS reservation. The supplied original system
         // routine fills that reservation and its self-reference (0xE682C).
@@ -394,12 +458,14 @@ struct Xbox::State {
         memory.store<std::uint32_t>(thread->tib+4,stack_base);
         memory.store<std::uint32_t>(thread->tib+8,thread->stack);
         memory.store<std::uint32_t>(thread->tib+0x18,thread->tib);
-        memory.store<std::uint32_t>(thread->tib+0x20,thread->object);
-        memory.store<std::uint32_t>(thread->tib+0x28,thread->object);
+        memory.store<std::uint32_t>(thread->tib+NativeThreadAbi::current,thread->object);
+        memory.store<std::uint32_t>(thread->tib+NativeThreadAbi::tls_current,thread->object);
         auto& cpu=thread->cpu;
         cpu.kernel=&services; cpu.clock=&clock; cpu.diagnostic=live?nullptr:&diagnostic;
+        cpu.ultrawide=host.ultrawide;
         cpu.preempt=[](Cpu& cpu) {
             auto& host=*static_cast<State*>(cpu.kernel->context);
+            if(host.host.performance) host.host.performance->guest_sample(cpu.eip,host.current->id);
             if(!(cpu.flags&0x200) || host.memory.load<std::uint8_t>(cpu.fs_base+0x24)>1 ||
                std::chrono::steady_clock::now()<host.quantum_due) return;
             HostFloatingScope floating(cpu.floating);
@@ -430,6 +496,20 @@ struct Xbox::State {
             if(thread.entry) host.entry_returned=true;
             thread.exit_status=thread.cpu.registers[eax];
         } catch(const ThreadExit& exit) { thread.exit_status=exit.status; }
+        catch(const GuestTrap& error) {
+            if(!host.stopping) {
+                host.boundary=error.what();
+                // Xbox debug-print interrupts pass a counted ANSI string in ECX.
+                // Keep stopping at the trap, but retain the game's error message.
+                if(error.vector==0x2D && thread.cpu.registers[eax]==1) try {
+                    const auto descriptor=thread.cpu.registers[ecx];
+                    const auto length=host.memory.load<std::uint16_t>(descriptor);
+                    const auto pointer=host.memory.load<std::uint32_t>(descriptor+4);
+                    if(length && length<=4096)
+                        host.boundary+="; "+std::string(static_cast<const char*>(host.memory.access(pointer,length)),length);
+                } catch(...) {} // Do not replace the original failure with a reporting error.
+            }
+        }
         catch(const std::exception& error) { if(!host.stopping) host.boundary=error.what(); }
         thread.state=ThreadState::ended;
         host.memory.store<std::uint32_t>(thread.object+4,1);
@@ -441,7 +521,7 @@ struct Xbox::State {
         if(memory.load<std::uint8_t>(current->tib+0x24)>1) throw NativeBoundary(current->cpu.eip,"a DPC attempted a blocking wait");
         current->state=state; current->wait_object=object; current->due=due;
         if(object) current->wait_kind=WaitKind::critical;
-        SwitchToFiber(scheduler);
+        {PerfScope scope(host.performance,PerfPhase::scheduler);SwitchToFiber(scheduler);}
         if(stopping) throw ThreadExit{0xC0000120};
         current->state=ThreadState::running;
         current->wait_kind=WaitKind::none;
@@ -485,7 +565,7 @@ struct Xbox::State {
         if(thread.apcs.size()>=1024) throw NativeBoundary(current?current->cpu.eip:image.entry,"native user APC queue exceeds 1024 callbacks");
         thread.apcs.push_back({routine,context,status});
     }
-    void user_callback(Cpu& cpu,std::uint32_t routine,std::span<const std::uint32_t> arguments) {
+    void user_callback(Cpu& cpu,std::uint32_t routine,std::span<const std::uint32_t> arguments,bool caller_cleanup=false) {
         const auto saved=cpu;
         const auto bytes=0x100+static_cast<std::uint32_t>(arguments.size()*4);
         if(cpu.registers[esp]<current->stack+bytes) throw NativeBoundary(routine,"user callback exhausted its guest stack");
@@ -497,7 +577,7 @@ struct Xbox::State {
             // Use the actual thread CPU so nested waits and native preemption
             // retain the callback's stack while it is running.
             invoke_native(cpu,memory,routine);
-            if(cpu.eip!=return_sentinel || cpu.registers[esp]!=stack+4+arguments.size()*4)
+            if(cpu.eip!=return_sentinel || cpu.registers[esp]!=stack+4+(caller_cleanup?0:arguments.size()*4))
                 throw NativeBoundary(routine,"user callback has an unexpected return convention");
         } catch(...) {cpu=saved;throw;}
         cpu=saved;
@@ -527,10 +607,32 @@ struct Xbox::State {
         }
         return all;
     }
+    std::uint32_t allocate_object() {
+        // File, event, semaphore and link objects fit in 128-byte slots. Giving
+        // each cached file its own 4 KiB page exhausted the game's 64 MiB RAM.
+        auto found=std::ranges::find_if(object_pages,[](const auto& entry) {return entry.second!=UINT32_MAX;});
+        if(found==object_pages.end()) {
+            const auto base=allocate(page,page,true,PAGE_READWRITE);
+            if(!base) return 0;
+            found=object_pages.emplace(base,0).first;
+        }
+        const auto slot=std::countr_zero(~found->second);
+        found->second|=1U<<slot;
+        const auto address=found->first+slot*128;
+        std::memset(memory.access(address,128),0,128);
+        return address;
+    }
     void release_object(std::uint32_t address) {
         if(!objects.contains(address) || object_references[address]) return;
         if(std::ranges::any_of(handles,[&](const auto& pair) {return pair.second.address==address;})) return;
-        allocations.erase(address&0x0FFFFFFF); objects.erase(address); object_references.erase(address);
+        const auto physical=address&0x0FFFFFFF;
+        const auto pooled=object_pages.find(physical&~(page-1));
+        if(pooled==object_pages.end()) release_allocation(physical);
+        else {
+            pooled->second&=~(1U<<((physical&(page-1))/128));
+            if(!pooled->second) {release_allocation(pooled->first);object_pages.erase(pooled);}
+        }
+        objects.erase(address); object_references.erase(address);
     }
     std::uint32_t wait(std::span<const std::uint32_t> addresses,bool all,std::uint32_t timeout_pointer,bool alertable) {
         if(addresses.empty() || addresses.size()>64) return invalid_parameter;
@@ -632,6 +734,107 @@ struct Xbox::State {
         const auto ms=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-started).count();
         memory.store<std::uint32_t>(tick_address,static_cast<std::uint32_t>(ms));
     }
+    unsigned render_rate() const {
+        const auto rate=host.refresh_rate?host.refresh_rate():60U;
+        return rate?std::max(60U,rate):0;
+    }
+    void begin_frame() {
+        const auto now=FrameClock::Clock::now();
+        const auto mode=memory.load<std::uint32_t>(0x6C9364);
+        const auto scene=memory.load<std::uint16_t>(0x6C9288);
+        const bool reset=!in_frame_loop || mode!=timing_mode || scene!=timing_scene;
+        in_frame_loop=true;frame_thread=current;
+        if(reset) {frame_debt=logic_fraction=0;source_clock={};++timing_epochs;stage_expected=UINT32_MAX;goal_crossings={};}
+        const auto rate=render_rate();
+        double delta=1;
+        if(!reset && rate!=60) {
+            frame_debt+=std::chrono::duration<double>(now-frame_started).count()*60;
+            delta=std::min(1.0,frame_debt);frame_debt-=delta;
+        }
+        frame_started=now;timing_mode=mode;timing_scene=scene;
+        logic_fraction+=delta;
+        const bool tick=logic_fraction>=1-1e-9;
+        if(tick) logic_fraction=std::max(0.0,logic_fraction-1);
+        frame_step={static_cast<float>(delta),static_cast<float>(logic_fraction),tick};
+    }
+    bool take_goal(Cpu& cpu,std::uint32_t query) {
+        if(sampling_goals) return false;
+        const auto ball=cpu.registers[ecx];
+        if(ball<0x738DF0 || (ball-0x738DF0)%0x1B0 || (ball-0x738DF0)/0x1B0>=goal_crossings.size()) return false;
+        const bool primary=query==0x12F30;
+        auto& crossing=goal_crossings[(ball-0x738DF0)/0x1B0][primary?0:1];
+        if(!crossing.pending) return false;
+        const auto state=memory.load<std::uint8_t>(ball+3);
+        if(state!=4 && state!=32) {crossing={};return false;}
+        memory.store<std::uint32_t>(memory.load<std::uint32_t>(cpu.registers[esp]+4),crossing.goal);
+        if(primary) {
+            memory.store<std::uint32_t>(memory.load<std::uint32_t>(cpu.registers[esp]+8),crossing.group);
+            memory.store<std::uint8_t>(memory.load<std::uint32_t>(cpu.registers[esp]+12),crossing.type);
+        }
+        crossing.pending=false;finish(cpu,0,1);return true;
+    }
+    void sample_goals(Cpu& cpu) {
+        // Goal triggers test a swept segment. Check each actual physics step,
+        // then deliver the crossing once to the original 60 Hz INFO controller.
+        const auto saved=cpu.registers;const auto flags=cpu.flags,pc=cpu.eip;
+        if(saved[esp]<current->stack+0x100) throw NativeBoundary(0x13180,"goal query exhausted its guest stack");
+        const auto stack=saved[esp]-0x100;
+        struct Sampling {bool& flag;~Sampling(){flag=false;}} sampling{sampling_goals};sampling_goals=true;
+        for(unsigned i=0;i<goal_crossings.size();++i) {
+            const auto ball=0x738DF0+i*0x1B0;
+            const auto state=memory.load<std::uint8_t>(ball+3);
+            auto& crossings=goal_crossings[i];
+            const auto active=memory.load<std::uint8_t>(ball);
+            if(!active || active==4 || (state!=4 && state!=32)) {crossings={};continue;}
+            for(unsigned kind=0;kind<2;++kind) {
+                auto& crossing=crossings[kind];
+                if(crossing.pending || (!kind && (memory.load<std::uint32_t>(ball+0x98)&0x100))) continue;
+                // 13D66..13D82: ECX=ball, three caller-cleaned output pointers
+                // for goal ID, animation group and one-byte goal type. The
+                // separate 13CEB query uses ECX and only the goal-ID pointer.
+                const auto query=native_goal_queries[kind];
+                memory.store<std::uint32_t>(stack,return_sentinel);
+                memory.store<std::uint32_t>(stack+4,stack+20);
+                memory.store<std::uint32_t>(stack+8,stack+24);
+                memory.store<std::uint32_t>(stack+12,stack+28);
+                cpu.registers[esp]=stack;cpu.registers[ecx]=ball;
+                invoke_native(cpu,memory,query);
+                if(cpu.eip!=return_sentinel || cpu.registers[esp]!=stack+4)
+                    throw NativeBoundary(query,"original goal query has an unexpected ABI");
+                if(cpu.registers[eax]) crossing={true,memory.load<std::uint32_t>(stack+20),kind?0:memory.load<std::uint32_t>(stack+24),kind?std::uint8_t{}:memory.load<std::uint8_t>(stack+28)};
+            }
+        }
+        cpu.registers=saved;cpu.flags=flags;cpu.eip=pc;
+    }
+    void sample_stage_time(Cpu& cpu) {
+        const auto count=memory.load<std::uint32_t>(0x72FF80);
+        const bool advance=!(memory.load<std::uint8_t>(0x72FF9C)&5);
+        if(count!=stage_expected) stage_time=static_cast<std::int32_t>(count);
+        else if(advance) stage_time+=frame_step.delta;
+        stage_expected=count+(advance && frame_step.logic?1U:0U);
+        cpu.floating.xmm[0][0]=std::bit_cast<std::uint32_t>(static_cast<float>(stage_time));
+    }
+    void wait_frame(Cpu& cpu) {
+        // The original common frame wrapper serves gameplay, movies, menus,
+        // loading and party games. Its video-counter spin is lowered to this
+        // cooperative producer wait; video callbacks retain their own clock.
+        const auto mode=memory.load<std::uint32_t>(0x6C9364);
+        const auto scene=memory.load<std::uint16_t>(0x6C9288);
+        frame_thread=current;
+        if(!in_frame_loop && (mode!=timing_mode || scene!=timing_scene)) {source_clock={};++timing_epochs;}
+        if(!in_frame_loop) {timing_mode=mode;timing_scene=scene;}
+        const bool main_frame=in_frame_loop && memory.load<std::uint32_t>(cpu.registers[esp])==0x66E7D;
+        const auto now=FrameClock::Clock::now();source_clock.due(main_frame?render_rate():60,now);source_clock.advance(now);
+        // E5990 immediately follows this wait. Active movie playback makes
+        // that original function wait on the independent 60 Hz video clock.
+        // Keep its SDK side effects and let it own pacing for those frames.
+        const bool movie_wait=memory.load<std::uint32_t>(0x756080) && memory.load<std::uint8_t>(0x756088);
+        if(!movie_wait) while(FrameClock::Clock::now()<source_clock.next()) yield(ThreadState::waiting,0,source_clock.next());
+        timing_finished=FrameClock::Clock::now();if(!simulation_steps) timing_started=timing_finished;
+        if(main_frame && render_rate()!=60) source_clock.discard_overrun(timing_finished);
+        if(!main_frame || frame_step.logic) ++simulation_steps;
+        if(in_frame_loop && !main_frame) {frame_started=timing_finished;frame_step={};}
+    }
     std::string counted_string(std::uint32_t address) {
         if(!address) return {};
         const auto length=memory.load<std::uint16_t>(address),maximum=memory.load<std::uint16_t>(address+2);
@@ -656,11 +859,15 @@ struct Xbox::State {
         }
         if(!result.starts_with('\\') && result.size()>=2 && result[1]==':') result="\\??\\"+result;
         for(auto& ch:result) if(ch=='/') ch='\\';
+        const auto separators=[&] {
+            result.erase(std::unique(result.begin(),result.end(),[](char a,char b){return a=='\\' && b=='\\';}),result.end());
+        };
+        separators();
         if(resolve) for(unsigned iteration=0;iteration<16;++iteration) {
             bool changed=false;
             const auto key=folded(result);
             for(const auto& [name,target]:links) if(key==name || (key.starts_with(name) && key.size()>name.size() && key[name.size()]=='\\')) {
-                result=target+result.substr(name.size());changed=true;break;
+                result=target+result.substr(name.size());separators();changed=true;break;
             }
             if(!changed) return result;
         }
@@ -816,6 +1023,8 @@ struct Xbox::State {
         throw NativeBoundary(address,"native input API is unbound");
     }
     void graphics_helper(Cpu& cpu,std::uint32_t entry,std::uint32_t return_pc,std::span<const std::uint32_t> arguments={}) {
+        if(!std::ranges::contains(native_graphics_helpers,entry))
+            throw NativeBoundary(entry,"original graphics helper is not a declared native entry");
         const auto registers=cpu.registers;
         const auto flags=cpu.flags,pc=cpu.eip;
         const auto stack=registers[esp]-0x400-static_cast<std::uint32_t>(arguments.size()*4);
@@ -861,6 +1070,17 @@ struct Xbox::State {
             {0x13,0x57},{0x14,0x43},{0x15,0x12},{0x16,0x72},{0x18,0x19},{0x19,0x30}}};
         gpu=std::make_unique<Gpu>(*graphics,memory,notification,graphics_objects);
         gpu->flip=host.flip;
+        gpu->completion=[this](std::uint32_t routine,std::uint32_t context) {
+            if(!current) throw NativeBoundary(routine,"graphics completion has no active guest thread");
+            const auto irql_address=current->tib+0x24;
+            const auto prior=memory.load<std::uint8_t>(irql_address);
+            memory.store<std::uint8_t>(irql_address,2);
+            try {
+                PerfScope guest(host.performance,PerfPhase::guest);
+                const std::array arguments{context};user_callback(current->cpu,routine,arguments,true);
+            } catch(...) {memory.store<std::uint8_t>(irql_address,prior);throw;}
+            memory.store<std::uint8_t>(irql_address,prior);
+        };
         memory.store<std::uint32_t>(0x0032B208,memory.load<std::uint32_t>(0x0032B208)|0xFF7F7F);
         memory.store<std::uint32_t>(context+0x94C,0x40);
         graphics_helper(cpu,0x00322830,0x0032347B);
@@ -893,12 +1113,29 @@ struct Xbox::State {
         const auto end=memory.load<std::uint32_t>(context+((flags&4)?0x770:0));
         const auto begin=memory.load<std::uint32_t>(context+0x24),limit=memory.load<std::uint32_t>(context+0x28);
         if(gpu_cursor<begin || end<gpu_cursor || end>limit) throw std::runtime_error("Graphics submission left its SDK push-buffer ring");
-        if(end!=gpu_cursor) {gpu->submit(gpu_cursor,end);gpu_cursor=end;}
+        if(end!=gpu_cursor) {
+            gpu->submit(gpu_cursor,end,current && gpu->capture_status().pending?memory.load<std::uint32_t>(current->cpu.registers[esp]):0);gpu_cursor=end;
+        }
     }
     void graphics_api(Cpu& cpu,std::string_view api) {
         constexpr std::uint32_t context=0x0032B6B0;
         if(api=="D3D_Initialize") {initialize_graphics(cpu);return;}
         if(!gpu) throw NativeBoundary(cpu.eip,"graphics API precedes native device creation");
+        if(api=="D3D_LockTexture" || api=="D3D_LockSurface") {
+            const bool texture=api=="D3D_LockTexture";
+            const auto resource=argument(cpu,0),level=texture?argument(cpu,1):0U;
+            const auto output=argument(cpu,texture?2:1),rectangle=argument(cpu,texture?3:2),flags=argument(cpu,texture?4:3);
+            const std::array arguments{resource,0U,level,output,rectangle,flags};
+            // Keep the original SDK's format, mip, rectangle and address rules.
+            graphics_helper(cpu,0x00321BA0,0x0031F580,arguments);
+            if(!(flags&0x80)) { // Xbox D3DLOCK_READONLY; 0x10 is NOFLUSH.
+                const auto pointer=memory.load<std::uint32_t>(output+4)&0x0FFFFFFFU;
+                const auto block=allocation(pointer);
+                if(block==allocations.end()) throw NativeBoundary(cpu.eip,"texture write lock has no native allocation");
+                gpu->invalidate_memory(block->first,block->second.size);
+            }
+            finish(cpu,texture?20:16);return;
+        }
         if(api=="D3D_IsBusy") {finish(cpu,0,gpu->busy()?1:0);return;}
         if(api=="D3D_BlockOnTime") {submit_graphics();gpu->wait();finish(cpu,8);return;}
         if(api=="D3D_KickOff") {
@@ -979,7 +1216,7 @@ struct Xbox::State {
         }
         const auto bytes=size?std::span(static_cast<const std::byte*>(memory.access(pointer,size)),size):std::span<const std::byte>{};
         audio->bind(buffer.identifier,bytes,pointer);
-        if(buffer.owned_data) allocations.erase(buffer.owned_data);
+        if(buffer.owned_data) release_allocation(buffer.owned_data);
         buffer.data=pointer;buffer.size=size;buffer.owned_data=owned;
         // SMB Deluxe's settings layout differs from the other title's SDK:
         // sample pointer/size are +BC/+C0, then play and loop regions at +C4.
@@ -992,7 +1229,11 @@ struct Xbox::State {
         const auto address=cpu.eip;
         if(api=="DirectSoundCreate") {
             if(argument(cpu,0) || argument(cpu,2)) {finish(cpu,12,0x80070057);return;}
-            if(!audio) audio=std::make_unique<Audio>(true,host.mute_audio);
+            if(!audio) {
+                audio=std::make_unique<Audio>(true,host.mute_audio);
+                audio->output_gain(host.mute_audio?0:output_gain);
+                audio->recording(host.performance && host.performance->active());
+            }
             if(!audio_device) {
                 const auto raw=allocate(44,page,true,PAGE_READWRITE);
                 if(!raw){finish(cpu,12,0x8007000E);return;}
@@ -1030,7 +1271,7 @@ struct Xbox::State {
             audio->headroom(identifier,(flags&0x10)?0:600);
             if(const auto bins=memory.load<std::uint32_t>(descriptor+16)) audio_mixbins(identifier,bins);
             if(size && !audio_data(buffer,0,size)) {
-                audio->release(identifier);allocations.erase(raw);finish(cpu,16,0x8007000E);return;
+                audio->release(identifier);release_allocation(raw);finish(cpu,16,0x8007000E);return;
             }
             audio_buffers.emplace(public_object,buffer);
             memory.store<std::uint32_t>(output,public_object);finish(cpu,16,success);return;
@@ -1041,7 +1282,7 @@ struct Xbox::State {
         const auto id=buffer.identifier;
         if(api=="IDirectSoundBuffer_Release") {
             const auto references=--buffer.references;
-            if(!references){audio->release(id);if(buffer.owned_data)allocations.erase(buffer.owned_data);allocations.erase(buffer.raw);audio_buffers.erase(found);}
+            if(!references){audio->release(id);if(buffer.owned_data)release_allocation(buffer.owned_data);release_allocation(buffer.raw);audio_buffers.erase(found);}
             finish(cpu,4,references);return;
         }
         if(api=="IDirectSoundBuffer_SetBufferData") {finish(cpu,12,audio_data(buffer,argument(cpu,1),argument(cpu,2))?success:0x8007000E);return;}
@@ -1081,6 +1322,7 @@ struct Xbox::State {
         throw NativeBoundary(address,"native sound operation is unbound");
     }
     void platform(Cpu& cpu,std::uint32_t address) {
+        PerfScope scope(host.performance,PerfPhase::platform,address);
         const auto api=std::ranges::find(native_apis,address,&NativeApi::address);
         if(api!=native_apis.end() && api->name=="XMountUtilityDrive") {
             const auto title=std::format("{:08X}",image.title_id);
@@ -1136,7 +1378,7 @@ struct Xbox::State {
         auto file=std::make_shared<OpenFile>();file->native=native;file->host_path=*path;
         file->path=name;file->access=access;file->share=share;file->options=options;
         file->entry.attributes=static_cast<std::uint8_t>(directory?0x10:0x20);
-        const auto base=allocate(72,page,true,PAGE_READWRITE);
+        const auto base=allocate_object();
         if(!base) return no_memory;
         const auto address=base|0x80000000U,handle=next_handle;next_handle+=4;
         memory.store<std::uint16_t>(address,5);
@@ -1205,6 +1447,9 @@ struct Xbox::State {
     }
     void trace_io(Cpu& cpu,unsigned ordinal,std::uint32_t status,std::uint32_t information,const std::string& path,
                   std::uint32_t options=0,std::uint32_t requested=0,std::uint64_t offset=0,std::uint32_t buffer=0) {
+        if(host.trace_storage && folded(path).starts_with("\\DEVICE\\HARDDISK"))
+            diagnostic_record(std::format("{{\"type\":\"storage_io\",\"ordinal\":{},\"path\":{},\"status\":{},\"bytes\":{},\"requested\":{},\"options_or_class\":{},\"offset\":{},\"callsite\":{}}}",
+                ordinal,json(path),json(hex32(status)),information,requested,options,offset,json(hex32(memory.load<std::uint32_t>(cpu.registers[esp])))));
         if(live && !host.trace_io) return;
         if(io_trace.size()==64) io_trace.pop_front();
         io_trace.push_back({ordinal,status,information,memory.load<std::uint32_t>(cpu.registers[esp]),path,options,requested,offset,buffer});
@@ -1320,7 +1565,7 @@ struct Xbox::State {
             if((access&(0x80000000U|1U)) && !(existing.file->share&1)) return 0xC0000043;
             if((existing.file->access&(0x80000000U|1U)) && !(share&1)) return 0xC0000043;
         }
-        const auto base=allocate(72,page,true,PAGE_READWRITE);
+        const auto base=allocate_object();
         if(!base) return no_memory;
         const auto address=base|0x80000000U,handle=next_handle; next_handle+=4;
         auto file=std::make_shared<OpenFile>();file->entry=*entry;file->path=*name;
@@ -1335,10 +1580,6 @@ struct Xbox::State {
         memory.store<std::uint32_t>(argument(cpu,0),handle);
         information=1;
         return success;
-    }
-    std::uint32_t file_attributes(const OpenFile& file) const {
-        if(file.native!=INVALID_HANDLE_VALUE) return file.entry.directory()?0x10U:0x20U;
-        return file.entry.directory()?0x11U:0x21U;
     }
     std::uint64_t file_size(const OpenFile& file) const {
         if(file.native!=INVALID_HANDLE_VALUE && !file.entry.directory()) {
@@ -1358,14 +1599,16 @@ struct Xbox::State {
         auto data=static_cast<std::byte*>(memory.access(output,required));std::memset(data,0,required);
         const auto size=file_size(file);
         const auto unit=file.native!=INVALID_HANDLE_VALUE?16384ULL:2048ULL,allocated=(size+unit-1)&~(unit-1);
+        auto attributes=static_cast<std::uint32_t>(file.entry.attributes)|(file.native==INVALID_HANDLE_VALUE?1U:0U);
         if(file.native!=INVALID_HANDLE_VALUE && (type==4 || type==34)) {
             BY_HANDLE_FILE_INFORMATION native{};
             if(!GetFileInformationByHandle(file.native,&native)) return file_error(GetLastError());
+            attributes=native.dwFileAttributes;
             const FILETIME times[]={native.ftCreationTime,native.ftLastAccessTime,native.ftLastWriteTime,native.ftLastWriteTime};
             for(unsigned i=0;i<4;++i) memory.store<std::uint64_t>(output+i*8,(static_cast<std::uint64_t>(times[i].dwHighDateTime)<<32)|times[i].dwLowDateTime);
         }
         switch(type) {
-        case 4:memory.store<std::uint32_t>(output+32,file_attributes(file));break;
+        case 4:memory.store<std::uint32_t>(output+32,attributes);break;
         case 5:memory.store<std::uint64_t>(output,allocated);memory.store<std::uint64_t>(output+8,size);
             memory.store<std::uint32_t>(output+16,1);memory.store<std::uint8_t>(output+21,file.entry.directory());break;
         case 6:
@@ -1384,7 +1627,7 @@ struct Xbox::State {
         case 19:memory.store<std::uint64_t>(output,allocated);break;
         case 20:memory.store<std::uint64_t>(output,size);break;
         case 34:memory.store<std::uint64_t>(output+32,allocated);memory.store<std::uint64_t>(output+40,size);
-            memory.store<std::uint32_t>(output+48,file_attributes(file));break;
+            memory.store<std::uint32_t>(output+48,attributes);break;
         }
         written=required;return success;
     }
@@ -1419,6 +1662,7 @@ struct Xbox::State {
         throw NativeBoundary(cpu.eip,std::format("unsupported virtual disc IOCTL 0x{:08X}",code));
     }
     template<unsigned Ordinal> void service(Cpu& cpu) {
+        PerfScope scope(host.performance,PerfPhase::kernel,Ordinal);
         ++service_calls[Ordinal]; clock_data();
         if constexpr(Ordinal==327 || Ordinal==328) {
             const auto pointer=argument(cpu,0);
@@ -1511,7 +1755,9 @@ struct Xbox::State {
                                 if(file.listing.size()>=4096 || entry.is_symlink()) throw NativeBoundary(cpu.eip,"native directory exceeds its bound or contains a link");
                                 const auto size=entry.is_directory()?0:entry.file_size();
                                 if(size>UINT32_MAX) throw NativeBoundary(cpu.eip,"native directory contains a file larger than Xbox supports");
-                                file.listing.push_back({utf8(entry.path().filename().native()),0,static_cast<std::uint32_t>(size),static_cast<std::uint8_t>(entry.is_directory()?0x10:0x20)});
+                                const auto attributes=GetFileAttributesW(entry.path().c_str());
+                                if(attributes==INVALID_FILE_ATTRIBUTES) throw NativeBoundary(cpu.eip,"cannot query native directory entry attributes");
+                                file.listing.push_back({utf8(entry.path().filename().native()),0,static_cast<std::uint32_t>(size),static_cast<std::uint8_t>(attributes)});
                             }
                             std::ranges::sort(file.listing,[](const auto& a,const auto& b) {return folded(a.name)<folded(b.name);});
                         } else {
@@ -1521,7 +1767,7 @@ struct Xbox::State {
                         }
                         file.listing_position=0;file.listing_loaded=true;
                     }
-                    unsigned previous=0;bool any=false;
+                    bool any=false;
                     while(file.listing_position<file.listing.size()) {
                         const auto& entry=file.listing[file.listing_position];
                         if(!wildcard(file.pattern,entry.name)) {++file.listing_position;continue;}
@@ -1535,12 +1781,15 @@ struct Xbox::State {
                             memory.store<std::uint64_t>(destination+40,entry.directory()?0:entry.size);
                             const auto unit=file.native!=INVALID_HANDLE_VALUE?16384ULL:2048ULL;
                             memory.store<std::uint64_t>(destination+48,entry.directory()?0:(static_cast<std::uint64_t>(entry.size)+unit-1)&~(unit-1));
-                            memory.store<std::uint32_t>(destination+56,(entry.directory()?0x10U:0x20U)|(file.native==INVALID_HANDLE_VALUE?1U:0U));
+                            memory.store<std::uint32_t>(destination+56,static_cast<std::uint32_t>(entry.attributes)|(file.native==INVALID_HANDLE_VALUE?1U:0U));
                             memory.store<std::uint32_t>(destination+60,name_length);
                         } else memory.store<std::uint32_t>(destination+8,name_length);
                         std::memcpy(memory.access(destination+header,name_length),entry.name.data(),name_length);
-                        if(any) memory.store<std::uint32_t>(output+previous,written-previous);
-                        previous=written;written+=required;any=true;++file.listing_position;
+                        written=required;any=true;++file.listing_position;
+                        // Xbox's ten-argument API always returns a single entry.
+                        // SDK callers advance by querying again, including while
+                        // removing every file in an existing save directory.
+                        break;
                     }
                     if(!any && result==success) result=0x80000006;
                 }
@@ -1628,6 +1877,7 @@ struct Xbox::State {
                     }
                 } else throw NativeBoundary(cpu.eip,std::format("unsupported volume information class {}",type));
             } else if constexpr(Ordinal==198) {if(file.native!=INVALID_HANDLE_VALUE && !FlushFileBuffers(file.native)) result=file_error(GetLastError());}
+            trace_io(cpu,Ordinal,result,written,file.path,Ordinal==198?0:argument(cpu,4),Ordinal==198?0:argument(cpu,3));
             io_status(argument(cpu,1),result,written);finish(cpu,cleanup,result);
         } else if constexpr(Ordinal==210) {
             const auto name=object_name(argument(cpu,0));const auto relative=name?disc_path(*name):std::nullopt;
@@ -1661,7 +1911,7 @@ struct Xbox::State {
             if(!name) {finish(cpu,8,invalid_parameter);return;}
             const auto link=links.find(folded(*name));
             if(link==links.end()) {finish(cpu,8,name_not_found);return;}
-            const auto base=allocate(16,page,true,PAGE_READWRITE);
+            const auto base=allocate_object();
             if(!base) {finish(cpu,8,no_memory);return;}
             const auto address=base|0x80000000U,handle=next_handle;next_handle+=4;
             auto data=std::make_shared<OpenFile>();data->link=link->second;
@@ -1713,7 +1963,11 @@ struct Xbox::State {
         else if constexpr(Ordinal==187) {
             const auto found=handles.find(argument(cpu,0));
             const auto result=found==handles.end()?invalid_handle:success;
-            if(found!=handles.end()) {const auto address=found->second.address; handles.erase(found); release_object(address);}
+            if(found!=handles.end()) {
+                const auto address=found->second.address;
+                if(found->second.kind==Object::Kind::file) trace_io(cpu,Ordinal,result,object_references[address],found->second.file->path);
+                handles.erase(found);release_object(address);
+            }
             finish(cpu,4,result);
         } else if constexpr(Ordinal==184) {
             const auto output=argument(cpu,0),size_pointer=argument(cpu,2),flags=argument(cpu,3),protect=argument(cpu,4);
@@ -1744,11 +1998,12 @@ struct Xbox::State {
             const auto found=allocation(base);
             if(found==allocations.end() || (flags!=MEM_RELEASE && flags!=MEM_DECOMMIT) ||
                 (flags==MEM_RELEASE && (size || base!=found->first))) { finish(cpu,12,invalid_parameter); return; }
-            if(flags==MEM_RELEASE) { allocations.erase(found); memory.store<std::uint32_t>(pointer,0); memory.store<std::uint32_t>(size_pointer,0); }
+            if(flags==MEM_RELEASE) { release_allocation(found->first); memory.store<std::uint32_t>(pointer,0); memory.store<std::uint32_t>(size_pointer,0); }
             else {
                 const auto first=(base-found->first)/page;
                 const auto last=size?align_up(base-found->first+size,page)/page:found->second.size/page;
                 if(last>found->second.pages.size()) { finish(cpu,12,invalid_parameter); return; }
+                if(gpu) gpu->invalidate_memory(found->first+first*page,(last-first)*page);
                 std::fill(found->second.pages.begin()+first,found->second.pages.begin()+last,0);
                 std::memset(memory.access(found->first+first*page,(last-first)*page),0,(last-first)*page);
                 memory.store<std::uint32_t>(pointer,found->first+first*page); memory.store<std::uint32_t>(size_pointer,(last-first)*page);
@@ -1790,6 +2045,7 @@ struct Xbox::State {
             const auto base=found->first,offset=address-base;
             const auto requested=argument(cpu,1),size=requested?align_up(requested,page):found->second.size-offset;
             if((address&(page-1)) || size>found->second.size-offset) throw NativeBoundary(cpu.eip,"system-memory free crosses an allocation");
+            if(gpu) gpu->invalidate_memory(address,size);
             auto block=std::move(found->second);allocations.erase(found);
             const auto first=offset/page,last=(offset+size)/page;
             if(offset) allocations.emplace(base,Allocation{offset,block.protect,{block.pages.begin(),block.pages.begin()+first},block.kind});
@@ -1807,7 +2063,7 @@ struct Xbox::State {
         } else if constexpr(Ordinal==171 || Ordinal==17) {
             const auto found=allocation(argument(cpu,0));
             if(found==allocations.end()) throw NativeBoundary(cpu.eip,"free of an unknown native guest allocation");
-            allocations.erase(found); finish(cpu,4);
+            release_allocation(found->first); finish(cpu,4);
         } else if constexpr(Ordinal==180 || Ordinal==23 || Ordinal==179) {
             const auto found=allocation(argument(cpu,0));
             finish(cpu,4,found==allocations.end()?0:Ordinal==179?found->second.pages[((argument(cpu,0)&0x0FFFFFFF)-found->first)/page]:found->second.size);
@@ -1970,7 +2226,7 @@ struct Xbox::State {
             else if(static_cast<std::int32_t>(initial)<0 || static_cast<std::int32_t>(argument(cpu,3))<=0 || initial>argument(cpu,3)) {
                 finish(cpu,16,invalid_parameter); return;
             }
-            const auto base=allocate(20,page,true,PAGE_READWRITE);
+            const auto base=allocate_object();
             if(!base) {finish(cpu,16,no_memory);return;}
             const auto address=base|0x80000000U,handle=next_handle; next_handle+=4;
             if constexpr(Ordinal==189) dispatcher(address,argument(cpu,2),16,initial!=0);
@@ -2030,7 +2286,7 @@ struct Xbox::State {
         } else if constexpr(Ordinal==2) {
             const auto option=argument(cpu,1),parameter=argument(cpu,2);
             if(option==6) // AV_PACK_STANDARD | AV_STANDARD_NTSC_M | AV_FLAGS_60Hz.
-                memory.store<std::uint32_t>(argument(cpu,3),0x00400101);
+                memory.store<std::uint32_t>(argument(cpu,3),0x00400101|(host.widescreen?0x00010000U:0U));
             else if(option==11 && parameter<=5) flicker_filter=parameter;
             else if(option==14) luma_filter=parameter!=0;
             else throw NativeBoundary(cpu.eip,"native TV encoder option is unbound");
@@ -2043,7 +2299,8 @@ struct Xbox::State {
             // of the original machine's EEPROM or cryptographic keys.
             std::optional<std::uint32_t> value;
             if(index==7) value=1; // English.
-            else if(index==8 || index==9 || index==10 || index==17) value=0; // Native SD video, stereo, no parental restriction.
+            else if(index==8) value=host.widescreen?0x00010000U:0U;
+            else if(index==9 || index==10 || index==17) value=0; // Stereo, no parental restriction.
             else if(index==0x103) value=0x00400100; // NTSC-M factory AV region.
             else if(index==0x104) value=1; // North American game region.
             if(!value) {finish(cpu,20,0xC0000034);return;}
@@ -2141,6 +2398,7 @@ struct Xbox::State {
         create(image.entry,0,0,image.stack_commit,0,false,true);
         const auto deadline=live?std::chrono::steady_clock::time_point::max():std::chrono::steady_clock::now()+std::chrono::seconds(30);
         while(boundary.empty()) {
+            PerfScope scheduler_scope(host.performance,PerfPhase::scheduler);
             Thread* selected=nullptr;
             unsigned selected_priority=0;
             std::size_t selected_index=0;
@@ -2149,7 +2407,7 @@ struct Xbox::State {
             const auto now=std::chrono::steady_clock::now();
             if(now>=deadline) { boundary="Native boot wall-clock budget exhausted"; break; }
             try {
-                if(host.poll && !host.poll()) {boundary="Native window closed";break;}
+                if(host.poll && !host.poll(simulation_steps)) {boundary="Native window closed";break;}
                 dispatch_io();
                 dispatch_timers();
                 dispatch_video(std::chrono::steady_clock::now());
@@ -2180,17 +2438,24 @@ struct Xbox::State {
             if(!selected) {
                 if(!pending) break;
                 if(earliest==std::chrono::steady_clock::time_point::max()) { boundary="All native guest threads are waiting without a signal source"; break; }
-                Sleep(1); continue;
+                if(host.idle) {PerfScope idle(host.performance,PerfPhase::pacing);host.idle(earliest);}
+                else Sleep(1);
+                continue;
             }
             current=selected; clock_data();
             quantum_due=std::chrono::steady_clock::now()+std::chrono::milliseconds(1);
-            SwitchToFiber(selected->fiber);
+            diagnostic_guest(&selected->cpu);
+            {PerfScope guest_scope(host.performance,PerfPhase::guest);SwitchToFiber(selected->fiber);}
+            diagnostic_guest(nullptr);
         }
         BootResult result;
+        result.simulation_steps=simulation_steps;result.timing_epochs=timing_epochs;
+        if(simulation_steps) result.simulation_ms=std::chrono::duration<double,std::milli>(timing_finished-timing_started).count();
         if(gpu) {
+            gpu->cancel_capture("Execution stopped before the captured frame completed: "+boundary);
             const auto stats=gpu->stats();
             result.draws=stats.draws;result.frames=stats.flips;result.submissions=stats.submissions;result.vertices=stats.vertices;
-            result.blits=stats.blits;
+            result.blits=stats.blits;result.graphics_callbacks=stats.callbacks;
             result.adapter=graphics->adapter();
             if(!host.capture.empty() && (stats.draws || stats.clears || stats.flips)) try {
                 gpu->snapshot();save_png(graphics->readback(),host.capture,true);result.capture_written=true;
@@ -2209,7 +2474,8 @@ struct Xbox::State {
         for(const auto& thread:threads) {
             const auto state=std::array{"ready","running","waiting","ended"}[static_cast<unsigned>(thread->state)];
             result.threads.push_back({thread->id,thread->routine,thread->system,thread->cpu.eip,
-                thread->cpu.registers[esp],thread->wait_object,state,thread->suspended});
+                thread->cpu.registers[esp],thread->wait_object,state,thread->suspended,
+                memory.load<std::uint32_t>(thread->object+NativeThreadAbi::optional_callbacks)});
         }
         result.boundary=boundary; result.diagnostic=diagnostic; result.service_calls=service_calls;
         if(current) { result.cpu=current->cpu; result.active_thread=current->id; }
@@ -2228,6 +2494,81 @@ struct Xbox::State {
 };
 Xbox::Xbox(Xbe& image,Memory& memory,std::span<std::byte> ram,const std::filesystem::path& disc,XboxHost host):state_(std::make_unique<State>(image,memory,ram,disc,std::move(host))) {}
 Xbox::~Xbox()=default;
+void Xbox::performance_recording(bool enabled) {if(state_->audio) state_->audio->recording(enabled);}
+void Xbox::output_gain(float gain) {state_->output_gain=gain;if(state_->audio) state_->audio->output_gain(state_->host.mute_audio?0:gain);}
+PerfCounters Xbox::performance_counters() const {
+    PerfCounters counters{};const auto& s=*state_;
+    if(s.gpu) {
+        const auto g=s.gpu->stats();
+        counters[unsigned(PerfMetric::draws)]=g.draws;counters[unsigned(PerfMetric::vertices)]=g.vertices;
+        counters[unsigned(PerfMetric::submissions)]=g.submissions;counters[unsigned(PerfMetric::packets)]=g.packets;
+        counters[unsigned(PerfMetric::methods)]=g.methods;counters[unsigned(PerfMetric::fences)]=g.fences;
+        counters[unsigned(PerfMetric::displayed)]=s.host.presented_frames?s.host.presented_frames():0;
+        counters[unsigned(PerfMetric::logic_ticks)]=s.simulation_steps;
+    }
+    if(s.graphics) {
+        const auto r=s.graphics->stats();
+        counters[unsigned(PerfMetric::buffer_maps)]=r.buffer_maps;counters[unsigned(PerfMetric::buffer_bytes)]=r.total_vertex_bytes;
+        counters[unsigned(PerfMetric::texture_uploads)]=r.texture_uploads;counters[unsigned(PerfMetric::texture_bytes)]=r.texture_upload_bytes;
+        counters[unsigned(PerfMetric::target_creations)]=r.target_creations;counters[unsigned(PerfMetric::target_copies)]=r.target_copies;
+        counters[unsigned(PerfMetric::state_misses)]=r.state_misses;counters[unsigned(PerfMetric::layout_misses)]=r.layout_misses;
+        counters[unsigned(PerfMetric::sampler_misses)]=r.sampler_misses;counters[unsigned(PerfMetric::program_creations)]=r.program_creations;
+        counters[unsigned(PerfMetric::shader_compiles)]=r.shader_compilations;
+    }
+    if(s.audio) {
+        const auto a=s.audio->stats();counters[unsigned(PerfMetric::audio_batches)]=a.batches;
+        counters[unsigned(PerfMetric::audio_mix_ns)]=a.mix_ns;counters[unsigned(PerfMetric::audio_overruns)]=a.overruns;
+    }
+    return counters;
+}
+void Xbox::capture_frame(const std::filesystem::path& directory) {
+    auto& s=*state_;
+    if(!s.gpu) throw std::runtime_error("The game has not initialized graphics yet");
+    s.gpu->capture_frame(directory,s.image.sha256);
+    try {
+        // Guest execution is paused in the host. Stream the existing RAM
+        // without a second 64 MiB allocation or speculative title-specific slices.
+        std::ofstream memory_file(directory/"guest-memory.bin",std::ios::binary);
+        memory_file.exceptions(std::ios::failbit|std::ios::badbit);
+        memory_file.write(reinterpret_cast<const char*>(s.ram.data()),static_cast<std::streamsize>(s.ram.size()));memory_file.close();
+        std::ostringstream output;
+        output<<std::format("{{\"format\":\"smbd-game-state-v1\",\"phase\":\"capture_request\",\"source_sha256\":{},\"frame\":{},\"active_thread\":{},\"gpu_cursor\":{},\"memory\":{{\"base\":0,\"size\":{},\"data\":\"guest-memory.bin\"}},\"recent_io_enabled\":{},\"audio_muted\":{},\"threads\":[",
+            json(s.image.sha256),s.gpu->stats().flips,s.current?s.current->id:0,json(hex32(s.gpu_cursor)),s.ram.size(),s.host.trace_io,s.host.mute_audio);
+        bool first=true;
+        for(const auto& thread:s.threads) {
+            if(!first) output<<',';first=false;const auto& cpu=thread->cpu;
+            output<<std::format("{{\"id\":{},\"routine\":{},\"state\":{},\"suspended\":{},\"wait_object\":{},\"eip\":{},\"flags\":{},\"fs_base\":{},\"stack_base\":{},\"stack_size\":{},\"floating\":{},\"registers\":[",
+                thread->id,json(hex32(thread->routine)),json(std::array{"ready","running","waiting","ended"}[unsigned(thread->state)]),
+                thread->suspended,json(hex32(thread->wait_object)),json(hex32(cpu.eip)),json(hex32(cpu.flags)),json(hex32(cpu.fs_base)),
+                json(hex32(thread->stack)),thread->stack_size,json(hex_bytes(std::as_bytes(std::span(&cpu.floating,1)))));
+            for(unsigned i=0;i<cpu.registers.size();++i) {if(i) output<<',';output<<json(hex32(cpu.registers[i]));}
+            output<<"]}";
+        }
+        output<<"],\"allocations\":[";first=true;
+        for(const auto& [address,block]:s.allocations) {
+            if(!first) output<<',';first=false;
+            output<<std::format("{{\"address\":{},\"size\":{},\"protect\":{}}}",json(hex32(address)),block.size,json(hex32(block.protect)));
+        }
+        output<<"],\"io\":[";first=true;
+        for(const auto& io:s.io_trace) {
+            if(!first) output<<',';first=false;
+            output<<std::format("{{\"ordinal\":{},\"status\":{},\"information\":{},\"callsite\":{},\"path\":{},\"options\":{},\"requested\":{},\"offset\":{},\"buffer\":{}}}",
+                io.ordinal,json(hex32(io.status)),io.information,json(hex32(io.callsite)),json(io.path),io.options,io.requested,io.offset,json(hex32(io.buffer)));
+        }
+        output<<"],\"services\":[";first=true;
+        for(unsigned i=0;i<s.service_calls.size();++i) if(s.service_calls[i]) {
+            if(!first) output<<',';first=false;output<<std::format("{{\"ordinal\":{},\"calls\":{}}}",i,s.service_calls[i]);
+        }
+        write_text(directory/"game-state.json",output.str()+"]}\n",false);
+        // An explicit capture arms the existing bounded recent-I/O history.
+        s.host.trace_io=true;
+    } catch(const std::exception& error) {s.gpu->cancel_capture(error.what());throw;}
+}
+const FrameCaptureStatus& Xbox::capture_status() const {
+    static const FrameCaptureStatus empty;
+    return state_->gpu?state_->gpu->capture_status():empty;
+}
+void Xbox::cancel_capture(std::string_view reason) {if(state_->gpu) state_->gpu->cancel_capture(reason);}
 BootResult Xbox::run(std::uint32_t budget,std::uint32_t break_address,std::uint32_t break_hit) {
     if(break_address && !break_hit) throw std::runtime_error("A diagnostic breakpoint requires a positive hit count");
     return state_->run(budget,break_address,break_hit);
@@ -2239,5 +2580,39 @@ void native_platform(Cpu& cpu,Memory& memory,std::uint32_t address) {
     if(&host.memory!=&memory) throw NativeBoundary(address,"native platform API received another guest memory");
     HostFloatingScope floating(cpu.floating);
     host.platform(cpu,address);
+}
+void native_frame_wait(Cpu& cpu,Memory& memory) {
+    if(!cpu.kernel || !cpu.kernel->context || cpu.kernel->entries[255]!=Xbox::State::dispatch_kernel<255>)
+        throw NativeBoundary(cpu.eip,"game frame clock requires the Xbox host provider");
+    auto& host=*static_cast<Xbox::State*>(cpu.kernel->context);
+    if(&host.memory!=&memory) throw NativeBoundary(cpu.eip,"game frame clock received another guest memory");
+    HostFloatingScope floating(cpu.floating);host.wait_frame(cpu);
+}
+void native_frame_begin(Cpu& cpu,Memory& memory) {
+    if(!cpu.kernel || !cpu.kernel->context || cpu.kernel->entries[255]!=Xbox::State::dispatch_kernel<255>)
+        throw NativeBoundary(cpu.eip,"game frame clock requires the Xbox host provider");
+    auto& host=*static_cast<Xbox::State*>(cpu.kernel->context);
+    if(&host.memory!=&memory) throw NativeBoundary(cpu.eip,"game frame clock received another guest memory");
+    HostFloatingScope floating(cpu.floating);host.begin_frame();
+}
+void native_stage_time(Cpu& cpu,Memory& memory) {
+    if(!cpu.kernel || !cpu.kernel->context || cpu.kernel->entries[255]!=Xbox::State::dispatch_kernel<255>)
+        throw NativeBoundary(cpu.eip,"stage clock requires the Xbox host provider");
+    auto& host=*static_cast<Xbox::State*>(cpu.kernel->context);
+    if(&host.memory!=&memory) throw NativeBoundary(cpu.eip,"stage clock received another guest memory");
+    HostFloatingScope floating(cpu.floating);host.sample_stage_time(cpu);
+}
+void native_sample_goals(Cpu& cpu,Memory& memory) {
+    if(!cpu.kernel || !cpu.kernel->context || cpu.kernel->entries[255]!=Xbox::State::dispatch_kernel<255>)
+        throw NativeBoundary(cpu.eip,"goal sampling requires the Xbox host provider");
+    auto& host=*static_cast<Xbox::State*>(cpu.kernel->context);
+    if(&host.memory!=&memory) throw NativeBoundary(cpu.eip,"goal sampling received another guest memory");
+    host.sample_goals(cpu);
+}
+bool native_goal_query(Cpu& cpu,Memory& memory,std::uint32_t query) {
+    if(!cpu.kernel || !cpu.kernel->context || cpu.kernel->entries[255]!=Xbox::State::dispatch_kernel<255>) return false;
+    auto& host=*static_cast<Xbox::State*>(cpu.kernel->context);
+    if(&host.memory!=&memory) throw NativeBoundary(cpu.eip,"goal query received another guest memory");
+    return host.take_goal(cpu,query);
 }
 }

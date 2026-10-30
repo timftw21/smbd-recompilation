@@ -1,0 +1,50 @@
+# Main Game > Practice Mode > AIAI > Story World 2 > 3 Composition.
+# Story selection is 1; world/stage selectors are zero-based.
+# Waits only read guest state and send SDL input.
+0 none
+240 start
+252 none
+300 start
+312 none
+360 start
+372 none
+420 start
+432 none
+480 start
+492 none
+540 start
+552 none
+wait32 008B2680 000000FF 00000008 a
+0 none
+24 none
+wait32 008B23D8 000000FF 00000003 right
+0 none
+24 a
+36 none
+wait32 008B2680 000000FF 00000005 none
+0 none
+24 none
+wait32 008B2438 000000FF 00000000 left
+0 none
+24 a
+36 none
+wait32 008B2680 000000FF 00000012 none
+0 none
+24 none
+wait32 008B2468 000000FF 00000001 x
+0 none
+24 none
+wait32 008B246A 000000FF 00000001 left
+0 none
+24 a
+36 none
+wait32 008B2489 00000001 00000001 none
+0 none
+24 none
+wait32 008B2476 000000FF 00000002 right
+0 none
+24 a
+36 none
+wait32 00738DF3 000000FF 00000020 none
+0 none
+120 none

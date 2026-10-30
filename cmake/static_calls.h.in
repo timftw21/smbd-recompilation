@@ -3,12 +3,29 @@
 #include <array>
 #include <string_view>
 namespace smbd {
+struct GuardedEntry {
+    std::uint32_t entry,site,guard_owner,source,branch,blocked,target;
+    std::string_view prefix,site_prefix,branch_prefix,blocked_prefix;
+};
+inline constexpr std::array<GuardedEntry,@guarded_entry_count@> guarded_entries = {{
+@guarded_entries@}};
+struct ImmutableZeroSlot {
+    std::uint32_t slot,initializer;
+    std::string_view prefix;
+    std::uint32_t source=0;
+    std::string_view source_prefix{};
+    std::uint32_t owner=0;
+    bool native_thread=false;
+};
+inline constexpr std::array<ImmutableZeroSlot,@zero_slot_count@> immutable_zero_slots = {{
+@immutable_zero_slots@}};
 struct StaticCallTable {
     std::uint32_t site, proof_address;
     std::string_view prefix;
     std::uint32_t start, end, stride;
     bool jump, tail;
     std::uint32_t slot;
+    bool null_fault=false;
 };
 inline constexpr StaticCallTable static_call_tables[] = {
 @static_call_tables@};

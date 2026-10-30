@@ -12,6 +12,8 @@ An actual GPU upload/draw is still required to validate the implementation.
 
 Sources checked:
 https://xboxdevwiki.net/XPR
+
+
 https://learn.microsoft.com/en-us/windows/uwp/gaming/feature-mapping
 https://learn.microsoft.com/en-us/windows/win32/api/dxgiformat/ne-dxgiformat-dxgi_format
 
@@ -47,3 +49,45 @@ save/title image XBX files use 0C. Those formats are supported already.
 Font.xpr therefore independently confirms the observed 04 font-atlas path.
 The private header report is build/logs/xpr-texture-formats.json.
 https://xboxdevwiki.net/XPR
+
+Texture allocation lifetime - 2026-10-28
+XBE SHA256: 9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2
+User capture: build/captures/frame-1793204422077-94783192500, frame 13885,
+World 1 stage 1-19 HOLLOW. The displayed background contains unrelated grayscale
+texture data, with additional corruption reported on trees and the monkey.
+
+The captured guest texture bytes are intact. Replaying the same 410 draws with
+fresh uploads restores the background and trees, changing 69620 RGB pixels.
+The affected textures start at their own native guest allocation bases. For
+example, the two views at 02B01000 both refer to a 45056-byte allocation containing
+43680 bytes of texture data; the same holds at 02B0C000. The old bridge cached
+uploads by address and descriptor indefinitely, without retiring the cached views
+when the allocation was freed. Later levels reused these addresses for new data.
+
+Native allocation release now invalidates overlapping texture and surface views
+before their storage can be reused. Partial system-memory releases and virtual
+decommits invalidate only the retired range. Pending uses are submitted first.
+The renderer releases the native resources, returns their resident-byte budgets
+and recycles the vacant slots. This requires no per-frame texture hashing or
+changes to translated CPU stores. In-place edits without an allocation release
+are a separate update path; this capture establishes allocation-reuse corruption.
+
+Captures reserve unique resource IDs until the captured frame finishes, record
+retirement events and retain retiring surface images. Offline replay separates
+color allocations whose previous lifetime has ended. Capture manifests include
+upload/eviction counts and the number of live texture-cache entries.
+
+Validation on NVIDIA GeForce RTX 5060 Ti:
+- check-texture-cache passes 64 unload/reload cycles with correct sampled pixels
+  and stable GPU slots and resident bytes. It also checks overlapping address
+  aliases, multiple texture views, shared-color/depth retirement and capture IDs.
+- A hidden, muted 2202-frame game run retires 136 texture views and two auxiliary
+  targets, leaving 142 live texture-cache entries after 278 uploads. Its final
+  270-draw capture matches a fresh replay exactly, with no D3D11 debug errors.
+- The earlier geometry capture still replays with zero changed RGB pixels.
+- Native image-copy diagnostics pass; the 3-worker Game workflow passes with the
+  unresolved-call count unchanged at 170.
+Artifacts: build/checks/texture-reuse/current-textures, native-capture and
+native-replay. Reports: build/logs/texture-cache-check.json and
+build/logs/texture-reuse-validation.json. These checks do not establish complete
+gameplay, visual-parity or performance acceptance.

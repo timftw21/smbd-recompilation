@@ -69,6 +69,7 @@ void Input::update() {
             if(keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_S]) next.axes[1]=static_cast<std::int16_t>(
                 (keys[SDL_SCANCODE_W]?32767:0)-(keys[SDL_SCANCODE_S]?32767:0));
         }
+        if(capture_all_) {next={};next.packet=states_[port].packet;}
         if(next!=states_[port]) ++next.packet;
         states_[port]=next;
     }

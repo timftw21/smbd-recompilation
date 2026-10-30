@@ -2,14 +2,51 @@
   "executable_sha256": "9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2",
   "contracts": [
     {
+      "name": "Player actor update callback registration",
+      "address": "0x0008C1A0",
+      "ordinal": 0,
+      "argument_count": 7,
+      "prefix": "0FB64C24048A44241055568BF1",
+      "callbacks": [5],
+      "site": "0",
+      "offsets": [-1],
+      "evidence": "Original 8C1A0 creates the actor through 9D790 at 8C22A, publishes that exact returned pointer in player record +104 at 8C235, and stores nonzero argument 5 into actor +5C at 8C2CE. At 8C2C1 three saved registers and the outstanding 29A90 argument place entry+18 at ESP+28; null selects the original 8BF80 default at 8C2DF. The eight-record dispatcher 9DAB0 invokes this field at 9DAFC with (actor,0)."
+    },
+    {
+      "name": "Player actor creation wrapper",
+      "address": "0x0008C300",
+      "ordinal": 0,
+      "argument_count": 6,
+      "prefix": "8B4424188B4C24148B5424106A0050",
+      "callbacks": [5],
+      "site": "0",
+      "offsets": [-1],
+      "evidence": "The complete wrapper forwards its six arguments unchanged to 8C1A0, adds null argument 6, and cleans seven arguments at 8C325. Its argument 5 is loaded first at 8C300 and pushed at 8C30E, becoming the verified actor-update callback argument."
+    },
+    {
+      "name": "Party player actor callback registration",
+      "address": "0x00238CF0",
+      "ordinal": 0,
+      "argument_count": 8,
+      "prefix": "8B4424048B4C24208B54241C53",
+      "callbacks": [6],
+      "site": "0",
+      "offsets": [-1],
+      "evidence": "The complete 238CF0 wrapper loads entry argument 6 from ESP+1C at 238CF8 and pushes it at 238D07 as argument 5 to the verified 8C1A0 registration call at 238D24. It forwards argument 7 as the extra context and preserves the original creation/state-initialization path."
+    },
+    {
       "name": "Geometry node callback binding",
       "address": "0x00025870",
       "ordinal": 0,
       "argument_count": 1,
       "prefix": "8B4C2404A1C88E6D00890DC88E6D00",
-      "callbacks": [0],
+      "callbacks": [
+        0
+      ],
       "site": "0",
-      "offsets": [-1],
+      "offsets": [
+        -1
+      ],
       "evidence": "The complete four-instruction setter replaces code slot 6D8EC8 with argument 0 and returns its previous value. Geometry dispatcher 275E0 loads that slot at 27738 and invokes a nonzero callback at 2776F with its local node context. Null disables this callback."
     },
     {
@@ -18,9 +55,13 @@
       "ordinal": 0,
       "argument_count": 1,
       "prefix": "8B442404A318CC7300",
-      "callbacks": [0],
+      "callbacks": [
+        0
+      ],
       "site": "0",
-      "offsets": [-1],
+      "offsets": [
+        -1
+      ],
       "evidence": "The complete wrapper stores callback argument 0 at 73CC18 and tail-forwards the unchanged stack argument to verified setter 25870. Background producers C53A0/C5450 choose C5160 or null along branches before their common call. Callback discovery follows both actual argument-preparation paths."
     },
     {
@@ -29,9 +70,13 @@
       "ordinal": 0,
       "argument_count": 2,
       "prefix": "8B4424048B4C2408568B7008",
-      "callbacks": [1],
+      "callbacks": [
+        1
+      ],
       "site": "0",
-      "offsets": [4],
+      "offsets": [
+        4
+      ],
       "evidence": "Original 1F770 inserts argument 1's record into the active render context's list at +104, using its +0 next pointer and +8 sort key. Draw dispatcher 1F860 walks that same list and calls record +4 at 1F888, passing the record itself. A2D80 and 2204E0 install A2B60 at A2E11 before submitting their actual record. The arena allocator 1F7E0 also supplies unrelated payloads, so only records passed to this verified consumer are treated as callback records."
     },
     {
@@ -40,9 +85,15 @@
       "ordinal": 0,
       "argument_count": 4,
       "prefix": "8B4424048B4C24088B54240C",
-      "callbacks": [0, 1],
+      "callbacks": [
+        0,
+        1
+      ],
       "site": "0",
-      "offsets": [-1, -1],
+      "offsets": [
+        -1,
+        -1
+      ],
       "evidence": "Original 29F180 stores arguments 0/1 at 8B2504/8B24B0 and the two data arguments at 738DEC/73F194. The frameless dispatchers 29F1B0 and 29F1C0 load the respective code slots and tail-jump to nonzero callbacks. Producer 2BB750 passes 2AA370/2BA250 at 2BB759/2BB754; the second recovered caller is 2BC360. Their callbacks are discovered through this registration contract without assigning a fake return address or closing the mutable tail dispatches."
     },
     {
@@ -829,10 +880,210 @@
       ],
       "prefix": "8B4424048B088B5004",
       "evidence": "Original registration copies all six function pointers from the supplied record to globals 0x006D4BE8, 0x006D4BEC, 0x006D4BD0, 0x006D4BD8, 0x006D4BE0, 0x006D4BD4. The caller 0x000A2910 constructs this record on its local stack; the file loader calls those globals."
+    },
+    {
+      "name": "Native game UI task registration",
+      "address": "0x00071ED0",
+      "ordinal": 0,
+      "argument_count": 3,
+      "prefix": "518B44240C578B7C240C",
+      "callbacks": [
+        2
+      ],
+      "site": "0",
+      "offsets": [
+        28
+      ],
+      "evidence": "Complete original 71ED0 CFG receives task index, task state and optional descriptor. Non-null argument 2 is retained in ESI at 71F0E; common publication 720EA/720EE copies descriptor +1C to the task record +1C. Frame dispatchers 750D0 (7344E/75148) and 73470 (734B7) null-check and invoke that field with the original 34-byte task record. Null descriptors retain the existing record and introduce no new pointer. Save-menu initializer 2796B0 writes callback 279500 into its stack descriptor at 27972E before calling 71ED0 at 279736. This discovers original callback entries from verified registration paths while retaining all unproven mutable dispatches."
+    },
+    {
+      "name": "Party scene player callback registration",
+      "address": "0x00239220",
+      "ordinal": 0,
+      "argument_count": 5,
+      "prefix": "8A54240480FA060F83B5000000",
+      "callbacks": [
+        4
+      ],
+      "site": "0",
+      "offsets": [
+        -1
+      ],
+      "evidence": "Original239220 bounds argument0 to six rows, zeroes84 bytes, loads entry+14 (argument4) at23925B after two saved registers, and stores it to returned/live row+4 at23927A.2392D2 and239315 invoke that field with the row pointer. All three native original direct callers pass code literals; the later field-transition closure is proved separately."
+    },
+    {
+      "name": "ADX completion callback registration",
+      "address": "0x002CF9A0",
+      "ordinal": 0,
+      "argument_count": 3,
+      "prefix": "8B4424048B4C24088B54240C894848",
+      "callbacks": [
+        1
+      ],
+      "site": "0",
+      "offsets": [
+        -1
+      ],
+      "evidence": "The complete setter stores callback argument1 at ADX record+48 and context argument2 at+4C. Its sole three original callers pass2D1740,2D1DA0 or2D1900."
+    },
+    {
+      "name": "Ring transfer completion registration",
+      "address": "0x002D0550",
+      "ordinal": 0,
+      "argument_count": 3,
+      "prefix": "8B4424048B4C24088B54240C894838",
+      "callbacks": [
+        1
+      ],
+      "site": "0",
+      "offsets": [
+        -1
+      ],
+      "evidence": "Complete setter copies callback argument1 and context argument2 to ring transfer record+38/+3C. Original callers passnull or2D1850."
+    },
+    {
+      "name": "Title graphics completion callback registration",
+      "address": "0x0002EC30",
+      "ordinal": 0,
+      "argument_count": 1,
+      "prefix": "8B4C2404",
+      "callbacks": [
+        0
+      ],
+      "site": "0",
+      "offsets": [
+        -1
+      ],
+      "evidence": "Original setter2EC30 stores argument0 at6DDB88. Complete native caller inventory has only2A72F, passing original literal2A690, later forwarded through320710 to its real cdecl graphics completion callback."
+    },
+    {
+      "name": "D3DDevice_InsertCallback",
+      "address": "0x00320710",
+      "ordinal": 0,
+      "argument_count": 3,
+      "prefix": "568B35A8B63200",
+      "callbacks": [
+        1
+      ],
+      "site": "0",
+      "offsets": [
+        -1
+      ],
+      "evidence": "Original320710 writes callback argument1 and context argument2 into the packet81D8C. Native command completion6/7 routes to324179, which calls the saved callback as cdecl with one context argument. Native service delivery is separately required."
+    },
+    {
+      "name": "Second-bank text-task registration wrapper",
+      "address": "0x000733D0",
+      "ordinal": 0,
+      "argument_count": 3,
+      "prefix": "8B44240C8B4C2408568B742408",
+      "callbacks": [
+        2
+      ],
+      "site": "0",
+      "offsets": [
+        28
+      ],
+      "evidence": "Original733D0 loads the three original arguments, preserves task index inESI, and forwards all three to71ED0 at733E0 before marking the corresponding second-bank flag. Thus argument2 has the same optional34-byte descriptor ABI as71ED0, whose+1C publication720EA/720EE is verified. Complete native733D0 references are only37B97 and37C0E, respectively a zero-initialized exact stack descriptor and null."
+    },
+    {
+      "address": "0",
+      "site": "0",
+      "ordinal": 196,
+      "name": "Native device I/O APC routine",
+      "argument_count": 10,
+      "callbacks": [
+        2
+      ],
+      "offsets": [
+        -1
+      ],
+      "prefix": "",
+      "evidence": "Original IAT347574 has one literal reader30ABE5 in owner30AB9F, which invokes it at30AC02/30AC3E with ten arguments and APC routine at argument2 (PUSH EDI30ABFD/30AC39). EDI is zero from30ABAE and preserved on both successful paths; the only intervening translated helper30A470 is BSF EAX,ECX;RET. Native NtDeviceIoControlFile uses the same io_complete/queue_apc delivery ABI as NtReadFile. All original callbacks for this import are zero; the contract records native root coverage without adding targets."
+    },
+    {
+      "address": "0",
+      "site": "0",
+      "ordinal": 207,
+      "name": "Native directory I/O APC routine",
+      "argument_count": 10,
+      "callbacks": [
+        2
+      ],
+      "offsets": [
+        -1
+      ],
+      "prefix": "",
+      "evidence": "Original IAT3475DC has exactly three literal original call operands308A4F/308AB6/309ACF. Each pushes ten arguments with zero APC routine at argument2: EDI definedzero3089A8 and pushed308A4A; ESI definedzero308A9A and pushed308AB1; EBX definedzero309ABA and pushed309ACA. The first register is preserved across native NtOpenFile; other two have no intervening calls. Native NtQueryDirectoryFile uses io_complete/queue_apc. All original callbacks are zero; this records native root coverage without adding targets."
     }
   ],
   "evidence": "The kernel parameter layouts match the native host service contracts. The XAPI routine was checked from 00309872 through RET 18h; it forwards argument 2 as the start routine to PsCreateSystemThreadEx, with system entry 003097DA. The original entry pushes user routine 00309426. Only literal callback values proven in the contiguous argument-building block are recovered.",
   "preservers": [
+    {
+      "address": "0x000298B0",
+      "mask": 128,
+      "prefix": "0FB7C9F7C1FFFF0000",
+      "evidence": "The complete rotation helper returns immediately without touching EDI for angle zero. Its other path saves EDI at 298BD and restores it at 298FA before forwarding sine/cosine to 29550. That full tail body writes only ECX, XMM registers and matrix 6DD5A0 before RET 8, preserving the actor pointer held across rotation in 8C1A0."
+    },
+    {
+      "address": "0x00027EC0",
+      "mask": 128,
+      "prefix": "B8A0D56D00B90000803FBA00000000",
+      "evidence": "The complete identity-matrix leaf writes only EAX/ECX/EDX and matrix 6DD5A0; it does not write EDI or call another function. Actor registration 8C1A0 retains its returned object in EDI across this helper."
+    },
+    {
+      "address": "0x00029A90",
+      "mask": 128,
+      "prefix": "83EC14F30F101DC8D56D00",
+      "evidence": "The full quaternion-conversion CFG leaves EDI untouched on its first return path and explicitly saves/restores it on the alternate path. Both calls are to the complete 2A7E0 square-root leaf, whose seven instructions touch only XMM0/XMM1 and its stack argument before RET 4. Thus the actor pointer in EDI survives the conversion before callback publication at 8C2CE/8C2DF."
+    },
+    {
+      "address": "0x000E5C40",
+      "site": "0x000E5CFA",
+      "mask": 8,
+      "prefix": "565733FFBE205F75008DA424",
+      "evidence": "At movie initialization E5CFA, this two-texture setup leaves EBX unchanged. Its own complete body never writes EBX. Normal texture paths call 2D3A0 and E5A90: 2D2F0 and 321C40 save/restore EBX on every normal return; 321BA0 likewise restores its saved EBX on both returns. The 31F440 allocation/free wrappers do not write EBX; their 30930D/3092CA paths call the preserving kernel ABI and 3091F3, which uses only EAX/ECX. Their alternate CRT heap paths use the saved-register 30DD58/30DD93 frame helpers. Assertion paths stop at INT3. This contract is restricted to the original movie setup call."
+    },
+    {
+      "address": "0x002DB260",
+      "site": "0x000E5D63",
+      "mask": 8,
+      "prefix": "568B74240885F6751168AC15",
+      "evidence": "The original E5D63 call passes the nonnull literal 755FC8, so 2DB260 follows its nonnull path. It never writes EBX; child 2DB1C0 saves EBX at 2DB1C3 and restores it at its sole return 2DB24E. Child 2DAC00 does not write EBX and calls only 2DBED0 and 2DC130, whose complete leaf bodies do not write it either. The null diagnostic path is excluded by the checked call-site argument."
+    },
+    {
+      "address": "0x0030BBD0",
+      "mask": 64,
+      "site": "0x002D4463",
+      "prefix": "57565333FF8B4424140BC07D14478B54",
+      "evidence": "The complete original signed 64-bit division helper saves ESI at entry, uses it for the quotient, and restores it on every return path. Its argument writes stay above its saved registers."
+    },
+    {
+      "address": "0x0030B960",
+      "mask": 64,
+      "site": "0x002D446C",
+      "prefix": "8B4424088B4C24100BC88B4C240C7509",
+      "evidence": "The complete original 64-bit multiplication helper uses EAX, ECX, EDX and a saved EBX; neither return path modifies ESI."
+    },
+    {
+      "address": "0x00308CE8",
+      "mask": 64,
+      "site": "0x002D448D",
+      "prefix": "558BEC83EC34FF75088D45F850FF1584",
+      "evidence": "The original file-information helper leaves ESI unchanged on its early paths and saves/restores it on its later paths. Its native service calls preserve the guest nonvolatile registers, and its output pointers and local frame do not overlap the saved ESI at the checked caller 2D43A0."
+    },
+    {
+      "address": "0x00077B80",
+      "mask": 232,
+      "prefix": "8B442404A300FF7200",
+      "evidence": "The complete six-instruction position setter copies its two stack arguments into globals 72FF00, 72FEFC and 72FF04. It only changes EAX and leaves EBX, EBP, ESI and EDI unchanged."
+    },
+    {
+      "address": "0x00078720",
+      "mask": 8,
+      "prefix": "81EC04020000A1B06C6C00",
+      "evidence": "The text formatter does not write EBX. Its drawing callee 78540 saves EBX at 78557 and restores it at 786C5. Formatting wrapper 30BB56 calls 30E8AF and 30F219; each saves EBX at 30E8BD/30F21C and restores it at 30F013/30F32F on its common return. The stack-cookie check 30B599 returns without changing EBX or enters the error path ending at INT3. This permits the debug display at 23BD30 to retain its bound of three across these calls."
+    },
     {
       "address": "0x003433BB",
       "mask": 64,
@@ -916,13 +1167,199 @@
       "mask": 192,
       "prefix": "558BEC83EC20568B750857",
       "evidence": "Original CRT string formatter saves ESI/EDI at 30B5AD/30B5B1 and restores both at 30B5FB/30B5FC before its single return. Its frame and saved-register slots remain separate from the formatter's outgoing arguments and local FILE record. UI construction loops format labels between iterations while retaining callback pointers in these registers."
+    },
+    {
+      "site": "0x002D00BC",
+      "evidence": "At the two 2D0060 availability queries the original caller pushes query selector zero before the stream. Primary 2D2A90 passes that selector to 2D23C0, which returns stream +10 on zero without invoking notification +38. Secondary 2D31B0 likewise skips its +1C callback on selector zero. Neither query body writes EDI. Their lock/unlock helpers 2D0BC0/2D6770 invoke only the already verified 2C8690/2C86B0 callbacks (or zero); those touch EAX and call original RtlEnter/LeaveCriticalSection imports 347540/347544, whose native normal-return ABI preserves EDI. Error helper 2E2DB0 tail-runs 2D3520: bounded string copy 30B9A0 saves/restores EDI on all returns and sole registered error callback BA870 is RET. Thus EDI still holds the immutable original vtable after these four exact calls. This is scoped to the zero-selector call sites and does not assume preservation through arbitrary stream notifications.",
+      "mask": 128,
+      "address": "0x002D2A90",
+      "prefix": "56E82AE1FFFF"
+    },
+    {
+      "site": "0x002D013A",
+      "evidence": "At the two 2D0060 availability queries the original caller pushes query selector zero before the stream. Primary 2D2A90 passes that selector to 2D23C0, which returns stream +10 on zero without invoking notification +38. Secondary 2D31B0 likewise skips its +1C callback on selector zero. Neither query body writes EDI. Their lock/unlock helpers 2D0BC0/2D6770 invoke only the already verified 2C8690/2C86B0 callbacks (or zero); those touch EAX and call original RtlEnter/LeaveCriticalSection imports 347540/347544, whose native normal-return ABI preserves EDI. Error helper 2E2DB0 tail-runs 2D3520: bounded string copy 30B9A0 saves/restores EDI on all returns and sole registered error callback BA870 is RET. Thus EDI still holds the immutable original vtable after these four exact calls. This is scoped to the zero-selector call sites and does not assume preservation through arbitrary stream notifications.",
+      "mask": 128,
+      "address": "0x002D2A90",
+      "prefix": "56E82AE1FFFF"
+    },
+    {
+      "site": "0x002D00BC",
+      "evidence": "At the two 2D0060 availability queries the original caller pushes query selector zero before the stream. Primary 2D2A90 passes that selector to 2D23C0, which returns stream +10 on zero without invoking notification +38. Secondary 2D31B0 likewise skips its +1C callback on selector zero. Neither query body writes EDI. Their lock/unlock helpers 2D0BC0/2D6770 invoke only the already verified 2C8690/2C86B0 callbacks (or zero); those touch EAX and call original RtlEnter/LeaveCriticalSection imports 347540/347544, whose native normal-return ABI preserves EDI. Error helper 2E2DB0 tail-runs 2D3520: bounded string copy 30B9A0 saves/restores EDI on all returns and sole registered error callback BA870 is RET. Thus EDI still holds the immutable original vtable after these four exact calls. This is scoped to the zero-selector call sites and does not assume preservation through arbitrary stream notifications.",
+      "mask": 128,
+      "address": "0x002D31B0",
+      "prefix": "56E80ADAFFFF"
+    },
+    {
+      "site": "0x002D013A",
+      "evidence": "At the two 2D0060 availability queries the original caller pushes query selector zero before the stream. Primary 2D2A90 passes that selector to 2D23C0, which returns stream +10 on zero without invoking notification +38. Secondary 2D31B0 likewise skips its +1C callback on selector zero. Neither query body writes EDI. Their lock/unlock helpers 2D0BC0/2D6770 invoke only the already verified 2C8690/2C86B0 callbacks (or zero); those touch EAX and call original RtlEnter/LeaveCriticalSection imports 347540/347544, whose native normal-return ABI preserves EDI. Error helper 2E2DB0 tail-runs 2D3520: bounded string copy 30B9A0 saves/restores EDI on all returns and sole registered error callback BA870 is RET. Thus EDI still holds the immutable original vtable after these four exact calls. This is scoped to the zero-selector call sites and does not assume preservation through arbitrary stream notifications.",
+      "mask": 128,
+      "address": "0x002D31B0",
+      "prefix": "56E80ADAFFFF"
+    },
+    {
+      "address": "0x003461A3",
+      "mask": 232,
+      "evidence": "The complete original leaf 3461A3 only writes EAX/ECX/EDX while reading timer state, then returns at 3461C6. It leaves EBX/EBP/ESI/EDI unchanged, including the imported routine held in EBX by 346CEA.",
+      "prefix": "8B41088B9118040000"
+    },
+    {
+      "address": "0x00324AED",
+      "mask": 232,
+      "evidence": "The complete original 324AED leaf writes EAX/ECX/EDX and device registers only and returns at 324B33. It makes no calls or stack changes and preserves EBX/EBP/ESI/EDI; 31F810 retains the original 3476D4 import in EBX across this call.",
+      "prefix": "8B1588763400F6420102"
+    },
+    {
+      "address": "0x0033BA60",
+      "mask": 232,
+      "evidence": "The original 33BA60 prologue saves EBP/EBX/ESI/EDI at 33BA60/64/65/66 and its sole normal return restores EDI/ESI/EBX at 33BAD4/5/6 and EBP with LEAVE at 33BAD7. Its local writes stay below those saved registers and the list callbacks receive separate object records. The import pointer held in EDI by 33BEE5 therefore survives repeated loop calls.",
+      "prefix": "558BEC515356578BF1"
+    },
+    {
+      "address": "0x00308983",
+      "mask": 8,
+      "evidence": "The complete original directory-search wrapper never writes EBX directly. Its native kernel calls preserve EBX. Internal 309221 calls a kernel status mapper then leaf 3091F3; 3091F3 changes only EAX/ECX and TLS last-error. Its file-record copy 308917 saves EBX at 308957 and restores it at 30897F after bounded output copying. No other internal call occurs. This preserves the lock import retained in EBX by 2CB520.",
+      "prefix": "558BEC81EC6C0100005657"
+    },
+    {
+      "address": "0x002E76B0",
+      "mask": 232,
+      "prefix": "8B4424088B4C24048B8481040A0000C3",
+      "evidence": "The complete original four-instruction option getter loads EAX/ECX, reads main+selector*4+A04 into EAX, then returns at 2E76BF. It does not write EBX/EBP/ESI/EDI, preserving the callback held by 2E1170/2EB9B0 across their second option lookup."
+    },
+    {
+      "address": "0x002CB0D0",
+      "mask": 8,
+      "prefix": "A1548E930085C0",
+      "evidence": "The complete original lock-counter helper writes EAX/ECX only. Its native RtlLeaveCriticalSection call preserves EBX. Its optional error callback has the already verified sole target 2CBE20, forwarding only to 2C66E0, which calls 2CA640. That path uses bounded string copy 30B9A0, preserving EBX on every original return, an already proved-zero 938E08 hook, then 2D34D0. The latter calls 30BB56 and sole registered callback BA870. 30BB56 does not write EBX; its only internal helpers 30E8AF and 30F219 save EBX at 30E8BD/30F21C and restore it at their sole normal returns 30F013/30F32F. Fixed output buffers are global and separate from these saved stack slots. Thus EBX survives the entire normal-return notification path. Combined with the separately verified 308983 wrapper, this retains the kernel import loaded by 2CB520 at 2CB550 through 2CB5D7."
+    },
+    {
+      "address": "0x00309221",
+      "mask": 232,
+      "prefix": "FF742404FF1598753400",
+      "evidence": "The complete original status-to-last-error wrapper calls the verified native status mapping import, then original leaf 3091F3, and returns at 309235. Its own instructions change only EAX/EDX/ESP. The native import preserves EBX/EBP/ESI/EDI, and 3091F3 only reads TLS through EAX/ECX and writes the last-error field, so these four registers survive every normal return. This retains the imported routine held across the error paths in 3047E8 and 30AB9F."
+    },
+    {
+      "address": "0x003091F3",
+      "mask": 232,
+      "prefix": "640FB605240000003C02",
+      "evidence": "The complete original TLS last-error setter at 3091F3..30921E writes EAX/ECX and TLS memory only and makes no calls. Its conditional IRQL/TLS selection does not touch EBX/EBP/ESI/EDI on either path. The original RET 4 consumes only its argument."
+    },
+    {
+      "address": "0x0030A470",
+      "mask": 232,
+      "prefix": "0FBCC1C3",
+      "evidence": "The complete original helper is BSF EAX,ECX followed immediately by RET. It only writes EAX/flags and makes no calls, so EBX/EBP/ESI/EDI are unchanged. This retains the original import held in ESI between 30AC02 and 30AC3E."
+    },
+    {
+      "address": "0x00309F59",
+      "evidence": "The complete original 57-instruction LaunchDataPage path writer has no calls, never writes EBX, and saves/restores EBP/ESI/EDI before its sole RET8 at 309FD7. Both string loops write only the separately allocated LaunchDataPage buffer obtained through kernel data import 3475AC, with combined length plus8 checked below1EC before writing. No output can alias the saved caller stack. This preserves the EBX zero established at 30A28D across the optional 30A2A3 call, so the original CMP EAX,EBX guard at30A2B8 can be checked without assuming the helper path absent.",
+      "prefix": "558BECA1AC753400",
+      "mask": 232
+    },
+    {
+      "prefix": "558BEC51518365FC0053",
+      "mask": 8,
+      "address": "0x0033FD6C",
+      "evidence": "The complete original33FD6C CFG is bounded and closed, with one normal return33FDF9. It pushes EBX at33FD75 before changing BL, and every normal path reaches its matching POP33FDF7. No branch bypasses that save/restore. Its only callees339790/3397B2 receive the two-word guard at EBP-8; that local and the private ring/descriptor writes cannot alias saved EBX at EBP-C. No other stack-buffer pointer escapes. This establishes only EBX preservation, retaining the explicit zero at340173 across call3401A6 before the original callback CMP3401AE."
+    },
+    {
+      "prefix": "558BEC51515657",
+      "address": "0x0033FFD4",
+      "mask": 8,
+      "evidence": "The complete original33FFD4 normal-return path never writes EBX. Its only private callees are339790/3397B2 guard helpers,33FD3D,33FF62 and33FD6C. Both guard helpers write no EBX and call only native kernel services with the verified nonvolatile-register contract.33FD3D writes no EBX and calls only those guards.33FF62 writes no EBX and calls only the guards plus33FD6C, whose entry save/common restore was independently verified. All seven relevant CFGs are complete and bounded;33FFD4 returns only at34001F. Guard outputs occupy two local DWORDs at EBP-8, and ring/descriptor writes use the private allocated object/buffers, so no output can alter the saved caller stack. This verifies the second34016C prefix path through call3401BC, retaining its explicit EBX zero without assuming that branch absent."
+    },
+    {
+      "address": "0x00320C40",
+      "site": "0x00325ACE",
+      "prefix": "A174E0320050D1E850E8B2FEFFFFC3",
+      "mask": 136,
+      "evidence": "Exact reserve-call preservation for source325AC4 through call325ACE. Wrapper320C40 is A174E0320050D1E850E8B2FEFFFFC3: it writes EAX/ESP only and invokes320B00 with two arguments, then returns. Complete320B00 has115 instructions and3 normal returns. Incoming EDI is saved at320B0C and restored at320B2D/320C1B/320C31 on every return; its own stack slot is separate from all device/queue outputs. Early return320B32 never writes EBX. Its long branch saves EBX at320B3C and restores it at320C07. The only calls after that restoration are3207B0 and3208D0. Complete3207B0 never writes EBX and only calls13-instruction leaf31E650, which uses EAX/ECX only. Complete3208D0 never writes EBX and only calls320C40 and3207B0. This closed recursive SCC therefore preserves EBX on every finite normal return by induction on nested reserve depth; no convention is guessed. Calls before the320B00 EBX restoration cannot change its saved stack word: outputs use device/global/allocated queue addresses, never the caller stack. EDI restoration occurs after all nested calls. Other saved registers are not asserted. All5 relevant CFGs are complete and budget_exhausted=false. The exact original325ACE call is the only site using this new contract; no helper is replaced or skipped, and faults/non-returning paths remain. Evidence:driver-preservation-functions/320C40,driver-pushbuffer-preservation.json(320B00),driver-pushbuffer-leaf-functions/3207B0,3208D0 anddriver-pushbuffer-wait-preservation.json(31E650)."
+    },
+    {
+      "address": "0x002C6920",
+      "mask": 8,
+      "prefix": "568B74240885F6750E5EC7442404F8C74500",
+      "evidence": "The complete original body never writes EBX. The 938CC8 hook is covered by the registered immutable-zero slot. 2D0AC0 saves EBX and restores it before its 2D3750 tail; 2C68A0 saves EBX at 2C68A0 and restores it at 2C690D before the preserving 2D6770 tail. 2D0F40 saves EBX at 2D0F40 and restores it on both exits (2D0F4D/2D0F91); its null diagnostic tail is also preserving: 939B08 targets only 2C66E0->2CA640 or 2DBEC0->2E2DC0->2E2DB0. The primary/secondary +14 targets 2D2A30/2D3160 write only EAX/ECX/EDX and use the preserving critical-section/logging helpers. Null-record tail 2CA640 has zero optional 938E08 hook; formatting 30B9A0 saves/restores EBX and 2D34D0 invokes only BA870 through 939A88. 30BB56 calls formatting 30E8AF (save 30E8BD, restore 30F013) and 30F219 (saved EBX). All normal returns preserve incoming EBX."
+    },
+    {
+      "address": "0x002D0C10",
+      "mask": 8,
+      "prefix": "568B74240856E885C3FFFF56",
+      "evidence": "The complete 2D0C10 body never writes EBX and calls only 2CCFA0 and 2CDE70. Their original +58 targets are BA870 and three-instruction leaf 2CEC50; +5C is two-instruction leaf 302A20. 2CDE70 does not change EBX (LEA EBX,[EBX] is identity), and 2CD940 saves EBX at 2CD943 and restores it at both 2CD97E/2CDAF9 exits. Its +0C targets 2CED70 and 2D6970 also leave EBX unchanged: 2CED70 calls saved-EBX 2CE0A0 and the registered native IDirectSoundBuffer_Release service 3399BD, whose native ABI preserves nonvolatile registers; 2D6970 is a leaf. Remaining critical-section paths use 2D0BC0/2D6770->2C8690/2C86B0, which leave EBX unchanged and call preserving native kernel services. The 2D6830 diagnostic calls 93A348, whose only target is 2C66E0->2CA640; its optional 938E08 hook is provenzero and its final 2D34D0 callback at 939A88 is BA870. Formatting helpers 30B9A0/30BB56/30E8AF/30F219 save and restore EBX. Thus the outer-release zero in EBX survives every normal return."
+    },
+    {
+      "address": "0x002CF1D0",
+      "mask": 8,
+      "prefix": "578B7C240885FF742B8B4704",
+      "evidence": "The complete destructor leaves EBX untouched on its null return and its nonnull path. 2D6B40 calls only ten-instruction leaf 2D7EF0, which does not write EBX; its remaining record-clear instructions also leave EBX unchanged. Calls to 2D0BC0 and tail 2D6770 use the fixed original enter/leave callbacks 2C8690/2C86B0 and preserving native kernel APIs. Their diagnostic formatter saves/restores EBX and 939A88 targets the BA870 no-op. REP STOSD clears the record using EAX/ECX/EDI only. EDI is popped before the preserving tail, so every normal return retains the incoming EBX."
+    },
+    {
+      "address": "0x002D0550",
+      "mask": 8,
+      "prefix": "8B4424048B4C24088B54240C",
+      "evidence": "All six original instructions are MOV EAX,[ESP+4]; MOV ECX,[ESP+8]; MOV EDX,[ESP+C]; MOV [EAX+38],ECX; MOV [EAX+3C],EDX; RET (bytes 8B4424048B4C24088B54240C89483889503CC3). There are no calls, EBX writes, or control-flow alternatives."
+    },
+    {
+      "address": "0x002D0B80",
+      "mask": 8,
+      "prefix": "578B7C240885FF741B57E871F9FFFF",
+      "evidence": "The complete body never writes EBX. A null input returns directly; a nonnull input calls only 2D0500 and 2D0B10 before clearing its record with EAX/ECX/EDI. 2D0500 saves EBX at entry and restores it at 2D0542 before RET. 2D0B10 saves EBX at entry and restores it at 2D0B71 before its sole RET at 2D0B72. Thus calls cannot destroy the caller EBX value, and neither the clear loop nor final return changes it."
+    },
+    {
+      "address": "0x002D1070",
+      "mask": 8,
+      "prefix": "578B7C240885FF741557E8C1FEFFFF",
+      "evidence": "The complete function returns directly for null input and otherwise calls 2D0F40 with its checked nonnull EDI argument, then clears the record using only EAX/ECX/EDI. 2D0F40 saves EBX at 2D0F40 and restores it at 2D0F91 before its nonnull RET; its null diagnostic tail cannot be selected with this argument. Neither the caller nor its REP STOSD clear writes EBX."
+    },
+    {
+      "address": "0x002D0BC0",
+      "mask": 8,
+      "prefix": "E9CB280000",
+      "evidence": "The complete entry tail-jumps to 2D3490 and neither body changes EBX. The only optional enter callback 9398E4 has the registered original 2C8690 target; that six-instruction wrapper changes only EAX/ECX and calls its preserving native critical-section service. Counter/state instructions in 2D3490 change only EAX/ECX/EDX and memory. The original callback installation and kernel nonvolatile ABI therefore retain EBX across every normal return."
+    },
+    {
+      "address": "0x002D2930",
+      "mask": 8,
+      "prefix": "E88BE2FFFF8B54240485D27512",
+      "evidence": "The complete primary release uses only EAX/ECX/EDX and temporarily saved EDI. Its entry calls preserving 2D0BC0. Validation diagnostics call 2E2DB0->2D3520, whose formatting saves/restores EBX and whose only 939A88 target is the BA870 no-op. All exits tail through 2D6770->2D3750; the latter never writes EBX, invokes only 2C86B0 through 9398EC, and that fixed wrapper plus its native critical-section service preserve EBX. The unbalanced-counter diagnostic 2D34D0 has the same saved-EBX formatter/no-op callback. Its clear and every normal tail return retain EBX."
+    },
+    {
+      "address": "0x002D3050",
+      "mask": 8,
+      "prefix": "E86BDBFFFF8B44240485C07512",
+      "evidence": "The complete secondary release writes only EAX/ECX/EDX and memory. Its entry calls preserving 2D0BC0; its validation diagnostics use 2E2DB0->2D3520 with saved/restored-EBX formatting and the BA870 no-op at 939A88. All exits tail through 2D6770->2D3750, which leaves EBX unchanged, calls fixed 2C86B0/native critical-section service preserving EBX, and uses the same preserving diagnostic helper when needed. Clearing its nine DWORDs cannot change the incoming EBX."
+    },
+    {
+      "address": "0x002E20E0",
+      "mask": 128,
+      "prefix": "56578BF18BF88B066A0056FF5024",
+      "evidence": "The complete original CFG saves incoming EDI at PUSH 2E20E1 before assigning its working receiver at 2E20E4. Both normal return paths restore that exact stack save at POP 2E2104 or POP 2E2126, followed by RET 2E2108 or RET 2E212D. Every path into its receiver calls occurs after the save, and neither restore is bypassed on a normal return. Thus caller 2E2530 retains its known receiver in EDI across 2E20E0."
+    }
+  ],
+  "stack_preservers": [
+    {
+      "address": "0x0004DF40",
+      "prefix": "8B44240885C0565775148B1510314B008B3D14314B008B3518314B00EB2A8B108B78048B70088B400C85D20F441510314B0085FF0F443D14314B0085F60F443518314B0085C07505A11C314B008B4C240C893C8DB02D4B005F89348DD02E4B0089148D902C4B0089048DF02F4B005EC3",
+      "index_min": 0,
+      "index_max": 71,
+      "evidence": "The complete original 4DF40 reads its callback record and writes four global arrays, then returns without changing its arguments. When the first argument is a literal in 0..71, every indexed write remains in 4B2C90..4B310F and cannot alias a guest stack record. This permits bounded backward analysis across successive registrations without assuming that arbitrary calls preserve records."
     }
   ],
   "factories": [
     {
+      "address": "0x0009D790",
+      "prefix": "A128936C008B0D6CE35500",
+      "fields": [92],
+      "evidence": "This actor producer forwards to 9D4B0 and returns its result. In original caller 8C1A0, EAX is copied to EDI at 8C22F and published to 738DF0 + 1B0*player +104 at 8C235. Dispatcher 9DAB0 reads exactly those eight published pointers and invokes actor +5C at 9DAFC. Only this explicitly invoked callback field is tracked; the actor's unrelated data fields are not code pointers."
+    },
+    {
       "address": "0x00073900",
       "prefix": "8B15B4936C00568B74240857B8F8897200",
-      "fields": [48, 52, 56],
+      "fields": [
+        48,
+        52,
+        56
+      ],
       "evidence": "This returns an existing object from the same typed UI pool as 736C0/73820. It starts EAX at 7289F8, advances by D0 for 80 slots, checks the corresponding active byte and matches signed record ID +F to argument 0. It returns that exact record or null. The shared release/update/draw consumers use callback fields +30/+34/+38. Object-return tracking applies to this verified lookup as well as allocation."
     },
     {

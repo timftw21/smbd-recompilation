@@ -1,5 +1,6 @@
 #pragma once
 #include "floating.h"
+#include "frame_step.h"
 #include <array>
 #include <atomic>
 #include <bit>
@@ -59,6 +60,7 @@ struct Cpu {
     std::uint32_t quantum_remaining = 1024;
     std::uint32_t gdt_base = 0;
     std::uint16_t gdt_limit = 0;
+    bool ultrawide = false;
 };
 
 class NativeBoundary : public std::runtime_error {
@@ -155,11 +157,6 @@ public:
     }
     template<class T> T load(std::uint32_t address) const {
         static_assert(std::is_unsigned_v<T>);
-        if(address>=io_floor_) if(const auto* io=find_io(address,sizeof(T))) {
-            if constexpr(sizeof(T)<=4) return static_cast<T>(io->read(io->context,address-io->base,sizeof(T)));
-            else {static_assert(sizeof(T)==8);return static_cast<T>(io->read(io->context,address-io->base,4))|
-                (static_cast<T>(io->read(io->context,address-io->base+4,4))<<32);}
-        }
         T value;
         std::memcpy(&value, pointer(address, sizeof(T)), sizeof(T));
         if constexpr (std::endian::native == std::endian::big) value = std::byteswap(value);
@@ -167,12 +164,6 @@ public:
     }
     template<class T> void store(std::uint32_t address, T value) {
         static_assert(std::is_unsigned_v<T>);
-        if(address>=io_floor_) if(const auto* io=find_io(address,sizeof(T))) {
-            if constexpr(sizeof(T)<=4) io->write(io->context,address-io->base,sizeof(T),static_cast<std::uint32_t>(value));
-            else {static_assert(sizeof(T)==8);io->write(io->context,address-io->base,4,static_cast<std::uint32_t>(value));
-                io->write(io->context,address-io->base+4,4,static_cast<std::uint32_t>(value>>32));}
-            return;
-        }
         if constexpr (std::endian::native == std::endian::big) value = std::byteswap(value);
         std::memcpy(pointer(address, sizeof(T)), &value, sizeof(T));
     }
@@ -183,14 +174,6 @@ public:
         const auto displacement = descending ? size - sizeof(T) : 0;
         if (displacement > destination || displacement > source)
             throw std::runtime_error("String move wraps the mapped address space");
-        if((source>=io_floor_ && find_io(static_cast<std::uint32_t>(source-displacement),size)) ||
-           (destination>=io_floor_ && find_io(static_cast<std::uint32_t>(destination-displacement),size))) {
-            for(std::uint32_t i=0;i<count;++i) {
-                const auto offset=(descending?0U-i:i)*static_cast<std::uint32_t>(sizeof(T));
-                store<T>(destination+offset,load<T>(source+offset));
-            }
-            return;
-        }
         auto* to = pointer(static_cast<std::uint32_t>(destination - displacement), size);
         const auto* from = pointer(static_cast<std::uint32_t>(source - displacement), size);
         const auto distance = destination > source ? destination - source : source - destination;
@@ -211,54 +194,30 @@ public:
         const auto size = static_cast<std::uint64_t>(count) * sizeof(T);
         const auto displacement = descending ? size - sizeof(T) : 0;
         if (displacement > destination) throw std::runtime_error("String fill wraps the mapped address space");
-        if(destination>=io_floor_ && find_io(static_cast<std::uint32_t>(destination-displacement),size)) {
-            for(std::uint32_t i=0;i<count;++i) store<T>(destination+(descending?0U-i:i)*static_cast<std::uint32_t>(sizeof(T)),value);
-            return;
-        }
         auto* to = pointer(static_cast<std::uint32_t>(destination - displacement), size);
         if constexpr (sizeof(T) == 1) std::memset(to, value, static_cast<std::size_t>(size));
         else for (std::uint32_t i = 0; i < count; ++i) std::memcpy(to + i * sizeof(T), &value, sizeof(T));
     }
-    using IoRead=std::uint32_t(*)(void*,std::uint32_t,unsigned);
-    using IoWrite=void(*)(void*,std::uint32_t,unsigned,std::uint32_t);
-    void map_io(std::uint32_t base,std::uint32_t size,void* context,IoRead read,IoWrite write) {
-        const auto end=static_cast<std::uint64_t>(base)+size;
-        if(!size || end>0x100000000ULL || io_count_==io_.size() || !read || !write)
-            throw std::runtime_error("Invalid native memory-mapped device");
-        const auto overlaps=[&](std::uint32_t start,std::size_t count){return base<static_cast<std::uint64_t>(start)+count && start<end;};
-        if(overlaps(base_,bytes_.size())) throw std::runtime_error("Native IO overlaps primary memory");
-        for(unsigned i=0;i<region_count_;++i) if(overlaps(regions_[i].base,regions_[i].bytes.size()))
-            throw std::runtime_error("Native IO overlaps mapped storage");
-        for(unsigned i=0;i<io_count_;++i) if(overlaps(io_[i].base,io_[i].size)) throw std::runtime_error("Native IO regions overlap");
-        io_[io_count_++]={base,size,context,read,write};io_floor_=std::min(io_floor_,base);
-    }
 private:
-    struct IoRegion {std::uint32_t base,size;void* context;IoRead read;IoWrite write;};
-    const IoRegion* find_io(std::uint32_t address,std::uint64_t size) const {
-        for(unsigned i=0;i<io_count_;++i) {
-            const auto& io=io_[i];
-            if(address>=io.base && address-io.base<io.size && size<=io.size-(address-io.base)) return &io;
-        }
-        return nullptr;
-    }
     std::byte* pointer(std::uint32_t address, std::size_t size) const {
-        if(address>=base_ && address-base_<=bytes_.size() && size<=bytes_.size()-(address-base_))
-            return bytes_.data()+(address-base_);
-        for(unsigned i=0;i<region_count_;++i) {
-            const auto& region=regions_[i];
-            if(address>=region.base && address-region.base<=region.bytes.size() && size<=region.bytes.size()-(address-region.base))
-                return region.bytes.data()+(address-region.base);
-        }
-        throw std::runtime_error(std::format("Guest memory access at 0x{:08X}, {} bytes, outside the mapped regions", address, size));
+        const auto offset=static_cast<std::uint64_t>(address)-base_;
+        if(size<=bytes_.size() && offset<=bytes_.size()-size) return bytes_.data()+offset;
+        if(auto* result=mapped_pointer(address,size)) return result;
+        range_error(address,size);
     }
+    // Lookup only reads mapping metadata. Keep throwing/error formatting separate
+    // so a rare mapping lookup cannot invalidate live CPU/SIMD values.
+    [[gnu::pure]]
+#if defined(_MSC_VER)
+    __declspec(noalias)
+#endif
+    std::byte* mapped_pointer(std::uint32_t address,std::size_t size) const noexcept;
+    [[noreturn,gnu::cold]] static void range_error(std::uint32_t address,std::size_t size);
     std::uint32_t base_;
     std::span<std::byte> bytes_;
     struct Region { std::uint32_t base; std::span<std::byte> bytes; };
     std::array<Region,8> regions_{};
     unsigned region_count_=0;
-    std::array<IoRegion,4> io_{};
-    unsigned io_count_=0;
-    std::uint32_t io_floor_=UINT32_MAX;
 };
 
 inline void load_code_selector(Cpu& cpu,const Memory& memory,std::uint16_t selector,std::uint32_t offset) {

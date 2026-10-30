@@ -1,0 +1,144 @@
+Composition performance benchmark, 2026-10-30
+
+Verified Xbox executable SHA256:
+9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2
+
+The current benchmark is Practice Mode > AIAI > Story World 2 > 3 COMPOSITION.
+It replaces the rotating Story stage preview used in the October 29 research.
+The target remains 360 fresh scenes/second, or 2.778 ms per frame, at native
+1x resolution in widescreen with VSync off. No computer-use tools are involved.
+
+Run tools/Benchmark.ps1 from PowerShell. The default is three independent runs,
+each with 120 original game ticks of neutral gameplay warmup followed by 1200
+measured ticks (20 seconds). The normal rule clock remains 60 Hz; the number
+of rendered scenes depends on actual performance. All runs are hidden/muted.
+Separate copies of the supplied saves isolate each run from normal progress.
+Composition must already be unlocked. No guest state or save data is patched.
+
+knowledge/composition_input.txt uses ordinary SDL controller input and these
+read-only barriers, proven by bounded native analysis and captured guest RAM:
+- 8B2680: active menu. Main Game is 8, character selection 5, Practice 18.
+  The 16-byte menu descriptors begin at 6AB898. Practice calls 2A38B0.
+- 8B23D8: Main Game selection, Practice 3. 2A2F35 reads menu+8B23D0.
+- 8B2438: first controller's highlighted character, AIAI 0. 2A11C0 returns
+  8B2438+port for this menu path. 739B70 records its confirmed character.
+- 8B2468: Practice Story/Challenge switch; Story is 1. 8B246A is the
+  zero-based Story world; 8B2475+world is that world's stage cursor.
+  World 2 is 1 and Composition is 2 at 8B2476. 2A41F3..2A4203 reads
+  these fields for the original stage-availability query.
+- 8B2489 bit 0: the world has been confirmed and stages can be selected.
+  The original A-button path sets this flag at 2A3D03.
+- 738DF3: first ball's callback state, 32 during normal rolling gameplay.
+  See true_refresh.txt for the original ball array and handler evidence.
+
+Story's 6C9288 scene variable is unused in Practice. It must not be used as
+the Practice loading barrier. The benchmark tracks the shared current mode
+at 6C9354 instead; the captured Practice gameplay mode is 51. The original
+mode dispatch is in 155F0/15820, called by 15A90.
+
+--benchmark-ticks starts recording after the input script completes and exits
+after the requested original ticks. Menus/loading/READY cannot consume the
+measurement interval. benchmark.json records the exact window, selected stage,
+character, ball position and mode/ball-state transitions. The runner rejects
+incomplete windows, changed modes, falls/resets, wrong selections and dropped
+frame records. Screenshots are saved after recording; frame-capture IO is not
+part of the benchmark. Exit success validates the run; target_met separately
+reports whether p99 fits the 360 Hz budget.
+
+This fixes the scene and elapsed game-time interval, not OS scheduling or every
+animation sample. Frame percentiles can still vary with host/driver scheduling.
+Performance reports include CPU phase wall time, GPU spans and peak process
+working set within the recorded window. total_run_ms also includes startup,
+loading, menu navigation, warmup and writing the reports/screenshot.
+
+Qualification artifacts: build/checks/performance-composition. The ready-probe
+image independently shows AIAI, 2-3 COMPOSITION and a neutral ball. Its complete
+gameplay-state capture records the matching menu cursors and original ball data.
+The initial baseline-probe was a route qualification, not the final benchmark:
+its old absolute menu timing is superseded by the state barriers above.
+
+Validated baseline, Windows x64, Ryzen 5 5600X / GeForce RTX 5060 Ti:
+Three independent 20-second runs completed all 47 input steps / 10 barriers.
+Every window covered rule ticks 1959..3159 with AIAI, Story World 2, stage 3,
+normal ball state 32 and position (0, 0.5, 0). No mode or ball-state changes
+occurred. Frame medians were 7.6678, 7.4406 and 7.7471 ms; p99 values were
+9.8105, 9.0281 and 9.5897 ms. See baseline/benchmark.json under the artifact root
+for the full-precision results; native per-frame reports are retained per run.
+
+The final Build.ps1 -Stage Game -AllowPartial -Workers 3 build passed. Both
+tool/game CMake configurations select 3 workers and both linkers use /threads:3
+and /opt:lldltojobs=3. The final executable's additional 20-second run measured
+7.5600 ms median, 10.0184 ms p99, GPU spans 1.596672 ms median / 2.664512 ms p99,
+and 277.3242 MiB peak working set in the recording. Translated guest code cost
+about 4.91 ms per scene; GPU command processing about 1.42 ms. CPU work remains
+the main bottleneck. The 360 Hz target is not met; changing the benchmark alone
+is not an optimization gain. These pre-optimization reports are in three-workers/.
+
+Focused runtime validation rejects incompatible benchmark flags, rejects an
+unfinished setup with exit 3 and no recording, and preserves the existing
+absolute-tick / frame-count recording path. All four full benchmark windows
+passed scene and timing validation. No extra test framework was added.
+
+Graphics-command optimization measured in Composition:
+An independent 15-second native thread sample (10821 samples) identified
+Gpu::submit as the largest individual engine function, 8.19% of samples;
+mapped_pointer accounted for another 3.52%. Bounded native instruction reads
+showed repeated RAM-alias checks, per-word method dispatch and inline-buffer
+bounds checks in that hot path. Profile artifacts are in native-profile/;
+its function report was resolved against the then-current executable/map.
+
+Gpu::submit now checks/maps the contiguous push buffer once, reads live bytes
+through that mapping and copies nonincrementing inline-vertex packets in bulk.
+It retains packet checks, scalar processing for irregular packets, draw order,
+capture addresses, register values, method counts and the existing size limits.
+GPU work still reads the original data; no draws or state updates are skipped.
+
+Three new independent 20-second windows passed the same barriers and scene
+checks. Their median/p99 frame times were 6.9610/8.5757, 6.8700/10.2227 and
+6.6792/8.2108 ms. The median of run medians improved 10.405%, from 7.6678 to
+6.8700 ms. Graphics-command phase cost fell from 1.36..1.44 to 0.77..0.80 ms
+per scene. Average draw workload stayed within about 1%; the phase reduction
+is much larger. One run's p99 was slower, so no uniform tail-latency improvement
+is claimed. GPU spans were 1.146144..1.201728 ms median; working sets peaked
+at 277.035..279.410 MiB. The 360 Hz / 2.778 ms target remains unmet.
+
+Final artifacts: packet-batched/benchmark.json, packet-comparison.json,
+packet-build-final.log and packet-tool-build.log. All builds/links used three
+workers. The existing native GPU diagnostic passes all 15 cases, including one
+new scalar/bulk comparison for empty, single-word, maximum-size, incrementing
+and aliased-RAM inline packets. A complete live Composition frame then replayed
+all 679 draws with zero changed pixels and no D3D11 errors: packet-frame/ and
+packet-frame-replay/. This checks capture/replay consistency; it is not a new
+original-Xbox visual reference. No guest timing code was changed.
+
+CPU memory cleanup and final lookup validation, 2026-10-30:
+The current-build native profile moved the largest translated routine to 21BE0.
+A source-wide search found no caller/binding for Memory::map_io. Removing that
+dormant device-dispatch facility keeps all actual RAM mappings and native Xbox
+services, while eliminating checks that preceded every guest memory access.
+The bounded 21BE0 compiler-output study fell from 1218 to 582 loads and from
+1347 to 499 branches. This is compiler-output evidence, not a runtime speed claim.
+Runtime plain-memory/ medians were 4.6872, 4.6091 and 4.7191 ms; p99 values
+were 5.7856, 5.2194 and 5.7188 ms. All 18 CPU / 15 GPU checks passed.
+
+The last retained change splits metadata-only, nonthrowing mapped lookup from
+the unchanged throwing/error-formatting path, and uses an equivalent 64-bit
+offset comparison. The lookup has read-only compiler attributes; no CPU/RAM
+separate-storage assumptions from the experiments were retained.
+One focused check in the existing CPU diagnostic covers shared RAM aliases,
+zero-size endpoints, invalid ranges/error text, the last 32-bit address, and
+adding a valid mapping after a failed lookup. All 19 CPU / 15 GPU cases pass.
+Final three-run metrics:
+  Run 1: frame median/p99 4.460600/5.516100 ms; GPU median/p99 1.132544/1.479040 ms; working set 267.898 MiB.
+  Run 2: frame median/p99 4.465000/5.397600 ms; GPU median/p99 1.129440/1.468736 ms; working set 267.648 MiB.
+  Run 3: frame median/p99 4.425400/5.059500 ms; GPU median/p99 1.126688/1.370880 ms; working set 267.340 MiB.
+The median of run medians improved another 4.834% relative to plain-memory/.
+All final runs completed the same 1200 rule ticks with AIAI in Composition,
+no mode/ball-state changes, no dropped frame records and neutral ball position.
+The final complete live frame replayed 666 draws with zero changed pixels and
+zero D3D11 errors. Final Build.ps1 -Stage Game -AllowPartial -Workers 3 passed;
+its executable hash matches the measured lookup/ build. Both executables were
+built/linked with three workers. Final artifacts: lookup/, memory-comparison.json,
+lookup-cpu.json, lookup-gpu.json, lookup-frame/, lookup-frame-replay/ and final-build.log.
+The 360 Hz target remains unmet. No further optimization was started after this
+validation.

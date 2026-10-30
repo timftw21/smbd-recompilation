@@ -1,6 +1,7 @@
 param(
     [string]$Disc = (Join-Path $PSScriptRoot '..\Super Monkey Ball Deluxe\Super Monkey Ball Deluxe (USA).xiso.iso'),
     [switch]$AllowPartial,
+    [ValidateRange(1,3)][int]$Workers = 3,
     [ValidateSet('All','Analysis','Game')][string]$Stage = 'All'
 )
 $ErrorActionPreference = 'Stop'
@@ -22,7 +23,7 @@ function Configure-Native([string]$Preset, [string]$Directory, [string[]]$Extra 
     if (Test-Path -LiteralPath $cache) {
         $entries = @{}
         foreach ($line in [IO.File]::ReadLines($cache)) {
-            if ($line -match '^(CMAKE_GENERATOR|CMAKE_C_COMPILER|CMAKE_CXX_COMPILER|CMAKE_LINKER_TYPE|SMBD_BATCH|SMBD_SHADER_BANK):[^=]+=(.*)$') {
+            if ($line -match '^(CMAKE_GENERATOR|CMAKE_C_COMPILER|CMAKE_CXX_COMPILER|CMAKE_LINKER_TYPE|SMBD_BATCH|SMBD_SHADER_BANK|SMBD_BUILD_WORKERS):[^=]+=(.*)$') {
                 $entries[$Matches[1]] = $Matches[2]
             }
         }
@@ -35,7 +36,7 @@ function Configure-Native([string]$Preset, [string]$Directory, [string[]]$Extra 
         if ((Get-Item -LiteralPath 'CMakePresets.json').LastWriteTimeUtc -gt (Get-Item -LiteralPath $cache).LastWriteTimeUtc) { $needsConfigure = $true }
         if ($Preset -eq 'tools' -and ($entries.SMBD_BATCH -or $entries.SMBD_SHADER_BANK)) { $needsConfigure = $true }
         foreach ($argument in $Extra) {
-            if ($argument -notmatch '^-D(SMBD_BATCH|SMBD_SHADER_BANK)=(.*)$' -or
+            if ($argument -notmatch '^-D(SMBD_BATCH|SMBD_SHADER_BANK|SMBD_BUILD_WORKERS)=(.*)$' -or
                 ([string]$entries[$Matches[1]]).Replace('\','/') -ne $Matches[2].Replace('\','/')) { $needsConfigure = $true }
         }
     }
@@ -46,8 +47,8 @@ Push-Location $root
 try {
     . (Join-Path $PSScriptRoot 'Initialize-Toolchain.ps1')
     # Build the small tool first; reuse it for the whole disc and all functions.
-    Configure-Native 'tools' 'build/tools'
-    Invoke-Checked cmake @('--build', '--preset', 'tools-release')
+    Configure-Native 'tools' 'build/tools' @("-DSMBD_BUILD_WORKERS=$Workers")
+    Invoke-Checked cmake @('--build', '--preset', 'tools-release', '--parallel', "$Workers")
     $tool = Join-Path $root 'build\tools\Release\smbd-tool.exe'
     New-Item -ItemType Directory -Path 'build\logs', 'build\generated' -Force | Out-Null
     if ($Stage -eq 'All') {
@@ -121,11 +122,11 @@ try {
             ConvertTo-Json | Set-Content -LiteralPath $shaderCache -Encoding utf8
     } else { Write-Host 'Reusing verified offline shader bank.' }
     Configure-Native 'windows' 'build/windows' @(
-        "-DSMBD_BATCH=$root/build/generated/game.cpp", "-DSMBD_SHADER_BANK=$shaderBank")
+        "-DSMBD_BATCH=$root/build/generated/game.cpp", "-DSMBD_SHADER_BANK=$shaderBank", "-DSMBD_BUILD_WORKERS=$Workers")
     if ($Stage -eq 'Game') {
-        Invoke-Checked cmake @('--build', '--preset', 'release', '--target', 'smbd')
+        Invoke-Checked cmake @('--build', '--preset', 'release', '--target', 'smbd', '--parallel', "$Workers")
     } else {
-        Invoke-Checked cmake @('--build', '--preset', 'release')
+        Invoke-Checked cmake @('--build', '--preset', 'release', '--parallel', "$Workers")
         Invoke-Checked (Join-Path $root 'build\windows\Release\smbd-tool.exe') @('check-cpu', 'data/local/default.xbe')
         Invoke-Checked (Join-Path $root 'build\windows\Release\smbd-tool.exe') @('check-input')
         Invoke-Checked (Join-Path $root 'build\windows\Release\smbd-tool.exe') @('check-audio')
@@ -134,7 +135,7 @@ try {
 } finally {
     $workflowTimer.Stop()
     if (Test-Path -LiteralPath 'build/logs') {
-        [pscustomobject]@{stage=$Stage;seconds=$workflowTimer.Elapsed.TotalSeconds;passed=$succeeded} |
+        [pscustomobject]@{stage=$Stage;workers=$Workers;seconds=$workflowTimer.Elapsed.TotalSeconds;passed=$succeeded} |
             ConvertTo-Json | Set-Content -LiteralPath "build/logs/workflow-$($Stage.ToLowerInvariant())-timing.json" -Encoding utf8
     }
     Pop-Location

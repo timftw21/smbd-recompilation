@@ -2,6 +2,7 @@
 #include "callback_abis.h"
 #include "static_calls.h"
 #include "native_apis.h"
+#include "thread_abi.h"
 #include <algorithm>
 #include <deque>
 #include <map>
@@ -105,13 +106,16 @@ std::optional<std::uint32_t> constant_before(const Function& function,std::uint3
 }
 // A callback argument can be prepared on several branches before a shared call.
 // Keep each proven PUSH origin; stop on calls, stack changes or possible aliases.
-std::vector<const Instruction*> callback_pushes(const Function& function,std::uint32_t call,unsigned argument) {
+std::vector<const Instruction*> callback_pushes(const Function& function,std::uint32_t call,unsigned argument,bool* complete=nullptr) {
+    if(complete) *complete=true;
     struct State {std::uint32_t pc;unsigned remaining;};
     std::vector<State> pending;
     std::set<std::pair<std::uint32_t,unsigned>> seen;
     std::vector<const Instruction*> result;
     const auto queue=[&](std::uint32_t pc,unsigned remaining) {
-        if(seen.size()<128 && seen.emplace(pc,remaining).second) pending.push_back({pc,remaining});
+        if(seen.contains({pc,remaining})) return;
+        if(seen.size()>=128) {if(complete) *complete=false;return;}
+        seen.emplace(pc,remaining);pending.push_back({pc,remaining});
     };
     queue(call,argument);
     while(!pending.empty()) {
@@ -119,7 +123,10 @@ std::vector<const Instruction*> callback_pushes(const Function& function,std::ui
         const auto visit=[&](const Instruction& instruction) {
             const auto& ins=instruction.decoded;
             if(ins.meta.category==ZYDIS_CATEGORY_CALL || ins.meta.category==ZYDIS_CATEGORY_RET ||
-               ins.meta.category==ZYDIS_CATEGORY_INTERRUPT || ins.mnemonic==ZYDIS_MNEMONIC_HLT) return;
+               ins.meta.category==ZYDIS_CATEGORY_INTERRUPT || ins.mnemonic==ZYDIS_MNEMONIC_HLT) {
+                if(complete) *complete=false;
+                return;
+            }
             if(ins.mnemonic==ZYDIS_MNEMONIC_PUSH && ins.operand_width==32) {
                 if(!state.remaining) result.push_back(&instruction);
                 else queue(instruction.address,state.remaining-1);
@@ -128,54 +135,82 @@ std::vector<const Instruction*> callback_pushes(const Function& function,std::ui
             for(unsigned i=0;i<ins.operand_count;++i) {
                 const auto& operand=instruction.operands[i];
                 if(!(operand.actions&ZYDIS_OPERAND_ACTION_MASK_WRITE)) continue;
-                if(operand.type==ZYDIS_OPERAND_TYPE_REGISTER && general(operand.reg.value)==4) return;
+                if(operand.type==ZYDIS_OPERAND_TYPE_REGISTER && general(operand.reg.value)==4) {
+                    if(complete) *complete=false;
+                    return;
+                }
                 if(operand.type==ZYDIS_OPERAND_TYPE_MEMORY) {
-                    if(operand.mem.base!=ZYDIS_REGISTER_ESP || operand.mem.index!=ZYDIS_REGISTER_NONE) return;
+                    if(operand.mem.base!=ZYDIS_REGISTER_ESP || operand.mem.index!=ZYDIS_REGISTER_NONE) {
+                        if(complete) *complete=false;
+                        return;
+                    }
                     const auto start=operand.mem.disp.value;
                     const auto slot=static_cast<std::int64_t>(state.remaining)*4;
-                    if(start<slot+4 && start+(operand.size+7)/8>slot) return;
+                    if(start<slot+4 && start+(operand.size+7)/8>slot) {
+                        if(complete) *complete=false;
+                        return;
+                    }
                 }
             }
             queue(instruction.address,state.remaining);
         };
+        bool predecessor=false;
         if(const auto* before=previous(function,state.pc); before &&
            before->decoded.meta.category!=ZYDIS_CATEGORY_UNCOND_BR &&
            before->decoded.meta.category!=ZYDIS_CATEGORY_RET &&
-           before->decoded.meta.category!=ZYDIS_CATEGORY_INTERRUPT) visit(*before);
+           before->decoded.meta.category!=ZYDIS_CATEGORY_INTERRUPT) {predecessor=true;visit(*before);}
         for(const auto& edge:function.edges) if(edge.to==state.pc &&
-            (edge.kind=="jump" || edge.kind=="conditional" || edge.kind=="table-jump"))
+            (edge.kind=="jump" || edge.kind=="conditional" || edge.kind=="table-jump")) {
+            predecessor=true;
             visit(function.instructions.at(edge.from));
+        }
+        if(!predecessor && complete) *complete=false;
     }
     return result;
 }
 
-bool callback_preserves_target(Xbe& image,std::uint32_t target,int reg) {
-    const auto proof=std::ranges::find(callback_preservers,target,&CallbackPreserver::address);
-    if(proof==callback_preservers.end() || !(proof->mask&(1U<<reg))) return false;
+bool callback_preserves_target(Xbe& image,std::uint32_t target,int reg,std::uint32_t site=0) {
+    // Empty original callbacks preserve every general register except ESP.
+    // Prove this from the instruction itself instead of requiring a contract
+    // at each call to the game's shared no-op callback.
+    if(reg>=0 && reg<8 && reg!=4 && image.data(target,1).front()==std::byte{0xC3}) return true;
+    const auto proof=std::ranges::find_if(callback_preservers,[&](const CallbackPreserver& item) {
+        return item.address==target && (item.mask&(1U<<reg)) && (!item.site || item.site==site);
+    });
+    if(proof==callback_preservers.end()) return false;
     if(hex_bytes(image.data(proof->address,proof->prefix.size()/2))!=proof->prefix)
         throw std::runtime_error("Callback register preservation differs at "+hex32(proof->address));
     return true;
 }
 bool callback_preserves(Xbe& image,const Instruction& call,int reg) {
-    if(const auto target=call.target()) return callback_preserves_target(image,*target,reg);
-    return !call.jump_targets.empty() && std::ranges::all_of(call.jump_targets,[&](auto target) {return callback_preserves_target(image,target,reg);});
+    if(const auto target=call.target()) return callback_preserves_target(image,*target,reg,call.address);
+    return !call.jump_targets.empty() && std::ranges::all_of(call.jump_targets,[&](auto target) {return callback_preserves_target(image,target,reg,call.address);});
 }
 constexpr std::uint32_t kernel_preserved_registers=232; // EBX/EBP/ESI/EDI; native normal-return ABI.
 bool value_preserved(Xbe& image,const Instruction& call,unsigned reg) {
-    return (call.kernel_ordinal && (kernel_preserved_registers&(1U<<reg))) || callback_preserves(image,call,reg);
+    // Source recovery runs before final ordinal publication. A proved import
+    // slot already carries the same native register contract at this point.
+    const bool kernel=call.kernel_ordinal || (call.source_slot && image.kernel_import(*call.source_slot));
+    return (kernel && (kernel_preserved_registers&(1U<<reg))) || callback_preserves(image,call,reg);
 }
 // Discover code values along bounded predecessor paths. Internal calls are
 // barriers unless their original code proves that this register is preserved.
 std::vector<std::uint32_t> callback_values(Xbe& image,const Function& function,std::uint32_t pc,
-    const ZydisDecodedOperand& value) {
+    const ZydisDecodedOperand& value,bool* complete=nullptr) {
+    if(complete) *complete=true;
     if(value.type==ZYDIS_OPERAND_TYPE_IMMEDIATE) return {static_cast<std::uint32_t>(value.imm.value.u)};
-    if(value.type!=ZYDIS_OPERAND_TYPE_REGISTER || value.size!=32 || general(value.reg.value)<0) return {};
+    if(value.type!=ZYDIS_OPERAND_TYPE_REGISTER || value.size!=32 || general(value.reg.value)<0) {
+        if(complete) *complete=false;
+        return {};
+    }
     struct State {std::uint32_t pc;int reg;};
     std::vector<State> pending;
     std::set<std::pair<std::uint32_t,int>> seen;
     std::vector<std::uint32_t> result;
     const auto queue=[&](std::uint32_t at,int reg) {
-        if(reg>=0 && seen.size()<128 && seen.emplace(at,reg).second) pending.push_back({at,reg});
+        if(seen.contains({at,reg})) return;
+        if(reg<0 || seen.size()>=128 || at==function.entry) {if(complete) *complete=false;return;}
+        seen.emplace(at,reg);pending.push_back({at,reg});
     };
     queue(pc,general(value.reg.value));
     while(!pending.empty()) {
@@ -183,9 +218,12 @@ std::vector<std::uint32_t> callback_values(Xbe& image,const Function& function,s
         const auto visit=[&](const Instruction& instruction) {
             const auto& ins=instruction.decoded;const auto& operands=instruction.operands;
             if(ins.meta.category==ZYDIS_CATEGORY_RET || ins.meta.category==ZYDIS_CATEGORY_INTERRUPT ||
-               ins.mnemonic==ZYDIS_MNEMONIC_HLT) return;
+               ins.mnemonic==ZYDIS_MNEMONIC_HLT) {if(complete) *complete=false;return;}
             if(ins.meta.category==ZYDIS_CATEGORY_CALL) {
-                if(!callback_preserves(image,instruction,state.reg)) return;
+                if(!(complete?value_preserved(image,instruction,state.reg):callback_preserves(image,instruction,state.reg))) {
+                    if(complete) *complete=false;
+                    return;
+                }
                 queue(instruction.address,state.reg);return;
             }
             bool written=false;
@@ -193,32 +231,58 @@ std::vector<std::uint32_t> callback_values(Xbe& image,const Function& function,s
                 general(operands[i].reg.value)==state.reg && (operands[i].actions&ZYDIS_OPERAND_ACTION_MASK_WRITE);
             if(!written) {queue(instruction.address,state.reg);return;}
             if(operands[0].type!=ZYDIS_OPERAND_TYPE_REGISTER || operands[0].size!=32 ||
-               general(operands[0].reg.value)!=state.reg) return;
+               general(operands[0].reg.value)!=state.reg) {if(complete) *complete=false;return;}
             if(ins.mnemonic==ZYDIS_MNEMONIC_MOV) {
                 if(operands[1].type==ZYDIS_OPERAND_TYPE_IMMEDIATE) result.push_back(static_cast<std::uint32_t>(operands[1].imm.value.u));
                 else if(operands[1].type==ZYDIS_OPERAND_TYPE_REGISTER && operands[1].size==32)
                     queue(instruction.address,general(operands[1].reg.value));
+                else if(complete) *complete=false;
             } else if(ins.mnemonic==ZYDIS_MNEMONIC_LEA && operands[1].type==ZYDIS_OPERAND_TYPE_MEMORY &&
                 operands[1].mem.base==ZYDIS_REGISTER_NONE && operands[1].mem.index==ZYDIS_REGISTER_NONE)
                 result.push_back(static_cast<std::uint32_t>(operands[1].mem.disp.value));
             else if(ins.mnemonic==ZYDIS_MNEMONIC_XOR && operands[1].type==ZYDIS_OPERAND_TYPE_REGISTER &&
                     operands[1].size==32 && general(operands[1].reg.value)==state.reg) result.push_back(0);
+            else if(complete) *complete=false;
         };
+        bool predecessor=false;
         if(const auto* before=previous(function,state.pc); before &&
            before->decoded.meta.category!=ZYDIS_CATEGORY_UNCOND_BR &&
            before->decoded.meta.category!=ZYDIS_CATEGORY_RET &&
-           before->decoded.meta.category!=ZYDIS_CATEGORY_INTERRUPT) visit(*before);
+           before->decoded.meta.category!=ZYDIS_CATEGORY_INTERRUPT) {predecessor=true;visit(*before);}
         for(const auto& edge:function.edges) if(edge.to==state.pc &&
-            (edge.kind=="jump" || edge.kind=="conditional" || edge.kind=="table-jump"))
-            visit(function.instructions.at(edge.from));
+            (edge.kind=="jump" || edge.kind=="conditional" || edge.kind=="table-jump")) {
+            predecessor=true;visit(function.instructions.at(edge.from));
+        }
+        if(!predecessor && complete) *complete=false;
     }
     return result;
+}
+void resolve_constant_calls(Xbe& image,Function& function) {
+    if(function.budget_exhausted || std::ranges::any_of(function.instructions,[](const auto& item) {
+        const auto& instruction=item.second;
+        return instruction.decoded.meta.category==ZYDIS_CATEGORY_UNCOND_BR && !instruction.target() &&
+            !instruction.kernel_ordinal && instruction.jump_targets.empty();
+    })) return;
+    for(auto& [pc,instruction]:function.instructions) {
+        if(instruction.decoded.meta.category!=ZYDIS_CATEGORY_CALL || instruction.target() || instruction.kernel_ordinal ||
+           !instruction.jump_targets.empty() || instruction.operands[0].type!=ZYDIS_OPERAND_TYPE_REGISTER) continue;
+        bool complete=false;
+        auto targets=callback_values(image,function,pc,instruction.operands[0],&complete);
+        if(!complete || targets.empty() || std::ranges::find(targets,0U)!=targets.end()) continue;
+        try {for(auto target:targets) image.code_section(target);} catch(const std::exception&) {continue;}
+        std::ranges::sort(targets);targets.erase(std::unique(targets.begin(),targets.end()),targets.end());
+        instruction.jump_targets=targets;
+        std::erase_if(function.edges,[&](const Edge& edge) {return edge.from==pc && edge.kind=="call" && !edge.to;});
+        for(auto target:targets) {
+            function.edges.push_back({pc,"call",target});function.static_callbacks.push_back(target);
+        }
+    }
 }
 // A verified consumer identifies the callback field of a submitted record.
 // Follow that exact record register back to its field installation, keeping
 // unknown calls and register changes as barriers. This does not type the arena.
 std::vector<std::uint32_t> record_callback_values(Xbe& image,const Function& function,
-    const Instruction& argument,std::uint32_t field) {
+    std::uint32_t call,const Instruction& argument,std::uint32_t field) {
     const auto& pointer=argument.operands[0];
     if(pointer.type!=ZYDIS_OPERAND_TYPE_REGISTER || pointer.size!=32 || general(pointer.reg.value)<0) return {};
     struct State {std::uint32_t pc;int reg;};
@@ -229,6 +293,30 @@ std::vector<std::uint32_t> record_callback_values(Xbe& image,const Function& fun
         if(reg>=0 && seen.size()<128 && seen.emplace(pc,reg).second) pending.push_back({pc,reg});
     };
     queue(argument.address,general(pointer.reg.value));
+    // PUSH snapshots the pointer, not its record contents. The callback can
+    // still be installed between PUSH and CALL. Use the call-time register
+    // only when this straight-line interval retains the exact pushed pointer.
+    auto pc=call;
+    for(unsigned steps=0;pc!=argument.address && steps<128;++steps) {
+        if(std::ranges::any_of(function.edges,[&](const Edge& edge) {return edge.to==pc &&
+            (edge.kind=="jump" || edge.kind=="conditional" || edge.kind=="table-jump");})) break;
+        const auto* instruction=previous(function,pc);
+        if(!instruction || instruction->address<argument.address) break;
+        const auto& ins=instruction->decoded;
+        if(ins.meta.category==ZYDIS_CATEGORY_CALL || ins.meta.category==ZYDIS_CATEGORY_RET ||
+           ins.meta.category==ZYDIS_CATEGORY_COND_BR || ins.meta.category==ZYDIS_CATEGORY_UNCOND_BR ||
+           ins.meta.category==ZYDIS_CATEGORY_INTERRUPT) break;
+        bool changed=false;
+        for(unsigned i=0;i<ins.operand_count;++i) {
+            const auto& operand=instruction->operands[i];
+            changed |= operand.type==ZYDIS_OPERAND_TYPE_REGISTER &&
+                general(operand.reg.value)==general(pointer.reg.value) &&
+                (operand.actions&ZYDIS_OPERAND_ACTION_MASK_WRITE);
+        }
+        if(changed) break;
+        pc=instruction->address;
+        if(pc==argument.address) queue(call,general(pointer.reg.value));
+    }
     while(!pending.empty()) {
         const auto state=pending.back();pending.pop_back();
         const auto visit=[&](const Instruction& instruction) {
@@ -272,7 +360,34 @@ std::vector<std::uint32_t> record_callback_values(Xbe& image,const Function& fun
     }
     return result;
 }
-std::optional<std::uint32_t> stack_callback_before(const Function& function,std::uint32_t call,
+std::optional<std::uint32_t> stack_top_literal_before(const Function& function,std::uint32_t pc) {
+    for(unsigned steps=0;steps<128;++steps) {
+        if(std::ranges::any_of(function.edges,[&](const Edge& edge){return edge.to==pc &&
+            (edge.kind=="jump" || edge.kind=="conditional" || edge.kind=="table-jump");})) return {};
+        const auto* instruction=previous(function,pc);
+        if(!instruction) return {};
+        const auto& ins=instruction->decoded;
+        const auto& operands=instruction->operands;
+        if(ins.meta.category==ZYDIS_CATEGORY_CALL || ins.meta.category==ZYDIS_CATEGORY_COND_BR ||
+           ins.meta.category==ZYDIS_CATEGORY_UNCOND_BR || ins.meta.category==ZYDIS_CATEGORY_RET) return {};
+        if(ins.mnemonic==ZYDIS_MNEMONIC_PUSH && ins.operand_width==32)
+            return operands[0].type==ZYDIS_OPERAND_TYPE_IMMEDIATE?
+                std::optional<std::uint32_t>(static_cast<std::uint32_t>(operands[0].imm.value.u)):std::nullopt;
+        for(unsigned i=0;i<ins.operand_count;++i) {
+            const auto& operand=operands[i];
+            if(!(operand.actions&ZYDIS_OPERAND_ACTION_MASK_WRITE)) continue;
+            if(operand.type==ZYDIS_OPERAND_TYPE_REGISTER && general(operand.reg.value)==4) return {};
+            if(operand.type==ZYDIS_OPERAND_TYPE_MEMORY) {
+                if(operand.mem.base!=ZYDIS_REGISTER_ESP || operand.mem.index!=ZYDIS_REGISTER_NONE) return {};
+                const auto start=operand.mem.disp.value;
+                if(start<4 && start+(operand.size+7)/8>0) return {};
+            }
+        }
+        pc=instruction->address;
+    }
+    return {};
+}
+std::optional<std::uint32_t> stack_callback_before(Xbe& image,const Function& function,std::uint32_t call,
     const Instruction& argument,std::uint32_t field) {
     const auto& pointer=argument.operands[0];
     if(pointer.type!=ZYDIS_OPERAND_TYPE_REGISTER || pointer.size!=32) return {};
@@ -282,14 +397,27 @@ std::optional<std::uint32_t> stack_callback_before(const Function& function,std:
     std::optional<std::int64_t> slot;
     int wanted=-1;
     auto pc=call;
-    for(unsigned steps=0;steps<128;++steps) {
+    for(unsigned steps=0;steps<512;++steps) {
         if(std::ranges::any_of(function.edges,[&](const Edge& edge){return edge.to==pc &&
             (edge.kind=="jump" || edge.kind=="conditional" || edge.kind=="table-jump");})) return {};
         const auto* instruction=previous(function,pc);
         if(!instruction) return {};
         const auto& ins=instruction->decoded;
         const auto& operands=instruction->operands;
-        if(ins.meta.category==ZYDIS_CATEGORY_CALL || ins.meta.category==ZYDIS_CATEGORY_COND_BR ||
+        if(ins.meta.category==ZYDIS_CATEGORY_CALL) {
+            const auto target=instruction->target();
+            const auto proof=target?std::ranges::find(callback_stack_preservers,*target,&CallbackStackPreserver::address):callback_stack_preservers.end();
+            const auto index=stack_top_literal_before(function,instruction->address);
+            // The callee's return address and saved registers use memory below
+            // its caller's ESP, even when the callee does not write arguments.
+            if(!slot || *slot<delta || wanted>=0 || proof==callback_stack_preservers.end() || !index ||
+               *index<proof->index_min || *index>proof->index_max) return {};
+            if(hex_bytes(image.data(proof->address,proof->prefix.size()/2))!=proof->prefix)
+                throw std::runtime_error("Callback stack preservation differs at "+hex32(proof->address));
+            pc=instruction->address;
+            continue;
+        }
+        if(ins.meta.category==ZYDIS_CATEGORY_COND_BR ||
            ins.meta.category==ZYDIS_CATEGORY_UNCOND_BR || ins.meta.category==ZYDIS_CATEGORY_RET) return {};
         bool changes_stack=false;
         for(unsigned i=0;i<ins.operand_count;++i) changes_stack |= operands[i].type==ZYDIS_OPERAND_TYPE_REGISTER &&
@@ -453,7 +581,7 @@ void resolve_call_sources(Xbe& image,Function& function,bool publish=true) {
                 operands[1].mem.segment==ZYDIS_REGISTER_DS && operands[1].mem.base==ZYDIS_REGISTER_NONE &&
                 operands[1].mem.index==ZYDIS_REGISTER_NONE) {
                 const auto slot=static_cast<std::uint32_t>(operands[1].mem.disp.value);
-                if(const auto* import=image.kernel_import(slot)) state[target].ordinal=import->ordinal;
+                if(const auto* import=image.kernel_import(slot)) state[target]={slot,import->ordinal};
                 else state[target].slot=slot;
             }
         }
@@ -691,7 +819,7 @@ void resolve_table_pointers(Xbe& image,Function& function,std::span<const Decode
             });
             for(unsigned reg=0;reg<state.size();++reg) if(state[reg].kind &&
                 !(leaf && reg!=0) &&
-                !value_preserved(image,instruction,reg) && (callees.empty() || !std::ranges::all_of(callees,[&](auto target) {return callback_preserves_target(image,target,reg);}))) state[reg]={};
+                !value_preserved(image,instruction,reg) && (callees.empty() || !std::ranges::all_of(callees,[&](auto target) {return callback_preserves_target(image,target,reg,instruction.address);}))) state[reg]={};
             // Register preservation alone does not prove an object's vptr survived.
             if(!leaf) for(auto& value:state) if(value.kind==2) value={};
             Value returned;bool first=true;
@@ -745,9 +873,37 @@ Range filter_range(Range range,ZydisMnemonic branch,std::uint32_t bound,bool tak
     return enclosing(std::move(values));
 }
 std::map<std::uint32_t,std::vector<std::uint32_t>> bounded_tables(Xbe& image,const Function& function,
-    const std::set<std::uint32_t>& reconsider={}) {
+    const std::set<std::uint32_t>& reconsider={},std::set<std::uint32_t>* reachable=nullptr,
+    const std::set<std::uint32_t>& zero_loads={},std::set<std::uint32_t>* zero_branches=nullptr) {
     std::map<std::uint32_t,FlowState> states;
     std::deque<std::uint32_t> pending{function.entry}; states.emplace(function.entry,FlowState{});
+    const auto zero_test=[&](const FlowState& state,ZydisMnemonic branch)->std::optional<bool> {
+        if(zero_loads.empty() || state.compared<0) return {};
+        const auto range=state.registers[state.compared];
+        if(!state.test && !state.subtract && range.count==1) {
+            const auto a=range.first,b=state.immediate;
+            switch(branch) {
+            case ZYDIS_MNEMONIC_JZ:return a==b;
+            case ZYDIS_MNEMONIC_JNZ:return a!=b;
+            case ZYDIS_MNEMONIC_JB:return a<b;
+            case ZYDIS_MNEMONIC_JNB:return a>=b;
+            case ZYDIS_MNEMONIC_JBE:return a<=b;
+            case ZYDIS_MNEMONIC_JNBE:return a>b;
+            case ZYDIS_MNEMONIC_JL:return static_cast<std::int32_t>(a)<static_cast<std::int32_t>(b);
+            case ZYDIS_MNEMONIC_JNL:return static_cast<std::int32_t>(a)>=static_cast<std::int32_t>(b);
+            case ZYDIS_MNEMONIC_JLE:return static_cast<std::int32_t>(a)<=static_cast<std::int32_t>(b);
+            case ZYDIS_MNEMONIC_JNLE:return static_cast<std::int32_t>(a)>static_cast<std::int32_t>(b);
+            default:return {};
+            }
+        }
+        if(!state.test) return {};
+        if(range.count!=1 || (range.first&state.immediate)) return {};
+        switch(branch) {
+        case ZYDIS_MNEMONIC_JZ:case ZYDIS_MNEMONIC_JLE:return true;
+        case ZYDIS_MNEMONIC_JNZ:case ZYDIS_MNEMONIC_JNLE:return false;
+        default:return {};
+        }
+    };
     const auto update=[&](std::uint32_t pc,FlowState value) {
         if(!function.instructions.contains(pc)) return;
         const auto found=states.find(pc);
@@ -763,6 +919,7 @@ std::map<std::uint32_t,std::vector<std::uint32_t>> bounded_tables(Xbe& image,con
     while(!pending.empty() && ++iterations<=function.instructions.size()*32) {
         const auto pc=pending.front();pending.pop_front();
         const auto& instruction=function.instructions.at(pc); const auto& ins=instruction.decoded; const auto& operands=instruction.operands;
+        if(instruction.zero_guard || instruction.invalid_target) continue;
         auto state=states.at(pc); const auto original=state;
         const auto mnemonic=ins.mnemonic;
         for(unsigned i=0;i<ins.operand_count;++i) {
@@ -792,7 +949,8 @@ std::map<std::uint32_t,std::vector<std::uint32_t>> bounded_tables(Xbe& image,con
             const auto previous_range=original.registers[target];
             if(mnemonic==ZYDIS_MNEMONIC_POP) state.registers[target]=original.stack_top;
             else if(mnemonic==ZYDIS_MNEMONIC_MOV) {
-                if(immediate) state.registers[target]={value,1}; else if(source>=0 && operands[1].size==32) {
+                if(zero_loads.contains(pc)) state.registers[target]={0,1};
+                else if(immediate) state.registers[target]={value,1}; else if(source>=0 && operands[1].size==32) {
                     state.registers[target]=original.registers[source];state.nonzero_masks[target]=original.nonzero_masks[source];
                 }
             } else if((mnemonic==ZYDIS_MNEMONIC_XOR || mnemonic==ZYDIS_MNEMONIC_SUB) && source==target) state.registers[target]={0,1};
@@ -810,7 +968,10 @@ std::map<std::uint32_t,std::vector<std::uint32_t>> bounded_tables(Xbe& image,con
             } else if(mnemonic==ZYDIS_MNEMONIC_MOVZX && operands[1].size==8) {
                 state.registers[target]={0,256};
                 const auto& lookup=operands[1];
-                if(ins.address_width==32 && lookup.type==ZYDIS_OPERAND_TYPE_MEMORY && lookup.mem.segment==ZYDIS_REGISTER_DS) {
+                // EBP-based table indices default to SS. Both DS and SS are
+                // flat in the supported Xbox image; FS/GS are not.
+                if(ins.address_width==32 && lookup.type==ZYDIS_OPERAND_TYPE_MEMORY &&
+                   (lookup.mem.segment==ZYDIS_REGISTER_DS || lookup.mem.segment==ZYDIS_REGISTER_SS)) {
                     const auto index=lookup.mem.index==ZYDIS_REGISTER_NONE?general(lookup.mem.base):
                         lookup.mem.base==ZYDIS_REGISTER_NONE && lookup.mem.scale==1?general(lookup.mem.index):-1;
                     if(index>=0 && original.registers[index].count) {
@@ -833,9 +994,10 @@ std::map<std::uint32_t,std::vector<std::uint32_t>> bounded_tables(Xbe& image,con
                 state.registers[target]={previous_range.first+(mnemonic==ZYDIS_MNEMONIC_ADD?value:0U-value),previous_range.count};
             else if(mnemonic==ZYDIS_MNEMONIC_NEG && previous_range.count)
                 state.registers[target]={0U-(previous_range.first+previous_range.count-1),previous_range.count};
-            else if(mnemonic==ZYDIS_MNEMONIC_SHR && immediate && previous_range.count) {
+            else if((mnemonic==ZYDIS_MNEMONIC_SHR || (!zero_loads.empty() && mnemonic==ZYDIS_MNEMONIC_SHL)) && immediate && previous_range.count) {
                 std::vector<std::uint32_t> values;
-                for(unsigned i=0;i<previous_range.count;++i) values.push_back((previous_range.first+i)>>(value&31));
+                for(unsigned i=0;i<previous_range.count;++i) values.push_back(mnemonic==ZYDIS_MNEMONIC_SHR?
+                    (previous_range.first+i)>>(value&31):(previous_range.first+i)<<(value&31));
                 state.registers[target]=enclosing(std::move(values));
             }
             const bool constant_register=source>=0 && operands[1].size==32 && original.registers[source].count==1;
@@ -852,11 +1014,13 @@ std::map<std::uint32_t,std::vector<std::uint32_t>> bounded_tables(Xbe& image,con
             for(unsigned reg=0;reg<state.registers.size();++reg) if((state.registers[reg].count || state.nonzero_masks[reg]) && value_preserved(image,instruction,reg)) {
                 preserved.registers[reg]=state.registers[reg];preserved.nonzero_masks[reg]=state.nonzero_masks[reg];
             }
+            if(zero_loads.contains(pc)) preserved.registers[0]={0,1};
             update(next,preserved);continue;
         }
         if(category==ZYDIS_CATEGORY_RET || category==ZYDIS_CATEGORY_INTERRUPT || mnemonic==ZYDIS_MNEMONIC_INT3 || mnemonic==ZYDIS_MNEMONIC_HLT) continue;
         if(category==ZYDIS_CATEGORY_COND_BR) {
             for(bool taken:{false,true}) {
+                if(const auto known=zero_test(state,mnemonic);known && taken!=*known) continue;
                 auto edge_state=state;
                 if(state.compared>=0) {
                     const bool carry=mnemonic==ZYDIS_MNEMONIC_JB || mnemonic==ZYDIS_MNEMONIC_JNB;
@@ -876,6 +1040,13 @@ std::map<std::uint32_t,std::vector<std::uint32_t>> bounded_tables(Xbe& image,con
     }
     std::map<std::uint32_t,std::vector<std::uint32_t>> result;
     if(!pending.empty()) return result;
+    if(reachable) {
+        for(const auto& [pc,state]:states) {
+            reachable->insert(pc);
+            if(zero_branches && zero_test(state,function.instructions.at(pc).decoded.mnemonic)) zero_branches->insert(pc);
+        }
+        return result;
+    }
     for(const auto& [pc,instruction]:function.instructions) {
         const auto& operand=instruction.operands[0];
         if(instruction.decoded.meta.category!=ZYDIS_CATEGORY_UNCOND_BR || instruction.target() || instruction.kernel_ordinal ||
@@ -935,7 +1106,8 @@ std::optional<TableGuard> table_guard(Xbe& image, const Function& function, cons
         branch->operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER && branch->operands[0].reg.value == operand.mem.index &&
         branch->operands[1].type == ZYDIS_OPERAND_TYPE_MEMORY && branch->operands[1].size == 8 &&
         branch->operands[1].mem.base != ZYDIS_REGISTER_NONE && branch->operands[1].mem.index == ZYDIS_REGISTER_NONE &&
-        branch->operands[1].mem.segment == ZYDIS_REGISTER_DS && branch->operands[1].mem.disp.has_displacement) {
+        (branch->operands[1].mem.segment == ZYDIS_REGISTER_DS || branch->operands[1].mem.segment == ZYDIS_REGISTER_SS) &&
+        branch->operands[1].mem.disp.has_displacement) {
         lookup = &branch->operands[1];
         compared_register=lookup->mem.base;
         branch = skip_saves(previous(function, branch->address),compared_register);
@@ -982,6 +1154,443 @@ std::optional<std::uint32_t> indirect_slot(const Function& function,const Instru
        operand.mem.base==ZYDIS_REGISTER_NONE && operand.mem.index==ZYDIS_REGISTER_NONE && operand.mem.segment==ZYDIS_REGISTER_DS)
         return static_cast<std::uint32_t>(operand.mem.disp.value);
     return {};
+}
+namespace {
+// Unlike callback discovery, this requires every predecessor to prove zero.
+bool register_always_zero(Xbe& image,const Function& function,std::uint32_t pc,const ZydisDecodedOperand& value,
+                          const ImmutableZeroSlot& proof,bool require_source=false,std::uint32_t excluded_call=0) {
+    if(value.type!=ZYDIS_OPERAND_TYPE_REGISTER || value.size!=32 || general(value.reg.value)<0) return false;
+    using State=std::pair<std::uint32_t,int>;
+    std::vector<State> pending{{pc,general(value.reg.value)}};
+    std::set<State> seen;
+    bool established=false,unreachable=false,used_source=false;
+    while(!pending.empty()) {
+        const auto [at,reg]=pending.back();pending.pop_back();
+        if(!seen.emplace(at,reg).second) continue;
+        // A scoped incoming-register contract is anchored at its original read.
+        if(proof.source==at) {
+            const auto source=function.instructions.find(at);
+            if(source!=function.instructions.end()) {
+                const auto& read=source->second;
+                if(read.decoded.mnemonic==ZYDIS_MNEMONIC_TEST &&
+                   read.operands[0].type==ZYDIS_OPERAND_TYPE_REGISTER && read.operands[0].size==32 &&
+                   read.operands[1].type==ZYDIS_OPERAND_TYPE_REGISTER &&
+                   read.operands[0].reg.value==read.operands[1].reg.value && general(read.operands[0].reg.value)==reg) {
+                    if(proof.source_prefix.size()!=read.decoded.length*2 ||
+                       hex_bytes(image.data(at,read.decoded.length))!=proof.source_prefix)
+                        throw std::runtime_error("Immutable zero register read differs at "+hex32(at));
+                    established=used_source=true;continue;
+                }
+            }
+        }
+        if(seen.size()>256 || at==function.entry) return false;
+        std::vector<const Instruction*> predecessors;
+        if(const auto* before=previous(function,at); before &&
+           before->decoded.meta.category!=ZYDIS_CATEGORY_UNCOND_BR && before->decoded.meta.category!=ZYDIS_CATEGORY_RET &&
+           before->decoded.meta.category!=ZYDIS_CATEGORY_INTERRUPT && before->decoded.mnemonic!=ZYDIS_MNEMONIC_HLT)
+            predecessors.push_back(before);
+        for(const auto& edge:function.edges) if(edge.to==at &&
+            (edge.kind=="jump" || edge.kind=="conditional" || edge.kind=="table-jump"))
+            predecessors.push_back(&function.instructions.at(edge.from));
+        if(predecessors.empty()) return false;
+        for(const auto* instruction:predecessors) {
+            const auto& ins=instruction->decoded;const auto& operands=instruction->operands;
+            if(ins.meta.category==ZYDIS_CATEGORY_CALL && instruction->address==excluded_call) {
+                // Used only after this call's guard has passed the entry checks.
+                // A first execution cannot have this same call in its prefix.
+                unreachable=true;continue;
+            }
+            if(ins.meta.category==ZYDIS_CATEGORY_CALL && instruction->zero_guard) {
+                // No execution reaches a previously proved unreachable call's
+                // fallthrough. Every other predecessor must still prove zero.
+                unreachable=true;continue;
+            }
+            // A scoped zero-source fact may describe a getter's EAX result.
+            // It must cover the exact direct CALL; other call effects remain
+            // barriers, and alternate entries cannot inherit the receiver proof.
+            if(proof.source==instruction->address && reg==0 &&
+               ins.meta.category==ZYDIS_CATEGORY_CALL && instruction->target()) {
+                if(proof.source_prefix.size()!=ins.length*2 ||
+                   hex_bytes(image.data(proof.source,proof.source_prefix.size()/2))!=proof.source_prefix)
+                    throw std::runtime_error("Immutable zero return differs at "+hex32(proof.source));
+                established=used_source=true;continue;
+            }
+            if(ins.meta.category==ZYDIS_CATEGORY_CALL && !value_preserved(image,*instruction,static_cast<unsigned>(reg))) return false;
+            bool written=false;
+            for(unsigned i=0;i<ins.operand_count;++i) written |= operands[i].type==ZYDIS_OPERAND_TYPE_REGISTER &&
+                general(operands[i].reg.value)==reg && (operands[i].actions&ZYDIS_OPERAND_ACTION_MASK_WRITE);
+            if(!written) {pending.emplace_back(instruction->address,reg);continue;}
+            if(operands[0].type!=ZYDIS_OPERAND_TYPE_REGISTER || operands[0].size!=32 || general(operands[0].reg.value)!=reg)
+                return false;
+            if((ins.mnemonic==ZYDIS_MNEMONIC_XOR || ins.mnemonic==ZYDIS_MNEMONIC_SUB) &&
+               operands[1].type==ZYDIS_OPERAND_TYPE_REGISTER && operands[1].size==32 && general(operands[1].reg.value)==reg)
+                established=true;
+            else if(ins.mnemonic==ZYDIS_MNEMONIC_MOV && operands[1].type==ZYDIS_OPERAND_TYPE_IMMEDIATE && !operands[1].imm.value.u)
+                established=true;
+            else if(proof.source && instruction->address==proof.source && ins.mnemonic==ZYDIS_MNEMONIC_MOV &&
+                    operands[1].type==ZYDIS_OPERAND_TYPE_MEMORY && operands[1].size==32 &&
+                    (operands[1].mem.segment==ZYDIS_REGISTER_DS || operands[1].mem.segment==ZYDIS_REGISTER_SS)) {
+                if(proof.source_prefix.size()!=ins.length*2 ||
+                   hex_bytes(image.data(proof.source,proof.source_prefix.size()/2))!=proof.source_prefix)
+                    throw std::runtime_error("Immutable zero load differs at "+hex32(proof.source));
+                established=used_source=true;
+            }
+            else if(ins.mnemonic==ZYDIS_MNEMONIC_MOV && operands[1].type==ZYDIS_OPERAND_TYPE_MEMORY && operands[1].size==32 &&
+                    !proof.source &&
+                    operands[1].mem.segment==ZYDIS_REGISTER_DS && operands[1].mem.base==ZYDIS_REGISTER_NONE &&
+                    operands[1].mem.index==ZYDIS_REGISTER_NONE && operands[1].mem.disp.has_displacement &&
+                    static_cast<std::uint32_t>(operands[1].mem.disp.value)==proof.slot)
+                established=true;
+            else if(ins.mnemonic==ZYDIS_MNEMONIC_MOV && operands[1].type==ZYDIS_OPERAND_TYPE_REGISTER && operands[1].size==32 && general(operands[1].reg.value)>=0)
+                pending.emplace_back(instruction->address,general(operands[1].reg.value));
+            else return false;
+        }
+    }
+    return (established || unreachable) && (!require_source || used_source);
+}
+void verify_zero_source(Xbe& image,const ImmutableZeroSlot& proof) {
+    const bool zero_filled=std::ranges::any_of(image.sections,[&](const Section& section) {
+        if(!section.preloaded() || proof.slot<section.address) return false;
+        const auto offset=static_cast<std::uint64_t>(proof.slot)-section.address;
+        return offset>=std::min(section.size,section.raw_size) && offset+4<=section.size;
+    });
+    if(!image.supported() || (!proof.source && !zero_filled) || (!proof.native_thread &&
+       (proof.prefix.empty() || hex_bytes(image.data(proof.initializer,proof.prefix.size()/2))!=proof.prefix)))
+        throw std::runtime_error("Immutable zero callback proof differs at "+hex32(proof.slot));
+}
+bool fixed_zero_target(Xbe& image,const Function& function,const Instruction& call,const ImmutableZeroSlot& proof) {
+    if(function.budget_exhausted || proof.native_thread || (proof.source ? function.entry!=proof.owner : !proof.slot)) return false;
+    const auto category=call.decoded.meta.category;
+    if((category!=ZYDIS_CATEGORY_CALL && category!=ZYDIS_CATEGORY_UNCOND_BR) || call.target() ||
+       call.kernel_ordinal || call.tail_target || !call.jump_targets.empty() ||
+       (!proof.source && indirect_slot(function,call)!=proof.slot)) return false;
+    const auto& target=call.operands[0];
+    const bool field_dispatch=proof.source==call.address && target.type==ZYDIS_OPERAND_TYPE_MEMORY &&
+        target.size==32 && call.decoded.address_width==32 &&
+        (target.mem.segment==ZYDIS_REGISTER_DS || target.mem.segment==ZYDIS_REGISTER_SS);
+    if(proof.source && !field_dispatch) {
+        const auto source=function.instructions.find(proof.source);
+        if(source==function.instructions.end() || source->second.decoded.mnemonic!=ZYDIS_MNEMONIC_MOV ||
+           source->second.operands[0].type!=ZYDIS_OPERAND_TYPE_REGISTER || source->second.operands[0].size!=32 ||
+           source->second.operands[1].type!=ZYDIS_OPERAND_TYPE_MEMORY || source->second.operands[1].size!=32) return false;
+    }
+    if(target.type==ZYDIS_OPERAND_TYPE_REGISTER) {
+        if(!register_always_zero(image,function,call.address,target,proof,proof.source!=0)) return false;
+    } else if(field_dispatch) {
+        if(proof.source_prefix.size()!=call.decoded.length*2 ||
+           hex_bytes(image.data(call.address,call.decoded.length))!=proof.source_prefix)
+            throw std::runtime_error("Immutable zero dispatch differs at "+hex32(call.address));
+    } else if(proof.source || target.type!=ZYDIS_OPERAND_TYPE_MEMORY || target.size!=32 || call.decoded.address_width!=32 ||
+              target.mem.segment!=ZYDIS_REGISTER_DS || target.mem.base!=ZYDIS_REGISTER_NONE ||
+              target.mem.index!=ZYDIS_REGISTER_NONE || static_cast<std::uint32_t>(target.mem.disp.value)!=proof.slot) return false;
+    verify_zero_source(image,proof);
+    return true;
+}
+// A zero-initialized, never-written callback has no callable target. Retain the
+// original instructions, and prove the local zero guard before closing a use.
+std::optional<std::uint32_t> zero_callback_guard(Xbe& image,const Function& function,
+                                                  const Instruction& call,const ImmutableZeroSlot& proof) {
+    if(function.budget_exhausted) return {};
+    // Relative-field invariants include the original entry's receiver proof.
+    // An alternate entry cannot inherit that receiver contract.
+    if(proof.source && function.entry!=proof.owner) return {};
+    const auto category=call.decoded.meta.category;
+    if((category!=ZYDIS_CATEGORY_CALL && category!=ZYDIS_CATEGORY_UNCOND_BR) || call.target() ||
+       call.kernel_ordinal || call.tail_target || !call.jump_targets.empty() ||
+       (!proof.source && indirect_slot(function,call)!=proof.slot)) return {};
+    const auto source=function.instructions.find(proof.source);
+    if(proof.native_thread) {
+        if(source==function.instructions.end()) return {};
+        const auto& load=source->second;
+        const auto& field=load.operands[1];
+        const auto* root=previous(function,load.address);
+        if(load.decoded.mnemonic!=ZYDIS_MNEMONIC_MOV || load.decoded.address_width!=32 ||
+           load.operands[0].type!=ZYDIS_OPERAND_TYPE_REGISTER || load.operands[0].size!=32 ||
+           field.type!=ZYDIS_OPERAND_TYPE_MEMORY || field.size!=32 || field.mem.segment!=ZYDIS_REGISTER_DS ||
+           field.mem.index!=ZYDIS_REGISTER_NONE || general(field.mem.base)<0 ||
+           field.mem.disp.value!=NativeThreadAbi::optional_callbacks || !root ||
+           root->decoded.mnemonic!=ZYDIS_MNEMONIC_MOV || root->decoded.address_width!=32 ||
+           root->operands[0].type!=ZYDIS_OPERAND_TYPE_REGISTER || root->operands[0].size!=32 ||
+           root->operands[0].reg.value!=field.mem.base ||
+           root->operands[1].type!=ZYDIS_OPERAND_TYPE_MEMORY || root->operands[1].size!=32 ||
+           root->operands[1].mem.segment!=ZYDIS_REGISTER_FS ||
+           root->operands[1].mem.base!=ZYDIS_REGISTER_NONE || root->operands[1].mem.index!=ZYDIS_REGISTER_NONE ||
+           root->operands[1].mem.disp.value!=NativeThreadAbi::current)
+            throw std::runtime_error("Native thread zero source differs at "+hex32(proof.source));
+        // An entry or branch into the second load cannot inherit the FS root.
+        for(const auto& edge:function.edges) if(edge.to && *edge.to==load.address) return {};
+    }
+    const bool memory_read=proof.source && source!=function.instructions.end() &&
+        source->second.operands[0].type==ZYDIS_OPERAND_TYPE_MEMORY &&
+        (source->second.operands[0].mem.segment==ZYDIS_REGISTER_DS ||
+         source->second.operands[0].mem.segment==ZYDIS_REGISTER_SS) &&
+        (source->second.operands[0].size==8 || source->second.operands[0].size==32);
+    const bool memory_test=memory_read && source->second.decoded.mnemonic==ZYDIS_MNEMONIC_TEST &&
+        source->second.operands[1].type==ZYDIS_OPERAND_TYPE_IMMEDIATE;
+    const bool memory_compare=memory_read && source->second.decoded.mnemonic==ZYDIS_MNEMONIC_CMP &&
+        ((source->second.operands[1].type==ZYDIS_OPERAND_TYPE_IMMEDIATE && !source->second.operands[1].imm.value.u) ||
+         (source->second.operands[1].type==ZYDIS_OPERAND_TYPE_REGISTER && source->second.operands[1].size==32 &&
+          general(source->second.operands[1].reg.value)>=0));
+    const bool memory_guard=memory_test || memory_compare;
+    const auto& target=call.operands[0];
+    if(target.type==ZYDIS_OPERAND_TYPE_REGISTER) {
+        if(!memory_guard && !register_always_zero(image,function,call.address,target,proof,proof.source!=0)) return {};
+    } else if(memory_guard) {
+        // A declared zero memory comparison can exclude the whole call block.
+        if(target.type!=ZYDIS_OPERAND_TYPE_MEMORY || target.size!=32 ||
+           call.decoded.address_width!=32 || (target.mem.segment!=ZYDIS_REGISTER_DS &&
+           target.mem.segment!=ZYDIS_REGISTER_SS)) return {};
+    } else if(proof.source && target.type==ZYDIS_OPERAND_TYPE_MEMORY && target.size==32 &&
+              call.decoded.address_width==32 && target.mem.segment==ZYDIS_REGISTER_DS &&
+              target.mem.index==ZYDIS_REGISTER_NONE && general(target.mem.base)>=0) {
+        // A null record guard can also exclude CALL [record+offset]. Prove the
+        // record register, retaining both the original guard and memory operand.
+        ZydisDecodedOperand base{};
+        base.type=ZYDIS_OPERAND_TYPE_REGISTER;base.size=32;base.reg.value=target.mem.base;
+        if(!register_always_zero(image,function,call.address,base,proof,true)) return {};
+    } else if(proof.source || target.type!=ZYDIS_OPERAND_TYPE_MEMORY || target.size!=32 || call.decoded.address_width!=32 ||
+              target.mem.segment!=ZYDIS_REGISTER_DS || target.mem.base!=ZYDIS_REGISTER_NONE ||
+              target.mem.index!=ZYDIS_REGISTER_NONE || static_cast<std::uint32_t>(target.mem.disp.value)!=proof.slot) return {};
+    const auto checked_guard=[&](std::uint32_t guard)->std::optional<std::uint32_t> {
+        verify_zero_source(image,proof);
+        if(proof.source && (source==function.instructions.end() ||
+           proof.source_prefix.size()!=source->second.decoded.length*2 ||
+           hex_bytes(image.data(proof.source,proof.source_prefix.size()/2))!=proof.source_prefix))
+            throw std::runtime_error("Immutable zero read differs at "+hex32(proof.source));
+        // The guard excludes every entry to this call block. Prove its register
+        // operand on paths before a first call, including loop entry paths; a
+        // hypothetical earlier execution cannot establish that first execution.
+        if(memory_compare && source->second.operands[1].type==ZYDIS_OPERAND_TYPE_REGISTER &&
+           !register_always_zero(image,function,source->first,source->second.operands[1],proof,false,call.address)) return {};
+        return guard;
+    };
+    const Instruction* current=&call;
+    for(unsigned steps=0;steps<32;++steps) {
+        current=previous(function,current->address);
+        if(!current) break;
+        const auto& ins=current->decoded;
+        if(ins.meta.category==ZYDIS_CATEGORY_UNCOND_BR ||
+           ins.meta.category==ZYDIS_CATEGORY_RET || ins.meta.category==ZYDIS_CATEGORY_INTERRUPT) break;
+        if(ins.mnemonic!=ZYDIS_MNEMONIC_JZ || !current->target()) continue;
+        const auto* test=previous(function,current->address);
+        // Flag-neutral scheduling (for example POP ECX after TEST EAX,EAX)
+        // does not change the condition. Stop at the actual flag producer.
+        for(unsigned skipped=0;test && skipped<8;++skipped) {
+            const auto& decoded=test->decoded;
+            if(decoded.meta.category==ZYDIS_CATEGORY_CALL || decoded.meta.category==ZYDIS_CATEGORY_COND_BR ||
+               decoded.meta.category==ZYDIS_CATEGORY_UNCOND_BR || decoded.meta.category==ZYDIS_CATEGORY_RET ||
+               decoded.meta.category==ZYDIS_CATEGORY_INTERRUPT) {test=nullptr;break;}
+            if(decoded.cpu_flags && (decoded.cpu_flags->modified || decoded.cpu_flags->set_0 ||
+               decoded.cpu_flags->set_1 || decoded.cpu_flags->undefined)) break;
+            test=previous(function,test->address);
+        }
+        if(!test) continue;
+        const bool declared_test=memory_guard && test->address==proof.source;
+        if(memory_guard && !declared_test) continue;
+        if(!declared_test && (test->operands[0].type!=ZYDIS_OPERAND_TYPE_REGISTER || test->operands[0].size!=32)) continue;
+        if(*current->target()>test->address && *current->target()<=call.address) continue;
+        const bool test_zero=!declared_test && test->decoded.mnemonic==ZYDIS_MNEMONIC_TEST &&
+            test->operands[1].type==ZYDIS_OPERAND_TYPE_REGISTER &&
+            test->operands[1].reg.value==test->operands[0].reg.value;
+        const bool compare_zero=!declared_test && test->decoded.mnemonic==ZYDIS_MNEMONIC_CMP &&
+            register_always_zero(image,function,test->address,test->operands[1],proof);
+        if(!declared_test && ((!test_zero && !compare_zero) ||
+           !register_always_zero(image,function,test->address,test->operands[0],proof))) continue;
+        if(function.entry>test->address && function.entry<=call.address) return {};
+        for(const auto& edge:function.edges) {
+            if(edge.to && *edge.to>test->address && *edge.to<=call.address) return {};
+            if(!edge.to && edge.kind=="jump" && edge.from!=call.address) return {};
+        }
+        return checked_guard(test->address);
+    }
+    // The compiler may instead branch into a separate nonzero block after an
+    // early return. Require a terminated fallthrough and exactly one incoming
+    // edge, whose JNZ condition is proved false. Reject alternate/unknown edges.
+    const Instruction* block=&call;
+    bool terminated=false;
+    for(unsigned steps=0;steps<32;++steps) {
+        const auto* before=previous(function,block->address);
+        if(!before) return {};
+        const auto category=before->decoded.meta.category;
+        if(category==ZYDIS_CATEGORY_RET || category==ZYDIS_CATEGORY_UNCOND_BR ||
+           category==ZYDIS_CATEGORY_INTERRUPT || before->decoded.mnemonic==ZYDIS_MNEMONIC_HLT) {terminated=true;break;}
+        if(category==ZYDIS_CATEGORY_COND_BR) return {};
+        block=before;
+    }
+    if(!terminated || (function.entry>=block->address && function.entry<=call.address)) return {};
+    const Instruction* branch=nullptr;
+    for(const auto& edge:function.edges) {
+        if(!edge.to && edge.kind=="jump") return {};
+        if(!edge.to || *edge.to<block->address || *edge.to>call.address) continue;
+        if(branch || *edge.to!=block->address || edge.kind!="conditional") return {};
+        branch=&function.instructions.at(edge.from);
+    }
+    if(!branch || branch->decoded.mnemonic!=ZYDIS_MNEMONIC_JNZ) return {};
+    const auto* test=previous(function,branch->address);
+    if(!test) return {};
+    const bool declared_test=memory_guard && test->address==proof.source;
+    if(memory_guard && !declared_test) return {};
+    if(!declared_test) {
+        const auto& first=test->operands[0];const auto& second=test->operands[1];
+        if(first.type!=ZYDIS_OPERAND_TYPE_REGISTER || first.size!=32) return {};
+        const bool test_zero=test->decoded.mnemonic==ZYDIS_MNEMONIC_TEST && second.type==ZYDIS_OPERAND_TYPE_REGISTER &&
+            second.reg.value==first.reg.value;
+        const bool compare_zero=test->decoded.mnemonic==ZYDIS_MNEMONIC_CMP &&
+            register_always_zero(image,function,test->address,second,proof);
+        if((!test_zero && !compare_zero) || !register_always_zero(image,function,test->address,first,proof)) return {};
+    }
+    return checked_guard(test->address);
+}
+// Reuse the bounded register flow for a scoped zero load controlling an entire
+// block or loop. Dispatches retain their original operands and still fail if the
+// contract is violated; only proved unreachable edges lose their unknown status.
+void zero_conditioned_dispatches(Xbe& image,Function& function) {
+    if(function.budget_exhausted) return;
+    std::set<std::uint32_t> sources;
+    for(const auto& proof:immutable_zero_slots) {
+        if(proof.owner!=function.entry || !proof.source || proof.native_thread) continue;
+        const auto at=function.instructions.find(proof.source);
+        if(at==function.instructions.end()) continue;
+        const auto& source=at->second;
+        const bool zero_return=source.decoded.meta.category==ZYDIS_CATEGORY_CALL && source.target();
+        const bool zero_read=source.decoded.mnemonic==ZYDIS_MNEMONIC_MOV &&
+            source.operands[0].type==ZYDIS_OPERAND_TYPE_REGISTER && source.operands[0].size==32 &&
+            general(source.operands[0].reg.value)>=0 && source.operands[1].type==ZYDIS_OPERAND_TYPE_MEMORY &&
+            source.operands[1].size==32 && (source.operands[1].mem.segment==ZYDIS_REGISTER_DS || source.operands[1].mem.segment==ZYDIS_REGISTER_SS);
+        if(!zero_read && !zero_return) continue;
+        if(!image.supported() || proof.prefix.empty() ||
+           hex_bytes(image.data(proof.initializer,proof.prefix.size()/2))!=proof.prefix ||
+           proof.source_prefix.size()!=source.decoded.length*2 ||
+           hex_bytes(image.data(proof.source,source.decoded.length))!=proof.source_prefix)
+            throw std::runtime_error("Scoped zero flow proof differs at "+hex32(proof.source));
+        sources.insert(proof.source);
+    }
+    if(sources.empty()) return;
+    std::set<std::uint32_t> live,guards;
+    // Related empty fields must participate in the same fixed point: an
+    // impossible callback in one branch cannot erase facts on a loop backedge.
+    bounded_tables(image,function,{},&live,sources,&guards);
+    if(!live.contains(function.entry) || guards.empty()) return;
+    // An unknown jump is a barrier if it remains reachable: its unknown
+    // destination could enter any otherwise excluded block. A jump already
+    // excluded by this zero guard cannot supply such an alternate entry.
+    if(std::ranges::any_of(function.instructions,[&](const auto& item) {
+        const auto& instruction=item.second;
+        return live.contains(item.first) && instruction.decoded.meta.category==ZYDIS_CATEGORY_UNCOND_BR &&
+            !instruction.target() && !instruction.tail_target && instruction.jump_targets.empty() &&
+            !instruction.kernel_ordinal && !instruction.zero_guard && !instruction.invalid_target;
+    })) return;
+    for(auto& [pc,instruction]:function.instructions)
+        if((instruction.decoded.meta.category==ZYDIS_CATEGORY_CALL || instruction.decoded.meta.category==ZYDIS_CATEGORY_UNCOND_BR) &&
+           !instruction.target() && !instruction.tail_target &&
+           !instruction.kernel_ordinal && instruction.jump_targets.empty() && !instruction.zero_guard &&
+           !instruction.invalid_target && !live.contains(pc)) {
+            instruction.zero_guard=*guards.begin();instruction.zero_source=*sources.begin();
+            if(sources.size()>1) instruction.zero_sources.assign(sources.begin(),sources.end());
+        }
+}
+bool excluded_by_branch(const Function& function,std::uint32_t branch,bool taken,std::uint32_t excluded) {
+    std::set<std::uint32_t> live;
+    std::deque<std::uint32_t> pending{function.entry};
+    const auto add=[&](std::uint32_t pc) {if(function.instructions.contains(pc)) pending.push_back(pc);};
+    while(!pending.empty()) {
+        const auto pc=pending.front();pending.pop_front();if(!live.insert(pc).second) continue;
+        const auto& instruction=function.instructions.at(pc);const auto& ins=instruction.decoded;
+        const auto target=instruction.target();const auto next=pc+ins.length;
+        if(ins.meta.category==ZYDIS_CATEGORY_COND_BR) {
+            if(pc!=branch || !taken) add(next);
+            if(target && (pc!=branch || taken)) add(*target);
+        } else if(ins.meta.category==ZYDIS_CATEGORY_UNCOND_BR) {
+            if(target) add(*target);
+            else if(!instruction.tail_dispatch) {
+                if(instruction.jump_targets.empty() && !instruction.zero_guard && !instruction.invalid_target) return false;
+                for(auto destination:instruction.jump_targets) add(destination);
+            }
+        } else if(ins.meta.category!=ZYDIS_CATEGORY_RET && ins.meta.category!=ZYDIS_CATEGORY_INTERRUPT &&
+                  ins.mnemonic!=ZYDIS_MNEMONIC_INT3 && ins.mnemonic!=ZYDIS_MNEMONIC_HLT) add(next);
+    }
+    return live.contains(branch) && !live.contains(excluded);
+}
+bool flags_reach_branch(const Function& function,const Instruction& source,std::uint32_t branch) {
+    auto pc=source.address+source.decoded.length;
+    for(unsigned steps=0;pc!=branch;++steps) {
+        if(steps==8 || pc>branch || !function.instructions.contains(pc)) return false;
+        const auto& ins=function.instructions.at(pc).decoded;
+        if(ins.meta.category==ZYDIS_CATEGORY_CALL || ins.meta.category==ZYDIS_CATEGORY_COND_BR ||
+           ins.meta.category==ZYDIS_CATEGORY_UNCOND_BR || ins.meta.category==ZYDIS_CATEGORY_RET ||
+           ins.meta.category==ZYDIS_CATEGORY_INTERRUPT || ins.mnemonic==ZYDIS_MNEMONIC_INT3 || ins.mnemonic==ZYDIS_MNEMONIC_HLT ||
+           (ins.cpu_flags && (ins.cpu_flags->modified || ins.cpu_flags->set_0 || ins.cpu_flags->set_1 || ins.cpu_flags->undefined))) return false;
+        pc+=ins.length;
+    }
+    return !(function.entry>source.address && function.entry<=branch) && std::ranges::none_of(function.edges,[&](const Edge& edge) {
+        return edge.to && *edge.to>source.address && *edge.to<=branch &&
+            (edge.kind=="jump" || edge.kind=="conditional" || edge.kind=="table-jump");
+    });
+}
+void resolve_guarded_entries(Xbe& image,Function& function,Decoder& decoder) {
+    for(const auto& contract:guarded_entries) {
+        if(contract.entry!=function.entry || !function.instructions.contains(contract.site)) continue;
+        auto& call=function.instructions.at(contract.site);
+        if(call.target() || call.kernel_ordinal || call.zero_guard || call.invalid_target || !call.jump_targets.empty()) continue;
+        const auto matches=[&](std::uint32_t pc,std::string_view prefix) {
+            return !prefix.empty() && hex_bytes(image.data(pc,prefix.size()/2))==prefix;
+        };
+        if(!image.supported() || function.budget_exhausted ||
+           (call.decoded.meta.category!=ZYDIS_CATEGORY_CALL && call.decoded.meta.category!=ZYDIS_CATEGORY_UNCOND_BR) ||
+           !matches(contract.entry,contract.prefix) ||
+           !matches(contract.site,contract.site_prefix) || contract.site_prefix.size()!=call.decoded.length*2 ||
+           std::ranges::any_of(guarded_entries,[&](const GuardedEntry& other) {return other.entry==contract.guard_owner;}))
+            throw std::runtime_error("Guarded entry proof differs at "+hex32(contract.entry));
+        const auto proof=std::ranges::find_if(immutable_zero_slots,[&](const ImmutableZeroSlot& item) {
+            return item.owner==contract.guard_owner && item.source==contract.source && !item.native_thread;
+        });
+        if(proof==std::end(immutable_zero_slots)) throw std::runtime_error("Guarded entry has no zero-source contract");
+        auto owner=recover(image,contract.guard_owner,8192,decoder);
+        if(owner.budget_exhausted || !owner.instructions.contains(contract.source) ||
+           !owner.instructions.contains(contract.branch) || !owner.instructions.contains(contract.blocked))
+            throw std::runtime_error("Guarded entry owner is incomplete at "+hex32(contract.guard_owner));
+        const auto& source=owner.instructions.at(contract.source);const auto& branch=owner.instructions.at(contract.branch);
+        const auto& blocked=owner.instructions.at(contract.blocked);
+        if(!matches(contract.source,proof->source_prefix) || proof->source_prefix.size()!=source.decoded.length*2 ||
+           !matches(contract.branch,contract.branch_prefix) || contract.branch_prefix.size()!=branch.decoded.length*2 ||
+           !matches(contract.blocked,contract.blocked_prefix) || contract.blocked_prefix.size()!=blocked.decoded.length*2 ||
+           branch.decoded.meta.category!=ZYDIS_CATEGORY_COND_BR || blocked.target()!=contract.target ||
+           (blocked.decoded.meta.category!=ZYDIS_CATEGORY_CALL && blocked.decoded.meta.category!=ZYDIS_CATEGORY_UNCOND_BR))
+            throw std::runtime_error("Guarded entry caller differs at "+hex32(contract.blocked));
+        verify_zero_source(image,*proof);
+        bool excluded=false;
+        const auto& operand=source.operands[0];
+        if((source.decoded.mnemonic==ZYDIS_MNEMONIC_CMP || source.decoded.mnemonic==ZYDIS_MNEMONIC_TEST) &&
+           operand.type==ZYDIS_OPERAND_TYPE_MEMORY &&
+           (operand.size==8 || operand.size==16 || operand.size==32) &&
+           (operand.mem.segment==ZYDIS_REGISTER_DS || operand.mem.segment==ZYDIS_REGISTER_SS) &&
+           source.operands[1].type==ZYDIS_OPERAND_TYPE_IMMEDIATE && flags_reach_branch(owner,source,contract.branch) &&
+           (branch.decoded.mnemonic==ZYDIS_MNEMONIC_JZ || branch.decoded.mnemonic==ZYDIS_MNEMONIC_JNZ) &&
+           owner.entry!=contract.branch) {
+            const auto mask=operand.size==32?UINT32_MAX:(1U<<operand.size)-1;
+            const bool equal=source.decoded.mnemonic==ZYDIS_MNEMONIC_TEST || (source.operands[1].imm.value.u&mask)==0;
+            excluded=excluded_by_branch(owner,contract.branch,branch.decoded.mnemonic==ZYDIS_MNEMONIC_JZ?equal:!equal,contract.blocked);
+        } else {
+            const bool read=source.decoded.mnemonic==ZYDIS_MNEMONIC_MOV && operand.type==ZYDIS_OPERAND_TYPE_REGISTER &&
+                operand.size==32 && source.operands[1].type==ZYDIS_OPERAND_TYPE_MEMORY && source.operands[1].size==32 &&
+                (source.operands[1].mem.segment==ZYDIS_REGISTER_DS || source.operands[1].mem.segment==ZYDIS_REGISTER_SS);
+            const bool returned=source.decoded.meta.category==ZYDIS_CATEGORY_CALL && source.target();
+            if(read || returned) {
+                std::set<std::uint32_t> live,guards;bounded_tables(image,owner,{},&live,{contract.source},&guards);
+                const bool unknown_jump=std::ranges::any_of(owner.instructions,[&](const auto& item) {
+                    const auto& instruction=item.second;
+                    return live.contains(item.first) && instruction.decoded.meta.category==ZYDIS_CATEGORY_UNCOND_BR &&
+                        !instruction.target() && !instruction.tail_target && instruction.jump_targets.empty() &&
+                        !instruction.kernel_ordinal && !instruction.zero_guard && !instruction.invalid_target;
+                });
+                excluded=!unknown_jump && live.contains(owner.entry) && live.contains(contract.source) &&
+                    guards.contains(contract.branch) && !live.contains(contract.blocked);
+            }
+        }
+        if(!excluded) throw std::runtime_error("Guard does not exclude the original caller at "+hex32(contract.blocked));
+        call.zero_guard=contract.branch;call.zero_source=contract.source;call.guard_owner=contract.guard_owner;
+    }
+}
 }
 Decoder::Decoder() {
     if (!ZYAN_SUCCESS(ZydisDecoderInit(&decoder_, ZYDIS_MACHINE_MODE_LEGACY_32, ZYDIS_STACK_WIDTH_32)) ||
@@ -1052,6 +1661,30 @@ std::string Instruction::report() const {
         << json(hex_bytes(Bytes(bytes).first(decoded.length))) << ",\"text\":" << json(text);
     if (const auto dest = target()) out << ",\"target\":" << json(hex32(*dest));
     if (kernel_ordinal) out << ",\"kernel_ordinal\":" << *kernel_ordinal;
+    if (tail_target) out << ",\"tail_target\":" << json(hex32(*tail_target));
+    if (tail_dispatch) out << ",\"tail_dispatch\":true";
+    if(!null_sources.empty()) {
+        out << ",\"fault_targets\":[\"0x00000000\"],\"fault_literals\":[";
+        for(unsigned i=0;i<null_sources.size();++i) {if(i) out<<',';out<<json(hex32(null_sources[i]));}
+        out << ']';
+    }
+    if (invalid_target) {
+        out << ",\"proven_fault\":true,\"fault_target\":" << json(hex32(*invalid_target));
+        if(zero_source) out << ",\"zero_source\":" << json(hex32(*zero_source));
+        else out << ",\"source_slot\":" << json(hex32(*source_slot));
+    }
+    if (zero_guard) {
+        out << ",\"proven_unreachable\":true,\"zero_guard\":" << json(hex32(*zero_guard));
+        if(zero_source) out << ",\"zero_source\":" << json(hex32(*zero_source));
+        else out << ",\"source_slot\":" << json(hex32(*source_slot));
+        if(native_zero_source) out << ",\"zero_contract\":\"empty-thread-callback-record\"";
+        if(guard_owner) out << ",\"guard_owner\":" << json(hex32(*guard_owner));
+        if(!zero_sources.empty()) {
+            out << ",\"zero_sources\":[";
+            for(unsigned i=0;i<zero_sources.size();++i) {if(i) out<<',';out<<json(hex32(zero_sources[i]));}
+            out << ']';
+        }
+    }
     if (!jump_targets.empty()) {
         out << ",\"jump_targets\":[";
         for (std::size_t i = 0; i < jump_targets.size(); ++i) {
@@ -1211,6 +1844,10 @@ Function recover(Xbe& image, std::uint32_t address, std::uint32_t instruction_bu
             throw std::runtime_error("Invalid static call table bounds");
         for (auto slot=table.start;slot<table.end;slot+=table.stride) {
             const auto target=u32(image.data(slot,4),0);
+            if(table.null_fault) {
+                if(target) throw std::runtime_error("Null callback literal differs at "+hex32(slot));
+                call.null_sources.push_back(slot);continue;
+            }
             if (!target || target==UINT32_MAX) continue;
             image.code_section(target);
             call.jump_targets.push_back(target);
@@ -1235,7 +1872,27 @@ Function recover(Xbe& image, std::uint32_t address, std::uint32_t instruction_bu
         }
     }
     resolve_call_sources(image,function);
+    resolve_constant_calls(image,function);
     if(!function.budget_exhausted) resolve_table_pointers(image,function,decoder.pointer_sources(image));
+    for(auto& [pc,instruction]:function.instructions) for(const auto& proof:immutable_zero_slots)
+        if(const auto guard=zero_callback_guard(image,function,instruction,proof)) {
+            instruction.zero_guard=*guard;
+            if(proof.source) instruction.zero_source=proof.source;
+            else instruction.source_slot=proof.slot;
+            instruction.native_zero_source=proof.native_thread;
+            break;
+        }
+    zero_conditioned_dispatches(image,function);
+    resolve_guarded_entries(image,function,decoder);
+    // Prefer a dominating guard to a fault classification, including guards
+    // established by scoped control-flow analysis above.
+    for(auto& [pc,instruction]:function.instructions) if(!instruction.zero_guard)
+        for(const auto& proof:immutable_zero_slots) if(fixed_zero_target(image,function,instruction,proof)) {
+            instruction.invalid_target=0;
+            if(proof.source) instruction.zero_source=proof.source;
+            else instruction.source_slot=proof.slot;
+            break;
+        }
     // Bounds propagation and guard invalidation can both change a dispatch.
     // Report unresolved edges from the final instruction state.
     std::erase_if(function.edges,[&](const auto& edge) {
@@ -1245,7 +1902,12 @@ Function recover(Xbe& image, std::uint32_t address, std::uint32_t instruction_bu
     function.unresolved=false;
     for(const auto& [pc,instruction]:function.instructions) {
         const auto category=instruction.decoded.meta.category;
-        if((category==ZYDIS_CATEGORY_CALL || category==ZYDIS_CATEGORY_UNCOND_BR) && !instruction.target() &&
+        if(!instruction.null_sources.empty()) function.edges.push_back({pc,"fault",0});
+        if(instruction.zero_guard) {
+            function.edges.push_back({pc,"unreachable",std::nullopt});
+        } else if(instruction.invalid_target) {
+            function.edges.push_back({pc,"fault",instruction.invalid_target});
+        } else if((category==ZYDIS_CATEGORY_CALL || category==ZYDIS_CATEGORY_UNCOND_BR) && !instruction.target() &&
            !instruction.kernel_ordinal && instruction.jump_targets.empty()) {
             function.unresolved=true;
             function.edges.push_back({pc,category==ZYDIS_CATEGORY_CALL?"call":"jump",std::nullopt});
@@ -1301,8 +1963,8 @@ Function recover(Xbe& image, std::uint32_t address, std::uint32_t instruction_bu
                 if(abi.offsets[i]>=0) {
                     if(!target) {
                         const auto field=static_cast<std::uint32_t>(abi.offsets[i]);
-                        target=stack_callback_before(function,pc,*argument,field);
-                        if(!target) for(const auto candidate:record_callback_values(image,function,*argument,field))
+                        target=stack_callback_before(image,function,pc,*argument,field);
+                        if(!target) for(const auto candidate:record_callback_values(image,function,pc,*argument,field))
                             if(candidate) {image.code_section(candidate);function.static_callbacks.push_back(candidate);}
                     }
                     else if(*target) {
@@ -1349,7 +2011,44 @@ Function recover(Xbe& image, std::uint32_t address, std::uint32_t instruction_bu
 }
 
 std::string analyse(Xbe& image, std::uint32_t address, std::uint32_t instruction_budget) {
-    const auto function = recover(image, address, instruction_budget);
+    Decoder decoder;
+    return analyse(image,address,instruction_budget,decoder);
+}
+
+std::string analyse_arguments(Xbe& image,std::uint32_t address,std::uint32_t callee,unsigned argument,std::uint32_t instruction_budget) {
+    const auto function=recover(image,address,instruction_budget);
+    bool complete=!function.budget_exhausted && std::ranges::none_of(function.instructions,[](const auto& item) {
+        const auto& instruction=item.second;
+        return instruction.decoded.meta.category==ZYDIS_CATEGORY_UNCOND_BR && !instruction.target() &&
+            instruction.jump_targets.empty() && !instruction.zero_guard;
+    });
+    std::ostringstream out;
+    out << "{\"format\":\"smbd-arguments-v1\",\"sha256\":" << json(image.sha256)
+        << ",\"entry\":" << json(hex32(address)) << ",\"callee\":" << json(hex32(callee))
+        << ",\"argument\":" << argument << ",\"instruction_count\":" << function.instructions.size() << ",\"calls\":[";
+    bool first=true;
+    for(const auto& [pc,instruction]:function.instructions) {
+        if(instruction.decoded.meta.category!=ZYDIS_CATEGORY_CALL || instruction.target()!=callee) continue;
+        if(!first) out << ',';
+        first=false;
+        bool origins_complete;
+        const auto origins=callback_pushes(function,pc,argument,&origins_complete);
+        complete &= origins_complete && !origins.empty();
+        out << "{\"address\":" << json(hex32(pc)) << ",\"origins_complete\":" << (origins_complete?"true":"false") << ",\"pushes\":[";
+        for(std::size_t i=0;i<origins.size();++i) {
+            if(i) out << ',';
+            const auto& origin=*origins[i];
+            const auto literal=constant_before(function,origin.address,origin.operands[0]);
+            complete &= literal.has_value();
+            out << "{\"instruction\":" << origin.report() << ",\"literal\":" << (literal?json(hex32(*literal)):"null") << '}';
+        }
+        out << "]}";
+    }
+    return out.str()+"],\"complete\":"+(complete && !first?"true":"false")+'}';
+}
+
+std::string analyse(Xbe& image, std::uint32_t address, std::uint32_t instruction_budget, Decoder& decoder) {
+    const auto function = recover(image, address, instruction_budget,decoder);
     std::ostringstream out;
     out << "{\"format\":\"smbd-analysis-v1\",\"sha256\":" << json(image.sha256)
         << ",\"entry\":" << json(hex32(address)) << ",\"instruction_count\":" << function.instructions.size()

@@ -242,3 +242,951 @@ contains 168 observed remaining sites, including 64 stream-interface candidates.
 933A334 remains unresolved; failure to find or observe a writer is not proof
 that it is always null. Generic MPEG receivers and imported stream descriptors
 still need complete producer proofs. No null-callback assumptions were added.
+
+2026-10-26: Reproducible recovery work packets
+
+tools/Recover-Calls.ps1 provides the recovery loop:
+  Plan     refresh Analysis and rank the complete queue.
+  Prepare  select related families, preserve a baseline and inspect their code.
+  Inspect  continue pending functions, or follow explicit -Entry addresses.
+  Check    refresh Analysis and compare the result with the preserved baseline.
+Use -Family to select exact queue IDs. Defer -Family ID -Reason TEXT records a
+specific missing proof; Resume -Family ID returns it to the active queue.
+Deferred sites remain counted. Failed checks retain the baseline for repair.
+
+The queue assigns every unresolved instruction exactly once: exact global
+slots, indexed tables, observed receiver candidates, then local owners. Method
+offsets alone do not combine object types. Preparation batches shared producers
+and consumers, joining original bytes, writes, address uses, constructors,
+existing pointer-source contracts and known callers. The packet states the
+remaining proof obligations. Indexed callers/writes and observations are leads,
+not exhaustive writer/alias proofs. It never writes proof facts automatically.
+
+Private queue, packet, baseline and check reports are under
+build/logs/call-workflow/. Audit the packet, add proven shared facts to
+knowledge/static_calls.json or improve general recovery, then run Check.
+Use Build.ps1 -Stage Game -AllowPartial after batching verified families;
+reserve All and runtime checks for runtime changes or milestone validation.
+
+The existing native tool now accepts analyse-set, sharing its decoder across
+at most 64 explicit functions and 131072 scheduled instructions per invocation.
+It writes one report at a time and fails explicitly on exhausted budgets.
+Inspect defaults to 2048 instructions per function; -Instructions can raise
+that to 8192 while reducing the batch size to retain the total bound. Tool/image
+identity controls reuse. The cache is bounded to 128 reports / 64 MiB; -Entry
+reopens an evicted lead. No binary scan, extra executable or game run is needed.
+
+Check rejects lost functions, calls, callbacks, imports, prior target bindings,
+instruction-count decreases, reopened closed functions, new unknowns and
+translation/budget failures. Each closure must retain the original instruction
+bytes with a target binding in every previous owner. Native API changes are
+reported separately and require investigation. A lower unknown count alone
+does not pass. Semantic producer/alias proofs still require review.
+
+Validation: all 774 sites appear once in 438 work families. The first connected
+packet covers 76 sites and 58 functions. All 9756 previous function reports are
+preserved apart from the new resolved-binding evidence; generated code remains
+unchanged. A warm Analysis plus coverage check took 8.02 seconds. Bounded native
+inspection, cache reuse, defer/resume, rejection of deliberate regressions and
+acceptance of actual byte/target bindings were exercised with private reports.
+No call targets were newly claimed by this workflow change; 774 remain.
+
+2026-10-26: Recovery workflow execution, first 29 closures
+
+Native producer proofs reduce 774 sites to 745 with all 9756 functions retained.
+The first Check accepted eight closures; the second accepted 21. Neither added
+unknown sites or lost previous instruction/call/callback/import/target coverage.
+Generation now covers 816942 instructions. The game has not yet been relinked
+for these proofs; previous gameplay and CPU/audio results remain historical.
+
+Temporary wave-reader records [95ECA0,95F0E0), stride 44, have one nonzero +8
+writer: 2C7D8F saves the 2D2CE0 result. Pool initialization/release only clear it.
+The embedded Sofdec ADX worker (main+33C0 through main+1FFC) has one nonzero +4
+writer: 2DDD46 saves another 2D2CE0 result. Complete worker aliases preserve that
+field; this proves the 2DCD00/2DCD20 operations and 2DD6B0 release. Player +1F4
+and the complete 2EDDF0 temporary wrapper instead retain 2D3330 objects.
+
+The MPEG codec's 16-option default block is copied from 462828 through 94E238.
+Complete setters 2EC010, 2DE020, 2DE0E0 and their callers preserve option 4=0
+and option 8=BA870. Save/restore 2DE090 bounds the copy to 16 options. Initializer
+2EC1B0 builds the transform arrays; picture parser 2EC670 installs the slice
+and transform pointers. Its three-bit slice selector has four executable entries,
+a null and three string words. Invalid entries retain the dispatch failure path.
+All four slice bodies preserve +2C8/+2CC/+2D0 and the option callback. The B-slice
+may select +2D4 from four adjacent transform fields, so its proof includes all
+three original nonzero functions. Exact sites, original target literals, byte
+prefixes and producer evidence are recorded together in static_calls.json.
+
+The remaining shared MPEG stream chain needs its imported descriptor proof.
+2E9430 creates local descriptors through 2D2CE0; 2E9CC0 installs these in the
+first three channel rows at main+1308, stride 74. 2E9F90/2E9D30 import descriptor
++4 from 2DAC30, which selects player +1D0. Player method 2E7CD0 accepts that
+stream argument and is present in interface 6C0ED8 at +3C (literal 6C0F14),
+so absence of a direct caller is insufficient. Do not assume it receives the
+observed stream type. 2E9540 writes a separate channel selected by main+2158;
+EA0D0/EA220 map that channel to 7, while the first three rows hold input streams.
+
+2026-10-26: Recovery paused at user request after 41 verified closures
+
+Five checked batches closed 8, 21, 4, 4 and 4 sites: 774 -> 733. The cumulative
+private report is build/logs/call-workflow/recovery-summary.json. Every closure
+retains its original bytes and a concrete target binding in every original owner;
+no original functions or earlier coverage were removed, and no unknowns were
+introduced. Generation contains 9769 functions (9738 translated, 31 native),
+821182 discovered and 819952 compiled instructions. The game has not been
+relinked or run for these recovery changes; runtime results remain historical.
+
+The additional twelve closures cover A8AB0's fixed/timed event operations,
+2E9490's type-5 input-stream release, the four users of callback slot 6D3A74,
+three compiler-generated switches, and the bounded entity dispatch at 1A4022.
+The event records retain their fixed operation bytes while handlers only change
+their fired flags. Callback setter 21BB0 and render-state wrapper A26A0 accept
+four original functions or null; temporary substitutions restore the old return
+value. Queue records copy the same 16-word state and replay its +3C callback.
+Exact literals, sites, byte prefixes and producer chains are in static_calls.json.
+
+The decoder's byte-remap recognition excluded EBP addressing because x86 uses
+SS by default for that base. The supported image uses flat DS/SS addressing,
+already shared by native lowering. Allowing both segments, with unchanged bounds
+and control-flow checks, resolves F4474, 25D0A3 and 25D13F without site-specific
+exceptions. FS/GS remain excluded. The 1A4022 call has explicit signed 0..18
+checks and nineteen original callback words at 5A27E0..5A282C.
+
+The workflow now carries indexed table writers into its producer packet. For
+example, 4DF40 writes all four object callback arrays 4B2C90..4B2FF0; inspecting
+only initial table bytes would miss its registrations. Its known registration
+records have been inspected, but object type/index bounds still need proof.
+Slot 93A334 also stays unresolved: all 62 exact address literals are reads,
+and the nearby initializer stops before this slot, but these facts alone do
+not prove that aggregate or aliased writes cannot reach it. The imported MPEG
+stream path described above still needs its external producer proof.
+
+The queue contains 425 families and the workflow has no active batch. Resume
+with Prepare to refresh tool-keyed evidence before following more leads. Avoid
+reusing an old packet after the decoder rebuild. Build.ps1 -Stage Game
+-AllowPartial is still needed before runtime validation of these changes.
+
+2026-10-26: Rebuilt the game for manual testing
+
+Build.ps1 -Stage Game -AllowPartial completed successfully in 276.75 seconds
+with the 41 recovered calls and 733 sites still unresolved. The new executable
+is build/windows/Release/smbd.exe; its size, SHA-256 and build timing are recorded
+in build/logs/call-workflow/game-rebuild.json. Play.cmd launches this executable.
+No game or runtime diagnostics were run; the user will test it manually.
+
+2026-10-26: Further verified call recovery and game rebuild
+
+Checked batches recovered 128 more call sites, reducing the unique unresolved
+count from 733 to 605. They cover bounded switches, resource and node visitors,
+audio-list callbacks, the worker's primary stream, and both converter objects
+created by 331B6F. Each batch preserved the original owners and existing
+coverage, and introduced no unresolved sites. The verified XBE remains
+9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2.
+
+Analysis now discovers and compiles 9782 functions and 821521 instructions;
+820291 instructions are compiled. Build.ps1 -Stage Game -AllowPartial succeeded
+with one worker. build/windows/Release/smbd.exe is 113184256 bytes and has
+SHA-256 EBDD700A3DCC9BFAE73817C9B5BA7F0D67E74B9AA17D60CD456F8BEC7A1474E2.
+No game or runtime diagnostics were run for this rebuild; earlier runtime
+results remain historical. Continue with the ranked recovery queue.
+
+Two further checked batches recovered nine calls, leaving 596 unresolved.
+They cover a resource completion callback, one primary stream method, and two
+game state tables, including their original callers and state writers. Analysis
+now discovers and compiles 9785 functions and 821601 instructions; 820371
+instructions are compiled. No unresolved sites or coverage regressions were
+introduced. The game build above predates these nine closures.
+
+Further checked batches reduced the count to 577. Analysis now discovers and
+compiles 9854 functions and 824026 instructions; 822796 are compiled. No code
+or target bindings were lost, and no unresolved sites were introduced. The
+game build above still contains the earlier 605-site generation.
+
+A bounded scan of original code sections found callers omitted by the analysis
+index. Their arguments expanded the state tables at 14D280, 239480 and 23B520,
+the quicksort comparator set, and callback slot 879880. The 14D280 additions
+exposed existing unresolved dependencies, so two formerly closed functions
+are now reported as open. The workflow records this correction separately and
+still rejects lost bindings, uncovered instructions and unverified new sites.
+It also verifies that a reopened function is caused by added target bindings,
+rather than silently treating every reopened function as acceptable.
+
+The original state-machine chains at 602800, 601BF8, 6029C0..29F0 and 67AB20
+were traced through their setters, bounded states, reset paths and callback
+arguments. Their concrete targets and the previously missed 23BB50 callback
+are recorded in static_calls.json. Runtime results remain historical.
+
+Further verified callback recovery exposed seven previously unindexed calls;
+four have since been resolved and three remain in the queue. The workflow now
+accepts such discoveries only when their owners are newly verified targets,
+and reports them rather than excluding them from the count. The latest checked
+analysis compiles 10004 functions and 855284 instructions, with 567 unresolved
+sites. The game executable still reflects the earlier 605-site build; no game
+or runtime diagnostics were run for these analysis changes.
+
+Subsequent mode registrations exposed eight further original calls, all kept
+in the queue. The mode callbacks, allocation hooks, bounded sound-record
+dispatch and related transition callbacks were checked against every original
+setter and their concrete record fields. The latest checked analysis compiles
+10042 functions and 859755 instructions, with 564 unresolved sites; the game
+executable remains the earlier 605-site build.
+
+The next recovery batch proved 64 optional callback sites unreachable or
+bound from the original executable, reducing the queue to 500. Zero-valued
+callback proofs preserve the original guards and report a boundary if a
+supposedly unreachable call is reached. The game rebuilt successfully at
+this 500-site milestone; no game or runtime diagnostics were run for it.
+
+The following callback batch closed seven more sites without introducing new
+unknowns: two guarded calls through the always-zero 938E08 slot, four calls
+through original registrations at 939B08, 93A340, 93A348 and A5DEA8, and a
+tail jump through 9398E0. The tail proof checks both original entry paths and
+rejects entry after its verified load. The latest checked analysis has 493
+unresolved sites, 10043 functions and 859760 compiled instructions. The game
+executable still reflects the successful earlier 500-site build; it has not
+been rebuilt or run for this last batch. Work stopped after the requested batch.
+
+At the user's request, the Windows game was rebuilt successfully from the
+493-site analysis. No game or runtime diagnostics were run for this rebuild;
+manual playtesting remains pending.
+
+Two further checked call-recovery changes reduce the unresolved count from
+493 to 491. The local switch at 9EFA6 has two targets selected through a
+nine-byte remap after its existing 0..8 guard. The 95D54 loop visits all 25
+original callback records at 55DC90 with an eight-byte stride. Its callbacks
+and intervening helpers preserve the loop index. Both recovery checks passed
+without losing previous code or bindings or introducing unresolved sites;
+the second batch added 25 translated functions. The game has not been rebuilt
+or run for these two changes.
+
+The three input-state dispatches at 232645, 2326BF and 232799 use separate
+eight-entry tables. Their indices come from the state maintained by 22D040,
+22DA40 and 22EA90, respectively. The known direct 22D040 callers set BL to
+3, 5, 6 or 7, while the known 22EA90 callers pass 5 or 7. Their state records
+are also passed to callbacks, and the complete writer and caller sets still
+need proof before these dispatches can be closed.
+
+The 258760 object constructor's initializer call is now resolved, leaving 490
+sites. Original callers supply type 0, 2, 4, 5, 6, 7, 8, 9 or 11; the two
+21FF10 callers produce 7..9 and 11. A bounded streaming scan of the verified
+image confirmed the constructor and registration call sites and found no
+function-pointer literals for those helpers. The registration records and
+original initializer array provide all possible initializer targets. The
+recovery check passed without lost bindings or new unknown sites. Other calls
+using these objects still need the object's type to be traced after callbacks.
+
+The bounded mode jump at 12333 is resolved as well, leaving 489 sites. Its
+four original code pointers are followed by two zero words and an address
+outside the supported image; those invalid values retain the dispatch failure.
+The analysis check passed without losing bindings or introducing unknowns.
+
+The related 276A48 mode jump is now resolved, leaving 488 sites. A streaming
+search found selector writers omitted from Ghidra's exported instructions;
+their computed values and menu-record sources exclude EB..F2. The 24 original
+code pointers for D3..EA are retained. The nearby debug descriptor for the
+active mode is display-only. The recovery check passed without lost bindings
+or new unresolved sites. The local evidence is in build/logs/call-workflow/.
+
+At the user's request, the Windows game was rebuilt successfully from the
+488-site analysis with Build.ps1 -Stage Game -AllowPartial. The executable is
+build/windows/Release/smbd.exe (117307392 bytes, SHA-256
+EFA1B1D7A42D123A753B990A20F9ABC1A9A94B101D61E890A6C5702D165C1095).
+No game run or runtime diagnostics were performed; manual playtesting remains.
+
+Overnight recovery starts from the verified 488-site game build. The first
+checked batches close 37 sites, leaving 451, with all previous code and target
+bindings retained and no new unresolved sites. Twenty fixed original callback
+cells, the 789400 callback, and the two 29F1B0/29F1C0 tails now use their proved
+original target literals. The remaining fourteen closures are guarded optional
+callbacks whose loader-zero state and absence of writers were checked with
+streaming native literal inventories and bounded analysis of adjacent writers.
+The zero-guard analysis now handles any general register, absolute memory calls,
+flag-neutral scheduling, intervening calls, and guards returning to a loop;
+it still requires the original guard to dominate the call and preserves all
+original instructions. The CRT temporary-buffer writer is bounded to its two
+original streams and cannot overlap the adjacent 9546D0 callback.
+
+Build.ps1 accepts an optional -Workers value from one to three, retaining one
+as the default. It passes that bound to Ninja's CPU compile pool and LLD's
+ThinLTO workers, while links remain sequential. The 451-site Windows game
+build passed with -Stage Game -AllowPartial -Workers 3 in 91.157 seconds.
+Current analysis compiles 10093 functions and 862328 instructions, including
+10062 translated functions and 31 separately reported native platform functions.
+Streaming evidence is retained locally in
+build/logs/call-workflow/overnight-all-slot-refs.txt; each stream chunk is at
+most 65540 bytes. The recovery checks and build logs remain local as well.
+Recovery continues; this is not completion of the 488-site objective.
+
+The following checked batch closes three further guarded optional callbacks:
+75609C, 938E50 and 93A35C. Analysis now has 448 unresolved sites, retaining
+all prior code and bindings. Their original image references and nearby
+aggregate boundaries are recorded in the shared zero-slot facts and local
+build/logs/call-workflow/overnight-next-zero-refs.txt inventory. The 756098
+and 7560A0 words are likewise never installed, but their consumers still need
+the zero EBX comparison proved across all intervening callees; those two calls
+remain unresolved. Six focused native analysis cases checked both accepted
+guards and entry paths that bypass them; all six passed without adding tests
+to the source tree.
+
+The rebuilt 451-site game completed the original two-level input automation
+in 4290 frames, applying all 35 steps and six state waits with muted output;
+the process exited successfully. Its non-exhaustive trace observes 99 of that
+451-site queue. Combining it with the prior trace observes 105 sites and guides
+further static proofs. Observations alone do not resolve calls. Current game
+and analysis counts differ by the three most recent analysis-only closures.
+
+The 328B26 combiner switch is now recovered, leaving 447 sites. Its original
+AND 0F selects sixteen words, of which six are local code targets. Nine other
+words point outside the image. The last word forms the in-image address
+8C200, but bounded native decoding verifies that its first bytes 8D C8 encode
+an invalid register-direct LEA and would fault immediately. All invalid
+selections retain the dispatch failure. The native recovery check added the
+41 original case instructions without losing existing code or bindings or
+introducing unresolved sites. The local sixteen-word audit records the
+in-image invalid instruction separately; image membership alone is not proof
+that a word is a valid target. The game remains the rebuilt 451-site version.
+
+Two further checked movie-initialization closures leave 445 unresolved sites.
+The 756098 guard now has call-site-specific EBX preservation proofs for the
+texture setup E5C40 and nonnull stream-size helper 2DB260. Bounded reports of
+their actual callees verify saved registers and the CRT saved-register frame
+helpers. Empty original RET callbacks preserve their unchanged registers
+directly, without needing per-call facts. The later 7560A0 callback can only
+be reached after the earlier unreachable 756098 call; backward proofs now
+recognize that dead predecessor while still requiring every other predecessor
+to establish zero. Ten native positive/alternate-entry analysis cases passed,
+including both movie callbacks and entries bypassing their preceding guards.
+Both recovery checks retained all original code and bindings and found no new
+unknown sites. No test framework or source-tree tests were introduced.
+
+The requested Burnout 2 diagnostic system was inspected read-only: its native
+diagnostic logging/guest-state hooks and watch support complement opt-in draw,
+frame, texture, comparison and performance tools. Its callback discovery also
+keeps mutable dispatch unresolved until a complete source proof exists. Rendering
+work remains after the unresolved-call objective; no Burnout 2 files were changed.
+
+The 445-site generation was linked with three workers in 33.9623118 seconds.
+A hidden, muted 60-second input-script run exited successfully: 4228 frames,
+1684367 draws, all 35 input steps and six waits completed. This verifies the
+script path and does not establish visual parity or success in both levels.
+The offline batch report now indexes bounded base-relative memory writes
+from decoded instructions, including negative offsets and repeated stores.
+These are alias-audit leads, not object-type or immutable-field proofs.
+
+Three additional state dispatchers now have complete selector proofs: 116DAB
+uses 22 slots at 588178, 12864B uses 30 at 589C00, and 2521D4 uses 33 at
+6931A0. Original direct/computed state writers and table boundaries were
+checked together. This exposed 19 previously undiscovered fixed-cell calls;
+the complete table reference inventory then closed all 19. A malformed
+registry record was corrected, and CMake now rejects missing grouped-dispatch
+fields immediately instead of continuing erroneous nested expansion.
+
+The four-record callback pool at 7092E0 now has eight verified dispatches.
+All fourteen physical calls to 61200 use type 3, 5, 6, 7 or one of ten private
+immutable descriptors. Setup, cleanup, update and draw targets were read
+from the fourteen exact descriptors. Callback effects and private-data aliases
+were inspected in one bounded batch; the pool +14 descriptor is preserved.
+
+Six deferred file notifications in E1ED0 are also closed. Cancellation
+request +0 is installed only by E10E0, whose callers supply 232C0 or zero.
+Completion +28 is overwritten by E1CC0 from its fifth argument; all four
+original calls supply 16A90, 232B0 or 5CFE0. Initialization/release zero the
+fields, while the callbacks update only status globals or file state.
+
+Analysis now compiles 10172 functions and retains 428 unresolved sites.
+Across this overnight work, 79 checked closures and 19 newly discovered
+sites give a net reduction of 60 from the original 488. No discovered calls
+have been hidden, and the recovery checks lost no code or target bindings.
+
+
+Muted automation caught a missing type-7 target at 6126E. The initial local
+call-window audit missed two incoming branches at the shared 62CE7 call:
+62C5B pushes type 5 and 62C9C pushes type 7, each joining at 62CDE after the
+fallthrough PUSH 6. Both original descriptor records and their callbacks
+were audited, and all eight pool consumers now include those targets.
+No target was inferred from the observation alone.
+
+The native analyse-arguments command now reports the original PUSH origins
+across every recovered predecessor, with explicit incomplete results at
+calls, argument overwrites, unknown values, missing predecessors or budgets.
+It shares callback recovery code and stays outside gameplay. It proves the
+62CE7 selector set {5,6,7}; bypass-entry, exhausted-budget and forwarded-value
+checks correctly remain incomplete and return failure exit codes. The full
+fourteen-call inventory records the remaining register-sourced arguments
+for manual ABI/producer audit instead of presenting them as literals.
+The corrected 428-site game rebuilt with three workers in 52.9209534 seconds.
+Its hidden/muted automated input run exited successfully: 4282 frames,
+1711092 draws, all 35 steps and six waits completed. The previous failed
+capture/report is retained separately; current validation uses the corrected
+run and does not claim visual parity or success in both levels.
+
+The Story dispatcher 10BC8D is closed with sixteen original callbacks at
+587488..5874C8. Its current/pending state words and every literal/register
+writer were audited; the two EBX writes at 10ACDC/10AD24 retain value one.
+
+The shared geometry-node callback at 2776F is closed. Streaming setter
+recovery covers all 98 physical calls/tail transfers in 53 bounded function
+reports. The new argument-origin diagnostic separates literal assignments
+from saved old-pointer restores. Scene globals EC/F0/F4, queue snapshots,
+scene header +18/+B14, and D1310 branch-selected EDI/EBP callbacks were
+checked together. The hook reset and every additional origin are tied to
+original bytes. Analysis now compiles 10187 functions, with 426 unresolved
+sites; 81 checked closures and 19 new discoveries give a net reduction of
+62 from the starting 488. The last muted game validation remains the
+corrected 428-site build; these two subsequent closures await the next
+batched game link and automation run.
+
+The mode-stack initialization and two cleanup dispatches at 1FA99, 1FAD4,
+and 1FB34 are closed from all three original instances and their exact
+constructor records. Zero entries remain excluded; submenu IDs select only
+three of the six physical triples. Main-mode and backup-state writers are
+bounded and checked independently of callback observations. Analysis retains
+423 unresolved calls: 84 checked closures and 19 newly found calls give a net
+reduction of 65. The three-worker game link took 93.9712067 seconds. Hidden,
+muted input automation passed with 4295 frames, 1711396 draws, all 35 steps
+and six waits completed. This run does not establish visual parity.
+
+Six active-stream calls in 2C7230 are closed from outer record +14 and its
+complete worker/shared-record producers. Worker[0] stores only a 2DD5F0
+result; its alternative shared A5E4C0 value is saved from that same record
+by release. No extra stream producer is introduced. Two packet visitor
+calls at 68538/68566 use only the original 80110/80270 callbacks installed
+by builder 81270 in the 72FFE0 list. The root selector, all list references,
+and resource-copy destination were checked separately. Both recovery checks
+passed with no discoveries or lost code/bindings, leaving 415 unresolved.
+The last muted game validation remains at 423 pending the next batched link.
+
+Two additional stream block-consumer calls at 2D00C6/2D0144 retain the
+original vtable in EDI across zero-selector availability queries. Scoped
+preservation contracts follow both query implementations, their registered
+critical-section callbacks, original imported ABI, formatter saves/restores,
+and RET error callback; arbitrary notification paths remain excluded.
+
+Eight stage-extension calls are now closed, including both original builders
+850A0/23D590 and the shared setup, update, replay, collision, query and cleanup
+consumers. Both builders copy six callbacks from 555088..5550A0 into a separate
+0x20-byte header; state writes use its separately allocated 0x78-byte payload.
+Original group allocation/zeroing, reset preserving +A0, cleanup and both query
+callers were checked. The file loader's similarly numbered fields belong to
+another allocation and do not replace the header callbacks. Recovery retains
+all code and target bindings, with 405 unresolved sites and no new discoveries.
+Across overnight work, 102 checked closures and 19 new discoveries give a net
+reduction of 83 from the starting 488. The game rebuild is batched with three
+workers; current runtime validation will be recorded after its muted run.
+
+The 405-site game link completed with three workers in 46.4327474 seconds.
+Hidden/muted input automation passed: 4339 frames, 1758472 draws, all 35 steps
+and six waits complete. The report/capture/trace use the overnight405 prefix.
+No game, compiler, linker or analysis child process survived the finished run.
+
+Three further packet +10 dispatches (7D001/7D21F/7DE2F) use 80330 from the
+same 81270 builder. Both helpers receive the freshly loaded packet root in
+EAX from their sole original callers, and the callback restores EBX across
+its loop. Five resource rows at 55D844 (stride C) close 947DB; adjacent labels
+are excluded and helper effects preserve the row pointer. The script manager
+interface 403DB8 has three original constructors, each installing two bound
+delegates. All six callback cells close DE001. The six original registration
+calls then establish that E6660 receives precisely this interface through
+registration payload +34, closing that caller as well.
+
+Optional GCDTK notification loads DE68C/DF19A always read zero. The sole
+original DF0A0 call at FB9DA explicitly supplies zero mask and callback; its
+32 input records are the zero-filled BSS array 770788..771088, stride 0x48.
+The existing guarded-zero proof now accepts individually byte-checked load
+origins as well as absolute zero slots. It still requires every predecessor
+to retain zero, an actual explicit local guard, no alternate branch entering
+the guarded interval, and use of the declared load origin. Reports record
+zero_source for the load instruction, without inventing an absolute slot.
+The native positive and guard-bypass entry checks all passed. Both original
+call instructions remain present, and two optional uses are proved unreachable.
+There are now 397 unresolved sites, 10189 compiled functions and 110 checked
+overnight closures. Nineteen newly discovered calls give a net reduction of
+91 from the initial 488. Last muted game validation remains at 405; the new
+guard-proof implementation awaits the next batched game link/regression.
+
+The two companion notification predicates DF48F/DF4D1 read the same invariant
+zero mask. The proof now accepts these exact byte-checked TEST memory reads,
+with their following JZ guards, and requires the declared original owner entry
+for every relative-field proof. It does not infer EBX preservation through
+unresolved audio calls. Eight native positive/receiver-bypass entry checks all
+passed, including both callback loads and both mask predicates. The stricter
+owner-scoped analysis retained all four closures and every previous binding.
+The final checked count is 395 in 264 families: 112 overnight closures and 19
+new discoveries give a net reduction of 93. No new calls appeared in this batch.
+A three-worker game build/regression is in progress for the guard-proof changes.
+
+The 395-site game linked with three workers in 47.431076 seconds. Its hidden,
+muted regression passed: 4284 frames, 1725212 draws, all 35 input steps and six
+waits complete. All eight scoped zero-read entry/bypass checks passed, and no
+previous bindings or code were lost. No child process survived the finished
+build or run. Current report/capture/trace use the overnight395 prefix.
+
+Four further callback uses are closed. Complete original argument recovery
+covers all four A11C0 calls (5E8A0 or 302A20) and both 1C13A0 calls (1C45E0 or
+1C45C0). The former callbacks are leaves preserving EBX; the latter helper
+A26A0 changes only its outgoing temporary argument and hook globals, leaving
+the caller callback argument intact. Profile callbacks 13858A/139B1B read the
+790754 pointer: its only nonzero writers install 596058 or 59641C, and its
+initial/reset clears preserve zero. Both descriptor records and neighboring
+indexed-write bounds were checked. Recovery found no new unknowns or lost
+code/bindings. There are 391 unresolved calls and 10192 compiled functions;
+116 overnight closures and 19 discoveries give a net reduction of 97.
+Last muted game validation remains at 395 pending the next batched build.
+Particle update callback 186F3C is closed from the seven original nonzero
+installations into payload+44C. The fixed 50-slot pool has stride 4B8 and
+returns slot+4 after clearing 12D dwords. Both normal and inline allocators
+link only cleared payloads; the sentinel/list use payload+30. All four target
+bodies and the overlapping field-writer inventory preserve the callback.
+The initializer dispatcher remains open pending its independent ID/lifetime
+proof. Check32 retained all previous code/bindings and discovered no unknowns.
+Current analysis: 390 unresolved calls, 10194 functions, 117 overnight checked
+closures and 19 discoveries (net 98). Last muted game validation remains 395.
+Morning continuation research (no closure claimed): initializer 19F1C2 uses
+162 list/count pairs at 5E70E0/5E7368. Every list has exactly one null row,
+last, with expiry 600..960. 1A3EF0 calls enqueue, dispatch, expire in that order;
+dispatch increments age and expiry removes age>=end, so live records exclude
+null rows. Compaction copies ID/age/end columns together. Timeline IDs are
+bounded by 161 before the 599940-time terminators. Complete streaming data
+references find only the expected readers/reset/queue writers; apparent
+E035E/25939F hits are instruction-byte coincidences. Additional clock writers
+exist beyond the old textual index, including 18532C/34C/398/4B4/4D3/541.
+Do not close this dispatcher until all timer/debug-seek bounds and queue
+capacity are independently checked. Evidence is under morning-particle* and
+morning-clock* in the local call-workflow directory.
+Morning checked batches 1..3 close five further sites without losing any code
+or binding. 2C6982 uses the original outer ADX +14 active stream; all direct
+caller handles and the existing constructor/setter origins were checked.
+Original leaves 324AED/3461A3 preserve EBX/EBP/ESI/EDI; 33BA60 saves/restores
+these registers on its sole normal return. This retains the imported targets
+at 31F917/346D5A/33BF17 across their helper calls. The original directory
+wrapper 308983 also has a checked EBX contract; 2CB5D7 remains open because
+its separate notification chain is not yet covered by that contract.
+31A511 invokes the same codec +2D4 field already proven at 318BE5: its three
+nonzero transforms are 31A530/31A5C0/31A650. The two immediate helpers leave
+EBX unchanged and the transform helpers save/restore it. Existing complete
+codec setup/option/slice writer evidence applies to the same caller context.
+Current count: 385 unresolved calls in 254 families, 122 overnight checked
+closures and 19 discoveries (net reduction 103 from 488). The last muted game
+check is still 395; the next batched game link is being run now.
+The 385-site game build passed in 49.643213 seconds with three workers. Its muted/hidden two-level regression passed (exit 0): 4285 frames, 1733997 draws, all 35 input steps and six waits complete. Report, trace and capture use build/logs/morning385; no build or game child processes survived.
+Morning batch 4 closes four further callbacks. Complete private option setter
+and wrapper references restrict all original selector writes: optional 24/25/5F
+callbacks stay zero, while 4B is zero or 2DA720 installed by 2DA8F0. Startup
+copies 100 words from 461F00; main allocation and restart preserve that option
+domain. Decoder zero-source tracking now also accepts a byte-checked direct
+CALL's EAX result at its original owning entry. It retains the original getter
+and guard and requires every predecessor plus actual source use. Nine native
+checks passed: all three original entries close their zero callback, while
+six getter/after-getter alternate entries keep it unresolved. Getter 2E76B0
+preserves EDI for the second lookup. No earlier code/targets were lost.
+Current count: 381 sites, 251 families; 126 overnight closures, 19 discoveries,
+net reduction 107 from 488. Last muted game build/regression remains 385.
+Morning batches 5/6 close the remaining movie driver method dispatch 2E4B15
+and its optional nested callback 2E44F3. Option F stays within 1/2/4/5; the
+six initialized driver slots plus DDB50's slot-2 override have five nonzero
+targets. The slot-4 setter is only used to restore its previous zero value.
+Main+FFC is initialized as driver+2D4 to zero; its only other setter likewise
+restores the old value. Stack offsets in 2E5EB0 were normalized across the
+eight outstanding argument bytes to verify both restoration sources. The
+FD4/driver+2AC word is a distinct numeric timer, not a callback.
+The decoder now recognizes a JNZ into a separate callback block only when
+its fallthrough is terminated and its sole incoming edge is this proved-false
+branch. Other incoming edges, unknown jumps, alternate owner entries, and
+budget exhaustion reject the proof. The existing skip-guard path is retained.
+Four checks passed: 2E44A0 closes; entry at its load, test or callback block
+remains unresolved. The first pre-fix check documented the missing JNZ shape;
+no closure was counted until the rule and final checks passed.
+Current: 379 calls, 249 families, 10195 functions; 128 closures and 19 discoveries
+(net 109). Last muted game validation remains 385 pending the next batch.
+The current trace index observes 89 remaining sites, including 52 stream uses;
+those observations remain leads, not closure proofs.
+The 379-site three-worker game link passed in 63.7434773 seconds. Hidden/muted regression passed with exit 0: 4351 frames, 1756499 draws, all 35 steps and six waits complete. Report/capture/trace use build/logs/morning379; no build/game child remained.
+Morning batches 7/8 close seven worker paths. Six 315E60 calls use its private
+2D2CE0 primary, two private 2D3330 secondaries, or the verified outer ADX +14
+active stream passed by sole parent 2DDC50 from main+1FFC worker[0]. Native
+stack normalization identifies the two secondary saves at entry ESP-16/-12
+and the incoming stream saved into original argument slot ESP+4.
+Worker +3C dispatch 2DD3FD has four targets: 2DCD60,2DD7F0,2DD9E0,2DDA80.
+Initialization 2DD0F0 copies seven words to +8..+23 then installs +3C; all
+later overlapping worker writers use those four fixed original literals.
+Checks retained all earlier code/bindings and found no new unknowns.
+Current: 372 calls, 247 families, 135 overnight closures plus 19 discoveries
+(net 116). Last game build/regression remains 379.
+Sofdec stream-origin research is not a new closure proof: the only constructor
+2DBB70 caller is E5CB0, and global 756080 consumer methods were inventoried.
+2E7C60 writes a secondary stream to player+1D0; 2E7D50 restores the private
+primary at +1D4 from 2DAF40. External setter 2E7CD0 still needs its independent
+input/reachability proof before broadening the pending 57-site receiver family.
+Do not confuse worker callback +3C with Sofdec interface method +3C.
+Morning batches 9..11 close three imported calls. Full normal-return register
+proof through the directory wrapper, notification and error-string path keeps
+EBX intact at 2CB5D7. This includes the already-zero 938E08 hook, BA870 callback,
+30B9A0 bounded string copy, 30BB56 formatting wrapper and the explicit EBX
+saves/restores in 30E8AF/30F219. No error branch was assumed absent.
+Status/TLS helpers 309221/3091F3 preserve EBX/EBP/ESI/EDI and close imported
+304ABC. The last 30AC3E barrier is the complete BSF EAX,ECX; RET leaf at 30A470,
+which likewise leaves those four registers unchanged. Source imports remain
+reported as native kernel services. No new unknowns or lost bindings appeared.
+Current: 369 calls, 138 overnight closures plus 19 discoveries (net 119).
+Last muted game validation remains 379; the next batched link is starting.
+The 369-site three-worker game link passed in 34.9396331 seconds. Hidden/muted regression passed with exit 0: 4344 frames, 1740970 draws, all 35 steps and six waits complete. Report/capture/trace use build/logs/morning369; no build/game child remained.
+Morning batch 12 seeds 26 original callbacks (3516 instructions) from three context state records for a complete writer audit. No call closure is asserted; count remains 369. Analysis contains 10221 compiled functions and 875401 compiled instructions. Latest game369 validation predates this seed-only addition.
+Morning batch 13 closes context state dispatches 1EDDA4,1EF53C,1F33DD. All 1249 original 807DDC references were decoded (including 17 extra original record targets/helpers absent from the initial compiled index). Header transitions stay 0..4; middle state setters, saved 134 state (0/A), and six modal 1E4520 inputs (6/8) keep the middle dispatch 0..18; drawing transitions stay 0..3. Bounded actor/input arrays, separate BC interior view, vector helpers and aggregate destinations were checked for overlap. Original state tables have no writer/escape. Check passed three closures, zero discoveries and no lost code/targets: 366 sites, 242 families, 141 total closures plus 19 discoveries, net reduction122. Last muted game validation remains369.
+Morning batch 14 closes auxiliary state call 1E6872: reset zero, eight fixed setter second arguments 1..5, and direct transition6 exhaust the pending domain; current is the pending copy. Snapshots copy the same private auxiliary block and preserve the domain. Original table range 5F1960..5F197B has seven callbacks and no writer. Three additional original AI callbacks (282 instructions) were seeded only for the next writer audit; its calls remain open. Check passed: 365 sites, 241 families, 10224 functions, zero discoveries/lost code/bindings. Total142 closures plus19 discoveries, net reduction123.
+The 365-site three-worker game build passed in123.7320257 seconds. Hidden/muted regression exited0:4278 frames,1704937 draws,35 steps and6 waits complete. Report/capture/trace use build/logs/morning365. No compiler/game/tool process remained.
+Morning batches 15/16 close seven guarded native-thread callback calls:
+3058F6,307DF2,307E66,3086E8,308717,3097B2,30A2BF. The native host clears its
+private thread record and registers no optional callback record at +250.
+All ten original FS:[20] roots immediately inspect that word. Eight FS:[28]
+roots discard the pointer, inspect TLS/status, or write the separate TLS buffer;
+KeGetCurrentThread is not imported. The 57 literal-250 references were classified
+against the native-owned record and other object families. This is explicitly a
+native-services contract, not an invented translated callback target.
+NativeThreadAbi shares the relevant layout with the existing native creation
+code. Reports identify zero_contract and record each live thread's actual optional
+callback-record pointer. Original loads, guards, memory operands and failing
+fallback are retained. The decoder additionally requires the original owner,
+complete CFG, matching FS root and field load, no branch into that load and actual
+use of the declared source before accepting CALL [record+offset].
+The seventh guard needed EBX preserved by 309F59: this complete 57-instruction
+leaf only writes its separate LaunchDataPage buffer, saves/restores EBP/ESI/EDI
+and never touches EBX. Its caller establishes EBX=0 at 30A28D.
+All 28 focused native checks passed: seven original sites close, twenty alternate
+entry cases stay open, and one incomplete-CFG case retains both decoded calls.
+Earlier budget-18/23 checks did not contain the intended call and were not counted
+as negative evidence. No original code or target binding was lost, and there were
+no new unknowns. Current: 358 calls,235 families,10224 functions;149 total checked
+closures plus19 discoveries, net130 from488. Last game validation remains365.
+The 358-site All milestone passed in 168.2564724 seconds with three workers, reusing verified indexed analysis and the shader bank. CPU10, controller47 and offline audio37 checks passed. Hidden/muted regression exited0:4344 frames,1761408 draws,35 steps and6 waits complete. All six native thread snapshots independently reported optional_callback_record=0. Reports use build/logs/morning358. No build/game/tool/Java child remained.
+Morning batches17..21 close 3057E0,304923 and3049EA. Hook4648D4 is an original
+initialized zero word scanned as [4648D4,4648D8). Its neighboring CRT arrays end
+at4648D0; the full neighboring-byte inventory and indexed/absolute writer index
+exclude an overlapping writer. The only original 3047E8 caller is304ACA, whose
+all-predecessor argument report proves argument2 zero. Fixed EBP=entryESP-64
+places this callback at[EBP+70]; its only internal assignments also store zero.
+The decoder accepts byte-checked CMP memory-zero guards, including SS stack
+operands. Import-source recovery retains both the original slot and ordinal so
+register proofs can use the verified kernel ABI before final label publication.
+Batches18/19 added no closures; SS handling in20 closed the first stack callback.
+For the looped callback, guard entry checks run before a first-execution proof:
+its own earlier fallthrough cannot occur before a first execution. All remaining
+prefix paths must establish the zero comparison operand or be proved unreachable.
+This excludes the loop without assuming any ABI for the unknown callback itself.
+Every zero-guard proof now rejects an incomplete CFG. Original guards, memory
+operands, native operations and failing fallback remain. All47 focused checks
+passed:10 original sites,35 alternate-entry cases and2 incomplete-CFG cases.
+No code/target binding was lost and no new unknown appeared. Current355 sites,
+233 families,10224 functions,5266 closed functions;152 checked closures plus19
+newly discovered sites, net133 from488. Last complete game validation remains358.
+The 355-site three-worker game build passed in 34.1526569 seconds. Hidden/muted regression exited 0:4343 frames,1739521 draws,35 steps and6 waits complete; all six thread callback records remain zero. Reports use build/logs/morning355. No compiler/game/tool process remained. Full CPU/controller/audio milestone remains358; the next routine batches use focused analysis/game checks.
+Stream-pool research remains open. Discard the 2DBB50 inspection lead: it lies inside an instruction and is not a function entry. The actual original release/clear owner is2DBA90 (also the verified vptr+14 target), including the vptr write at2DBB59. No binding or entry seed used the invalid lead. Getter2D9BE0 returns managerA5E520; constructor uses eight2B8-byte records beginning at+6C. Pool-byte references have no outside-module pointer publication; raw unaligned matches were classified as instruction/data fragments. No call closure is asserted yet.
+Morning batches22/23 close the Sofdec active-stream call and54 codec input calls.
+The original eight-player pool, application root, manager traversals, private
+userdata callbacks and API outputs were checked for outer-interface escapes.
+The external stream setter at vptr+3C has no route from that closed object flow.
+Active streams therefore retain the original primary/secondary interfaces.
+First-three channel inputs receive those streams or locally created primary
+streams. The separate output rows use different layouts and were kept distinct.
+The active video stage maps its input to those first rows; the original option
+and stage guards exclude its unconfigured sentinel. Codec parsers and all four
+slice functions receive that input, or the private temporary secondary created
+by2EDDF0. Saved argument positions and byte-checked vptr reloads were verified.
+Check22 closed1 and Check23 closed54:355 ->354 ->300. No new unknowns, lost
+functions or lost target bindings appeared. All10224 functions still compile.
+Cumulative goal progress:207 checked closures plus19 discovered calls (all19
+subsequently closed), net188 from the original488. The300-site All milestone
+passed:10 CPU,47 controller and37 offline audio checks, with3 build/link workers.
+Detailed original evidence and source-address inventories remain under the
+ignored build/logs/call-workflow/morning-player* and morning-codec* reports.
+The300-site three-worker All build completed in98.0205385 seconds. Hidden/muted first-two-level regression exited0:4279 frames,1727290 draws,35 steps and6 waits complete. Separate30-second hidden/muted opening-movie run exited0:1787 frames,99528 draws. Six thread optional callback records remained zero. No build/game/tool child survived either run. Full diagnostics now match300; git diff --check passed.
+Morning batches24/25 close five stream query/consume calls and eight input-channel calls:300 ->295 ->287. No new unknowns or lost bindings/functions. EBX preservation through 2E0600 and loop helpers was checked through the original lock callbacks, error formatter and signed division helper. Input-channel bounds follow the nonnull main configuration+4 buffer: normalized constructor stack positions prove the first allocation is checked before being passed as that field, selecting the first EA3C0 branch. Enabled video/audio outputs are rows1/2, the first stage output is row0. Saved input streams retain 6C0BA0/6C0BD0. Output channel7 has a different descriptor and remains open. Current220 checked goal closures plus19 discoveries, net201 from488. Full build/game milestone remains300 pending the next Game link.
+The287-site three-worker Game build passed in39.2507946 seconds. Hidden/muted regression exited0:4351 frames,1721475 draws,35 input steps and6 waits complete. No compiler/game/tool child remained. Reports usebuild/logs/morning287. Full CPU/controller/audio milestone remains300.
+Morning batch27 closes command calls11FA9,11FBE,11FD5 by examining every possible byte selector. Both256-word windows contain only their declared original code pointers, zero, or numbers no greater than891 (outside every executable section). The conditional window conservatively includes the adjacent action callbacks; it assumes no nominal command enum or course/save bounds. Original script-pointer publications, consumers and handlers are read-only with respect to this window; other raw address hits are string fragments. All five original handlers were newly compiled (63 instructions), with no new unknowns or lost code/targets. Check passed:284 sites,228 families,10229 functions,875746 compiled instructions,5272 closed functions. Goal totals223 checked closures plus19 discoveries, net204 from488. The user requested wrap-up after this batch; final game validation is starting.
+Final284-site Game build passed with3 workers in56.0544065 seconds. Hidden/muted regression exited0:4286 frames,1736153 draws,35 input steps and6 waits complete; all6 native optional callback records are zero. No build/game/tool child remained. Full CPU/controller/audio milestone remains300 (allpassed); game and generated code match284. The user requested wrap-up after this batch. Recovery is paused with284 sites remaining,204 fewer than the original488,223 checked closures and19 discovered calls (all19 closed). Check27 passed3 closures with no new unknowns or lost bindings. The workflow has no active packet. Deferred parser/output families remain counted; restart leads and exact reports are saved in runtime_progress.json and the ignored morning-wrap284.json. No commits were created.
+
+Away recovery batch1: audited the two fixed CRT termination arrays in30E0EA. Complete frame-local loops select exactly4648BC/4648C0 and4648C8/4648CC, with one null and one original callback each (30E6B7,31519D). Streaming full-byte-address inventory4648B8..4648D4 and the existing direct/indexed writer index find only begin/end consumers and no table writer or address escape. Calls30E15A/30E17B now bind their original targets; dynamic atexit30E13D remains independently unresolved. Audio slots3412B4..3412D8 and the entity4DF40 registrations were researched but no closure was claimed for those incomplete proofs.
+
+Away recovery batch2 closes dynamic atexit30E13D: complete streaming inventories prove the privateA60010/A60014 stack is only initialized, appended and traversed by its CRT implementation. The complete registration chain30B6A5<-30B74D<-30B785 has21 original callers and no address-taken/tail alternatives. All21 caller immediates were checked in one bounded native analysis set; they are the complete destructor set. The real vector-growth, allocation failure and reverse traversal remain. Check passed282 ->281 with21 newly compiled destructor functions,126 instructions, no new unresolved sites and no lost code/target bindings. Shared entity and audio-slot proofs remain open.
+
+Away recovery batch3 closes array-destructor calls30C5F6/30C661: complete original caller inventories prove BA870 is the only destructor passed to both iterators, including the exception-forwarding chain from30C576. Native all-predecessor argument checks cover every registration exceptE1B4F, whose heap-header store is separately proved disjoint from the outgoing stack. The sole raw scope-branch hitE1B44 is inside LEA. Check passed281 ->279 with no discoveries or lost bindings. Native crash logging and opt-in one-byte write watches were adapted from Burnout2; the isolated two-slot trap/release check passed, and a deliberate isolated fault produced a structured80000004 crash with register, stack and watch state. Native runtime build/regression pending; Linux/macOS sources are provided but unvalidated on hardware.
+
+Away279 milestone: three-worker Game workflow passed in518.7220529 seconds (new destructor reachability changed broad generated floating-state wrappers). Hidden/muted first-two-level route exited0 with4279 frames,1708760 draws,35 input steps and6 waits complete. Capture reaches the existing second-level fall/retry screen. The scene-state watch6C9288 received no write in its15-second opening probe; the known startup pointer6C92C8 did trap, logging native80000004 and active guestEIP14940. Full shared diagnostics passed10 CPU,47 controller and37 audio cases against10250 compiled functions. Native diagnostic processes and build workers all exited. Pending proof leads: thread notify309530 has sole registered9546D4 callback3141D9; startup309849 has five original routines through the complete CreateThread/factory chain. Reports use build/logs/away279 and call-workflow/away-thread-start-*; no closure claimed for either lead yet.
+
+Away recovery batch4 closes309530 and309849. Original notification registration has one private record9546D4 with callback3141D9 and no alternate writer. The complete thread-creation/factory chain proves five StartRoutine targets for3097DA, with native PsCreateSystemThreadEx stack construction and separate TLS storage checked independently. Its pre-start notification calls the original30B4B6 RET leaf. Check passed279 ->277, no new functions, unknowns, or lost bindings. Current7 verified away closures; last native game/full diagnostic validation remains279 until the next batched link.
+
+Away recovery batch5 closes setup31762D/31765F/3176A7 through an original numeric invariant.317450 writes state+68=0 from preserved EBX; its sole constructor caller315E60 immediately calls the sole3176D0 setter, which never writes that field, then its sole3175F0 setup. Source317613 always reads zero, so SHL1/TEST/JLE31761A skips all three calls, including the separate mismatch block. The existing bounded range flow now accepts checked owner-scoped zero loads for reachability, supports SHL and zero TEST signed guards in that opt-in pass, and refuses incomplete functions/unknown jumps. Original calls and memory/branch instructions stay emitted with failure boundaries. Check passed277 ->274 with no lost code, bindings or new unknowns. Native validation proved the three original sites but rejected all six alternate entries and the12-instruction incomplete function. Other channel-loop calls remain unresolved pending metadata/count and receiver bounds; no stereo assumption or invented callback target was used.
+
+Away274 milestone: three-worker Game workflow passed in41.2434505 seconds. Hidden/muted two-level route exited0:4287 frames,1725309 draws,101150963 vertices,1275 blits,35 steps and6 waits completed. Shared tool rebuilt successfully and passed10 CPU/47 controller/37 audio cases against the same10250 functions. The original-thread target bindings and numeric zero setup guards are now exercised in the native build. Combined traces were re-indexed across the whole274-site queue; observations remain explicitly non-exhaustive. No build/game/tool or crash-helper process remained. Current away goal baseline284,10 checked closures,0 discoveries,274 remaining; no active packet. Resume research is in ignored call-workflow/away-resume274.json. Goal remains active and rendering work has not started.
+
+Away recovery batches8/9 close310E72 and2ED8A7/2ED8DA/2ED8E7:274 ->273 ->270. Complete private PTD allocation/TLS/consumer/errno-escape audits prove field+68 remains zero; five exact owners retain the original zero guard and process-termination fallback. The packet-skip helper2ED890 receives the same verified EBP-held input as sibling2EDB10 through sole original call2EDD51. Its three stream vptr reloads therefore share the established6C0BA0/6C0BD0 set; six original stream methods and the separate bit-reader helper preserve ESI and the vptr. Checks passed with no new functions/sites or lost code/bindings. Original reports stay under call-workflow/away-ptd*,away-errno*,away-packet-skip*. No closure is claimed for the independent PTD+70 call or optional plugin94E000; its neighboring logger alias audit remains incomplete.
+
+Away recovery batch10 closes2E9758/2E9963/2E9C92:270 ->267. The complete original eight-call inventory for2E9720 passes only literal0/1/2 or a NEG/SBB/INC Boolean. Its indexed record is therefore one of the already proved first-three input rows. The two other calls retain2E9C40's previously verified input across saved-register stream methods; original2D32D0 saves/restores ESI on every path. Exact load bytes and both original vtables are checked. Check passed, all10250 functions compile, no discoveries or lost code/targets. Current away goal17 checked closures,0 discoveries,267 remain. Last native game/full diagnostic milestone remains274 pending a batched link. The initial batch10 Prepare requested nonexistent owner-002E1890 and was rejected without mutation; the corrected packet uses receiver-006C0BA0. The standalone2E1390 report starts at a call instruction, not a proved function entry, and was not used for a binding/seed.
+
+Away recovery batch11 closes seven original sound cleanup calls:267 ->260. Device339A3F/33B395/33B25C and buffer33A827/33B181/33B09A constructor ownership establishes exact private settings/APU/device fields, retained through33F738/33A72B. Their immutable vptr+8 words give33982A for six child releases and33A92E for the retained device release. Original private pointer stores, type publications and constructor/caller inventories were checked together; native audio uses the same original device/settings vptrs and owns its native voice cleanup separately. No new unknowns/functions or lost bindings. Reports use call-workflow/away-sound*.
+
+Away recovery batch12 closes six more sound calls:260 ->254. The two allocation-error paths retain the newly constructed463670 buffer or463640 device. Hardware constructors33DB20/33E69E have one caller chain and retain the private4636A4 APU and463680 settings at+8/+70/+80; only destructor clears follow. Complete original reference inventories for33982A/339819 identify exactly ten refcount vtables. Every+C word is339819; its only additional33982A direct callers forward device/buffer receivers. The newly reached339819 clears only the count and invokes the ten exact slot0 destructor words. That new dispatch was bound in the same shared family batch before Check, so no new unresolved site appeared. Check passed:254 sites,209 families,10253 functions,877141 discovered instructions. Three helper functions/39 instructions were newly compiled; no code or targets were lost. Current away total30 verified closures and0 discoveries. A batched three-worker native link/regression is next. Optional plugin94E000 remains open: the neighboring unbounded formatter's filename/forwarded-message bounds have not yet been proved.
+
+Away254 milestone: three-worker Game workflow passed in107.1702075 seconds. Hidden/muted two-level route exited0:4289 frames,1728825 draws,35 input steps and6 waits completed; capture reaches the existing retry scene. The shared tool rebuilt against10253 compiled functions and passed10 CPU,47 controller and37 offline audio cases. Whole-queue observations were re-indexed across the284/279/274/254 traces; observations remain non-exhaustive and never close calls alone. No compiler/linker/game/tool child remained. Current away goal284 ->254,30 checked closures,0 discoveries, no active packet. Rendering work has not started; call recovery remains active.
+
+Away recovery batches13/14 close33F820/33F830 and33A681/33F744:254 ->252 ->250. Embedded AP-core constructor33F779 retains the device settings at+4; its+8 comes only from the private341200 memory-manager constructor/clear chain or a new33C576 object. Both release methods are33982A. The complete33A613 original call inventory has only33AA0C with literal0. Its private buffer-settings+B0 field starts zero and the sole setter can only retain/store zero, so original TEST/JZ33A631 skips33A681. The existing scoped zero-flow pass proved that site but refused all four alternate instruction-entry analyses; each still retained its unresolved call. No new analyzer code was needed. Complete33F738 origins now cover all ten original callers; nine retain the device, settings, APU, hardware buffer or shared memory manager, and the tenth forwards that zero setter argument. Their original AddRef words are339D24/33980C. Two more functions/25 instructions were compiled, no unknowns or lost code/bindings appeared. Current250 sites,206 families,10255 functions,877166 discovered instructions,34 away closures and0 discoveries. Last native game/full diagnostic milestone remains254 pending the next batched link. Queue research: sole33DB20 caller33E69E and its sole33B09A caller establish the whole original4636C8/4636F0 hardware-voice hierarchy; direct-self virtual sites33DC4F/33DCA9 and private341200 memory-manager methods33C744/33C924 are the next bounded leads. No closure claimed for these four yet.
+
+Away recovery batches15/16 close33DC4F/33DCA9/33C744/33C924 and the newly exposed30E1F5:250 ->247 ->246. Private341200 root reaches only its4636B8 memory-manager methods. The complete33B09A->33E69E->33DB20 constructor chain gives hardware-voice vptrs4636C8/4636F0, including base destruction. Its original base methods point to real purecall30E1EC, retained as a failing target. This newly compiled handler exposed one optional callback,30E1F5; the loader-zero9546C0 word has no setter/address escape. Neighboring USB/global structures and the two-element __stbuf index were bounded before declaring the word immutable. That hook now closes while the fatal313520 path remains. Two helper functions/21 instructions were newly compiled. Research-only reports at33E1EC,3459BE,330610 and331F38 started at incorrect instruction boundaries; none supplied a seed or binding. Corrected original entries were used instead, including30E1EC for the little-endian purecall word.
+
+Away recovery batch17 closes ten more hardware-voice self dispatches:246 ->236. Complete original type publications and method call/registration inventories restrict self to4636C8/4636F0. ECX remains unchanged through C9DD; the other methods save self in ESI, and EBB7 either dispatches on ECX or tail-enters EB12 with it unchanged. The grouped+14/+18/+1C/+20 words include original base purecall alternatives. Check passed with no new functions/sites or lost code/targets. Current236 sites,193 families,10257 functions,877187 discovered instructions. Away totals49 checked closures,1 discovery (subsequently closed), net48 from284. Last native game/full diagnostic validation remains254 until the next batched build. Four queued dispatches33BA84/33BACF/33BC9A/33BD36 still need complete inserted-node/owner proof; they were not bound from the self-method evidence alone.
+
+Away236 milestone: three-worker Game workflow passed in85.6895953 seconds. Hidden/muted two-level route exited0:4292 frames,1713591 draws,35 input steps and6 waits complete, capture written without error. The shared diagnostics build passed10 CPU,47 controller and37 offline audio cases against the same10257 compiled functions. No compiler/linker/game/tool child remained. Whole-queue traces were re-indexed without promoting observations to static proofs. Current49 away closures,1 discovery (also closed),236 remaining; no active packet, goal active.
+
+Away recovery batch18 closes33BA84/33BACF/33BC9A/33BD36:236 ->232. Active/stopped AP lists start empty; their original insertion paths use only the same hardware voice+4C/+54 nodes. The AP slot-array positive writer33B965 is reached solely by33D736, which passes its same self;33B990 clears slots. Deferred heads receive only33C11A records from33E655: its four self callers supply exact indices0/1/2/1, within the six32-byte nodes whose+C owner is initialized to self by33E69E. Timed/immediate processing only moves links/flags; the separate33C4D1 use of the same splice helper belongs to memory-pool free lists. Destruction removes all six records before freeing the owner. The complete base/derived owner set gives real+18/+24 words, including purecall failure alternatives. Original33EC40 is the direct six-way command dispatcher and was newly compiled (one function,28 instructions), with no new unknowns or lost code/targets. Current232 sites,190 families,10258 functions,877215 discovered instructions,53 away closures and1 discovery (also closed), net52 from284. Last game/shared-diagnostic milestone remains236; no active packet.
+
+Away recovery batch19 closes341608/342C51/343095:232 ->229. Exact two-word XID type table341464..34146B selects3414C4/34150C. Their+14/+18/+1C callbacks are zero; only their byte count+1 changes. Both selectors, all original lookup callers and the private port/open-device chain were audited together. XInputOpen forwards the selected row to342FC1; sole positive device+A3 store343056 retains it, and XInputSetState's LEA+A3 is only used for reads. The scoped zero reads retain original null tests/branches and failure paths. No new functions/sites or lost code/targets.342433 is a return block within342400, not the independent selector; the latter is342437 and was used for the proof.
+
+Away recovery batch20 closes3426A5/343191/34423E/343D64/343D81:229 ->224. The two XID rows supply their original+24 packet callbacks3427BD/34280F, selected through port+0E or342FC1's saved exact row. The separate three-word USB class-driver table341474..34147F selects341538/341550/341580; exact+8/+C words select two original add handlers and two removal handlers. Only callbacks are immutable: their+10/+14 registration/type-array state is mutable. The private32-byte USB-node writer audit distinguishes FE-tag enumeration queue links from driver rows; pending paths bypass removal dispatch, promotion clears+10, and live add/complete paths install a343995 row or zero.343D3D's only two original callers and indexed child/sibling traversal retain this invariant. The newly reached XID remover's+20 callback342C16 was proved zero from the same opened-input+A3 rows before generation, so no new unresolved site appeared. Six original functions/262 instructions were newly compiled; no discoveries, lost code or lost targets. All eight focused native checks passed: four real scoped reads close their guarded calls, while the four source-entry cases retain them unresolved. Reports use call-workflow/away-usb*. Current224 sites,184 families,10264 functions,877477 discovered instructions;61 checked away closures,1 discovery (also closed), net60 from284. Last native game/full-diagnostic milestone remains236 pending the batched build.
+
+Away224 milestone: three-worker Game workflow passed in62.693109 seconds. Hidden/muted two-level route exited0:4345 frames,1754581 draws,35 input steps and6 waits complete; capture written without error. The shared diagnostics build passed10 CPU,47 controller and37 offline audio cases against the same10264 compiled functions. No compiler/linker/game/tool child remained after either build or game run. All six route traces were indexed across the whole remaining queue; observations remain non-exhaustive. Current61 away closures and1 discovery (also closed), net60 from284,224 remaining, no active packet. Goal remains active; rendering work has not begun. Ignored call-workflow/away-resume224.json records the next evidence leads.
+
+Away recovery batches21/22 close345BBC/345C3D and3401B5:224 ->222 ->221. Complete original345B2D inventory has one caller343CA3; the native argument proof gives callback343B5C from PUSH343C99. Its controller extension begins zero in34181C, whose sole341CD6 caller requests4E0 bytes before the18-byte header is added and cleared. Both consumers copy+470/+474 before clearing, including the saved EBP-1C target, so their only nonzero target is the original reset completion. Ring initializer34007C has exactly two original calls33F421/33F452; all-predecessor origin reports locate their argument1 pushes, and the immediately preceding XOR instructions prove both register values zero. The register-valued argument report itself is correctly incomplete for literal-only proof. The original pointer/all-relative-branch corridor census has no alternate incoming entry.33FE69 allocates0x30 zeroed bytes, and the private callback+10 field has no later setter. Check21 retained the ring site because its second prefix helper was still an ABI barrier. Complete bounded helper closures proved EBX preservation for both33FD6C and33FFD4; two exact-byte preservation contracts now let the existing decoder prove the original CMP/JZ without weakening its rules. Check22 closes the ring call. Native owner/source-entry probes pass: the real owner closes, while the source-entry case retains its unresolved call. No new functions, unknowns, lost code or target bindings. Current221 sites,181 families,10264 functions;64 away closures and1 discovery (also closed), net63 from284. Last complete game/shared diagnostics milestone remains224. No active packet. New evidence uses away-private-callback*,away-ring* andaway-hc* reports.
+
+Away batch23: complete fixed-target predecessor recovery (220 remaining)
+The native decoder now distinguishes a complete finite register-value proof from
+callback seed candidates. Every predecessor must reach a full-width constant or
+register copy; entry values, partial writes, unknown helpers, missing paths,
+128-state exhaustion and incomplete jump CFGs retain an unresolved call. Kernel
+register preservation and existing byte-checked helper contracts remain explicit.
+This closes 7F1C2 in owner 7F2F0 to original MOV-immediate values 7EB80/7ECA0
+at 7F188/7F181. No per-site target override was added. Check21 retained all
+previous instructions/bindings and found no new unresolved calls. Bounded native
+alternate-root checks retain both values from roots 7F17D/7F181/7F188, while
+starting at the join 7F18D correctly leaves the unknown entry EAX unresolved.
+Evidence: away-constant-proof-validation.json and away-check21.json in the local
+call-workflow log folder. USB/Isochronous producer investigations remain open;
+no unproved callback target or unreachable path was accepted from those leads.
+
+Away batches24/25: object initializer and ring error callback (216 remaining)
+Batch24/Check22 closes87A82 after tracing all ten constructor calls in eight
+owners to stack records of types0/1/2/3/4/7/8/9/10/11/12. The only replacement
+registrations are151590/1515B0, types7/8, static5965B0/5965C8 records or null.
+The source literals for every original selected initializer, both replacements
+and real defaults form the callback set. This immediate constructor proof does
+not assume object types/methods remain unchanged later. Whole registry/caller
+inventories and bounded caller CFGs are saved as away-object-registry*,
+away-registry-callers*, away-registry-replacement* and away-registry-entry*.
+Batch25/Check23 closes2D26CF/2D272A/2D2759 to the original2D23B0 ring error
+callback at literal2D290E. Constructor2D2890 sets it in each private64-byte
+record; the only setter2D29E0 is published only as input-vtable slot+2C, with
+no original dispatch to that slot. Actual original+2C callers use output
+interfaces, a fixedA5E520 service record, or the optional plugin record.
+Private-pool, callback-word and slot audit reports are saved under
+away-input-pool-notify*, away-stream-notify*, away-ring-stream* and
+away-notify-slot-audit*. All previous byte coverage/bindings were retained.
+The optional outer release slots+78/+80 remain open: constructor zeroes them,
+but the cleanup loop is channel-count indexed and the count is not yet bounded
+to two for all original callers. Larger counts overlap other fields, including
+the mutable+88 state and+8C sentinel. Do not infer stereo from field names.
+At the220-site runtime milestone, a3-worker build took43.7202972 seconds;
+muted first-two-level input completed35 steps and6 waits over4356 frames /
+1737708 draws, capture written. Full shared tool CPU10/controller47/audio37
+checks passed. New facts after that milestone are not yet relinked.
+
+Away batches26/27: message registration and secondary stream errors (210 remaining)
+Batch26/Check24 closes2D356A. Its sole original wrapper2E2DA0 pushes index6;
+the sole setter call2C8D97 installs2C86F0 at that same index. The source word
+is2C8D91. The original6-index callback and context occupy939AC0/939AC4.
+This also discovers and compiles the original callback entry2C86F0, omitted
+from the Ghidra function list, without new unresolved calls.
+Batch27/Check25 closes all five secondary-stream error calls2D2DA0/2D2E08/
+2D2E8B/2D2EAC/2D2F3E. Constructor2D2FC0 installs2D2D10 at+1C in32 records
+of36 bytes. Destructor2D3050 clears it. The sole setter2D3110 is only
+published in unused input-vtable slot+2C, covered by the same complete dispatch
+audit as the primary stream. Original helpers each have one typed wrapper;
+2D2DB0 receives the object in ECX, the other three receive it in EAX.
+The secondary pool[95F0E0,95F560) is separate from the256 primary records of
+64 bytes at[95F560,963560). Prior shorthand40 for the primary stride meant
+hex40; metadata and research now state64 bytes explicitly.
+Evidence: away-message-registry*, away-secondary-notify*,
+away-secondary-helper-pool*, and packet cached native helper/wrapper CFGs.
+Both checks retained previous byte coverage and target bindings.
+The210-site game milestone passes:3-worker build77.110164 seconds, muted
+first-two-level route35 steps/6 waits,4344 frames and1762960 draws, capture
+written. Full shared tool CPU10/controller47/audio37 checks pass against10265
+compiled functions. No surviving build/game workers; diff whitespace check passes.
+The additional queue-stream helpers2D3C60/3CD0/3DC0/3EA0/3F60 remain unbound.
+Their table6C0C00 contains the unused slot+2C setter2D4100, but streaming original
+pointer inventory finds no publication of6C0C00 itself and the current native
+field-writer catalog has no+28 writer for this family. Do not invent a default
+callback or claim these guarded calls unreachable from that absence. Exact
+original method entries are available from the vtable in
+away-queue-stream-vtable.json; away-queue-stream-refs.txt records the negative
+factory lead. No active recovery packet remains after batch27.
+
+Away batches28..31: frontend word, writer inventory and ADX callbacks (197 remaining)
+Batch28/Check26 closes fixed frontend call2A016B to the original6AB8A0 word
+(2A06B0). The whole104-record descriptor reference audit decoded44 connected
+consumers with complete budgets. Flags remain mutable; the callback word has no
+writer. All104 configuration pointers lie outside the descriptor array.
+The other signed-index menu calls remain open. Bounded16.5KiB item data contains
+211 rows, all initial link IDs0..101; original2A13B0 link rewrites use50/52/81/79.
+However29EF00 restores116 selected-menu bytes from6CA8DC without local bounds
+checks. The selected-row/header-count and saved-profile validation paths must
+be established before declaring every resulting menu index valid.
+Batch29/Check27 fixes the native writer index: it now reports every written
+operand with a mapped constant global displacement and a variable base/index,
+including byte/word/vector widths, scale8 and read/modify/write instructions.
+These are possible aliases, never inferred object types. It previously recorded
+only32-bit MOV with no base and a scale4 index, missing even2A98F5 and2D3A91.
+Expanded reports retain original instruction bytes and add base/index/scale/width.
+All existing compilation/bindings remain unchanged. Batch30/Check28 retains this
+coverage while recording the menu profile-restore limitation; no menu bound was
+accepted from nominal descriptor counts or observations.
+Batch31/Check29 closes12 ADX input/completion callbacks across six format workers.
+Original factory2D73F0 allocates16 records of248 bytes at[957260,9581E0), clears
+the exact record and installs2D6AE0/+78 and2D6B20/+80. Its sole caller2CFB60
+stores the result at ADX+4. Sole setter call2CFC10 replaces+78 with2CF560 and
+ADX context;2CFED0 forwards the saved decoder to sole dispatcher2D7870.
+Workers retain that record through their format paths; callback outputs target
+only+68/+6C/+70, with completion counters at+88/+8C. No other callback writer
+reaches the record. Constructor and override literals2D74C1/2CFC0B bind+78;
+2D74CE binds+80. New registration ABI describes the actual three-argument setter.
+Native producer/consumer CFGs are archived in away-adx-callback-functions,
+with original root and private-pool streaming inventories. No new functions or
+unresolved sites were introduced; all old code and targets remain present.
+The sound34128C save-buffer hypothesis is rejected independently: nxdk's
+KFLOATING_SAVE is eight32-bit fields (32 bytes), so that buffer ends at3412AC
+before allocation-statistic pointers3412AC/B0 and math slots3412B4..D8.
+Primary reference: https://raw.githubusercontent.com/XboxDev/nxdk/master/lib/xboxkrnl/xboxkrnl.h
+Its type definition is at lines1238..1248 in the fetched2026-10-27 version.
+This does not establish initialization or reachability of the sound math slots.
+The197-site milestone passes:3-worker Game81.7042359 seconds; muted route
+35 input steps/6 waits complete,4283 frames and1727691 draws, capture written.
+Shared CPU10/controller47/audio37 diagnostics pass against10265 compiled
+functions. No surviving build/game workers. Whitespace check passes. Expanded
+writer inventory separately passes four native byte/scale/read-negative checks
+at2A98F5,2D3A91,2AA41F and2A01FE; examples include actual INC/OR writes.
+Report: away-global-writer-index-validation.json. No new test framework was added.
+
+Away batches32/33: reserved ADX fields and guarded tail dispatch (190 remaining)
+The decoder constructor clears eachF8-byte record, including+B4/+C0/+F0.
+The lifetime audit checked all interior output ranges, not only direct stores:
+2D91F0/2D8C50 return scalar fields at+9C;2D7E70 ends paired shorts at+B4;
+2D1550 writes fourDWORDs at+D0..DC and scalar outputs through+E4, ending+E8.
+None reaches the reserved plugin handles or notification callback. Original
+private-helper caller inventories retain the ADX+4 provenance, including outer
+2C70C0 and the type2 ADX branch of2D1D40. Native CFGs are archived under
+away-adx-plugin-functions, with away-adx-plugin-callers.txt.
+Batch32/Check30 closes2D7916 and2D7A96 with scoped zero reads. Five guarded tail
+jumps stayed unresolved because zero-conditioned block recovery rejected every
+unknown JMP before checking whether that JMP was itself unreachable.
+Batch33/Check31 fixes that restriction. It first runs bounded zero-conditioned
+flow to a complete fixed point, then rejects the proof if any unknown jump is
+still reachable. Only excluded indirect CALL/JMP instructions receive zero_guard.
+The original operands, tests, returns and invariant-failure boundary remain.
+This closes2D7942/2D7992/2D79B2/2D7A72/2D7AE2 with no code/binding loss and
+no new unresolved site. Unguarded2D7AC0 remains unresolved.
+Fifteen native probes pass: eight original owner/alias roots close their guarded
+tail jumps; five alternate entries at the source instructions stay unresolved;
+unguarded2D7AC0 stays unresolved; and a61-instruction2D7870 probe that includes
+CALL2D7916 but lacks complete control flow does not inherit the proof. The initial
+six-instruction tail probe stopped before its JMP and was unsuitable for that
+last check; the complete partial-CFG CALL probe replaces it in the validation.
+Evidence: away-zero-tail-validation.json and away-zero-tail-probe-functions.
+
+Away batch34: The sole original caller of dispatcher2EA050 is2EA200 at2EA216, where XOR EDI at2EA214 fixes the method index to0. Its EBX source is argument1, and its sole caller2E3880 passes [EDI] at2E3919/2E391B. The only original path to2E3880 is2E3930 from2D9DC0: this stack configuration takes its bank pointer from original word461038, equal to460FFC. The15 original bank words have exactly seven nonzero entries461BB8/461B70/461AD4/461A9C/461A48/461A10/4619D8.2EA050 starts ESI at0, reads at most15 entries, skips zero tables, and invokes offset0. Each method0 target is taken from its original table word. The complete streaming bank/interface address and dispatcher rel32/pointer inventory is saved in away-stage-original-refs.txt: bank addresses occur only in original data and this configuration publication; no original bank or method0 writer exists. The variable native writer inventory has no base in either bank/interface range. All connecting CFGs have complete2048-instruction budgets. This proof applies only to the global initialization dispatcher; per-player constructors and method numbers remain separately unresolved.
+
+
+Away batch35: The sole per-player stage initializer2EA490 is called by2E5D60 at2E5E7B with destination main+1F28 and the original configuration. It iterates exactly nine records, stride44, loads table[i] from configuration[0], and2EA080 publishes each table at record+C = main+1F34+i*44. The original game constructor chain E5CB0->2DBB70->2DB550->2E6200->2E5D60 supplies a configuration copied from the three17-word templates6C0F20/6C0F68/6C0FB0; their original bank words are4613D0/4613F4/461418. All27 bank words are zero or one of461BB8/461B70/461AD4/461A48/461A9C/461A10/4619D8. The only restart2E5EB0 copies the same17-word header before calling2E5D60, preserving the bank pointer. Full original byte-address inventory away-stage-config-refs.txt finds no bank/configuration-bank-word writer or alternative publication. The sole active game configuration begins with1 atE5D2F;2DB260 size helpers read it and write separate scalar outputs, while its optional override callbacks are already independently proved zero. All constructor branches are still included in the finite bank union. Stage setup2EA0B0/2EA0D0/2EA220..2EA320 writes channel mappings, with stage table fields disjoint; the stage methods use separate private state fields and do not replace the published table.2EA0F0 scans only those nine records and skips nulls. Its complete original rel32 and pointer inventory has exactly three callers2E4FC0/2E5600/2E5610, pushing literal method2/3/4. Therefore only these three original words from each nonzero table can be called. The native complete CFGs and original tables are archived under away-stage-dispatch-functions and away-stage-method-tables.json. Dynamic stage/channel dispatcher2EA130 remains separate: channel row+4C has a sentinel9 and still needs a complete mapped-channel proof.
+
+
+Away batch37, shared baseball states: The private baseball contexts8796D0 and8796E0 are zeroed by original initializer238150, whose REP STOSD spans exactly[879658,8798C4), and explicitly initialized to state0 by22CFC0/22EA10. Their state bytes are respectively+4 (8796D4) and+8 (8796E8). Complete original byte-address and rel32/pointer inventories find no alternative state setter/publication: D4 is changed only by22D040 from BL, and E8 only by22EA90 from its second stack argument. All ten original direct/tail calls of22D040 supply constants1..7; all thirteen calls of22EA90 supply constants0..7. This includes table-only callback entries missing from the previous native function index:22D0B0/22D0D0/22D690/22D8A0 and22EBC0/22EBE0/22EC30/22EC70/22F5A0/22F650/22F6F0. Thus both initial and later states stay0..7. Their exact128-byte tables are[5F9278,5F92F8) and[5F99C8,5F9A48), four callbacks per16-byte state record. Original address inventories cover every byte in both tables and find only their loads; no escaping table-cell pointer or indexed/direct writer exists. All32 original methods were decoded with complete2048-instruction budgets. Context writes affect flags, counters and later data, not either state except through the verified setters.22D3D0 and22F490 low-offset vector writes are on their first character argument, and22F8B0 writes vectors to character+1C and context+12/+13, disjoint from state+8. Neighbor writer aliases were audited:238170 has one original caller with team argument0; all18 original2381C0 calls pass team0/1. Other unsigned indexed stores start at87971C/879886 or later. Score writes2335F0 index879683/87968F by the inning byte87967D. Its only initializers2335C0 set1, and sole mutator233A80 increments after the second half; its sole original caller is inning-advance state16 initializer2365B0. Both option-copy functions2389C0/238B10 and setter238550 clamp the selected inning count to9. Rule checks232E40/232F40 set the end flag by inning12 even on ties; checked end branches236ED0/2371F0 select state13 instead of state16. State13 leads to the ending state14, while further inning advances require state16. Therefore score writes remain in their score rows, far below8796D0, and cannot change callback states. Original resets clear the contexts rather than importing state bytes. Each call selects only its corresponding table column; null and original nonvolatile/call behavior are retained. Evidence: away-party-{callback,full-table,team,inning,end}-refs.txt, away-party-{global,ball}-methods.json and complete CFG archive away-party-callback-functions. The exploratory non-entry23CF30 is excluded; original23CF39 is a read of the inning word and supplies no writer proof.
+
+
+Away batch38: shared-state animation methods5FA580/5FA5A0 reuse the batch37 D4/E8 proof. The private baseball player contexts start at879714 with24-byte stride. Verified actor initializer22E4D0 is published in original actor table word602118; it zeroes each exact24-byte record and sets record+5 to0 before invoking method0 from5F9488. Global initialization238150 also clears the complete context array. Sole later state setter22DA40 writes BL to record+5 at22DA83. Complete streaming original rel32/pointer inventory finds exactly ten setter calls and no alternative publication; their prepared BL values are0,1,2,3 or4. All ten sites were decoded, including previously unseeded table methods22DCD0/22DD20/22DEB0/22E000/22E940. The original5F9488 table has five16-byte records and ends5F94D8 before floating-point configuration. All20 original callback words were read, and each non-noop target has a complete2048-instruction CFG. Those methods never write the context state except by the verified setter; their context byte writes are at+6/+7 or later. Apparent wider low-offset stores in22DAB0 write first-argument character vectors (ESI+4/8, EDI=character+10 at22DB2A, EAX=another character vector), while its second-argument context is loaded later at22DB3E. Original byte-address inventory of both complete tables, the context array and native indexed writers contains no table-cell escape or replacement.22DA70 selects exit column+8 of the old0..4 state (all five original BA870 words);22DA8A selects entry column0 of the verified new BL. Getter22DAA0 returns this exact state byte. Animation2325B0 requests player2, saves its result to a private stack byte before the separate shared-state animation call, reloads that byte into AL afterwards, then selects5FA5C0 at2326AE/2326BF. The corresponding five-word animation table ends5FA5D4; its only nonzero word is232300 at index1, and all original null guards remain. Neighboring global-state/score initialization and nonoverlap proof recorded for22D001 also applies; no unrelated receiver layout or observed-only target is admitted. Evidence: away-baseball-player-{method-entries,low-writes,table-refs,init-refs}, away-party-callback-refs.txt and away-baseball-player-functions. Exploratory roots22E4F0,22E980 and raw code-word overlaps22E4E0/22E4E8/22E504 are excluded from entry proofs; the valid22E4D0 CFG supplies the initializer evidence.
+
+
+Batch38 final Check36 passed:180->175, five closures, no discoveries or code/target loss, all10298 functions compiled. The first check rejected four uncompiled owners because null-guarded empty table cells had been included as callback target literals. Those zero words are now excluded from the target list, preserving the original guards. Existing nonempty table ranges may contain nulls; an individual target literal must be a nonzero callback. No decoder workaround or lost-code acceptance was added. In batch37 the wording 'all32 original methods' refers to every callback in both eight-state tables; the current facts state this without an incorrect unique-method count.
+
+
+The175-site game milestone passed with3 workers in131.9593278 seconds. Muted/hidden two-level route completed4290 frames and1733566 draws, all35 input steps/six waits, with capture written. Full shared tool relink and CPU10/controller47/audio37 checks passed at10298 compiled functions. Reports use away175-*; no owned build/game process survived. Goal remains active:110 verified away closures plus one discovery, net109 from284,175 remaining.
+
+
+Away batch39: This proof applies to immediate actor creation only.238CF0 forwards seven generic ball arguments to8C1A0, then an extra ball pointer to8C7B0. With32 outgoing bytes still on its stack,238D2F reads[ESP+34] = original entry+0C, caller argument2, and stores that low byte at ball+154. It immediately sign-extends the same AL and selects the initializer column of12-byte6020E8 records. Complete original streaming rel32/pointer inventory has exactly fifteen CALL sites and no function-pointer publication of238CF0. They lie in235B50(six),236B50(six),23B700(one) and23DEB0(two);236AF0 is a tail-entry alias of23B700, not an extra call. Native analyse-arguments reports for all five indexed owners have complete PUSH origins and only literal argument2 values0,1,2,3,4. Original table[6020E8,602124) has exactly five records; each listed original word is its initializer column. The complete original byte-address inventory finds only its indexed loads, no table-cell escape or writer. All five initializers were decoded within complete2048-instruction budgets. Neither helper return value is used as the class index; the original caller argument is reloaded. This establishes the constructor call without assuming that later active pool records retain the same class or ignoring other game modes. Update238CC0 and character-action239450/239480 still require their independent lifetime proofs. Evidence: away39-actor-arguments-*.json, away39-actor-caller-refs.txt, away39-actor-class-table.json and away39-actor-functions. Newly reached22E515 uses fixed original5F9488->22DAB0, whose no-writer proof is retained from38. Later238CC0 class lifetime is not accepted merely from the immediate constructor proof: inactive/live actor-pool handoff between party modes still needs to be bounded. The byte154 overlap index shows only8C1A0 reset0 and238CF0 within baseball/core, but this alone does not rule out stale active actors from another mode.
+
+
+Away batch40: Actor-constructor recovery newly reaches the two original baseball shared-state initializers.22CFC0 clears state8796D4 to0, loads only the fixed first original word5F9278, and calls it at22CFDA with the actor and8796D0 context.22EA10 similarly clears8796E8, loads fixed word5F99C8 and calls22EA2A with actor and8796E0. The original targets are respectively22D3D0 and22F490. Complete table byte-address and all writer/alias proofs from baseball batch37 cover these exact immutable words; both original zero guards remain. These initializer calls require no later state bound or other-party actor-pool assumption. Both functions have complete ten-instruction CFGs archived in away39-actor-functions. This closes the two newly discovered sites from batch39, without changing any original instruction or treating observation as proof.
+
+
+Batch39 verified15 original immediate actor class arguments0..4 and closed238D51; newly reached22E515 was bound from immutable5F9488. It introduced two shared initializers22CFDA/22EA2A, closed in40 using fixed5F9278/5F99C8. Final Check38:176->174, no code/target loss,10303 emitted functions. Totals:113 away closures,3 discoveries all closed, net110 from284. Latest linked/tested game remains175. Actor update lifetime is still open pending active-pool handoff proof across party modes;8C300 resets only one selected ball.
+
+
+Away batch41 actor lifetime: This baseball updater has an active-pool lifetime proof, separate from the constructor-only proof.233D70->232B80 first initializes the game and synchronously enters intro state1 via23B500->23DEB0 before publishing238CC0 in slot738DEC at232BB3/F9E30.23DEEF/23DEF6/23DEFD initialize scene modules0/2/3 through16870. Original module2 record477D18 has init8DF50 at477D20 and release89BA0 at477D28.16870 first releases an active module, then always calls its initializer. In8DF50, the complete eight-iteration loop8E070..8E0BB visits[738DF0,739B70) with1B0 stride. ESI starts ball+104;8E08D clears the live byte,8E087 assigns the loop index0..7 to ball+2E,8E0A9 clears ball+154, and8E0AD sets ball+155 toFF. This erases earlier party actor classes and pending classes regardless of live status. The optional8D650 tail can activate default actors but preserves the cleared class domain. Later baseball creation238CF0 has exactly fifteen original class arguments0..4, independently checked in batch39, and initializes this same pool through8C1A0/8C7B0. The ten five-class initializer/updater bodies and their shared generic core helpers have complete bounded CFGs. They either preserve ball+154 or clear it to0; the only positive baseball writer is238D33 installing its verified argument. Pending state was audited as well: scheduler8C330 has ESI=ball+98, and8C3E6..8C3F8 copies a nonnegative pending byte+155 to+154 before setting its high bit. Module2 initializes pending155=FF;89FA0 resets the exact1B0 record and sets pending155=FF;8C7B0 resets the record and restores its saved pending byte. No positive pending-state writer or escaping pending-byte output exists in the baseball actor bodies/helpers. Thus this scheduler copy cannot introduce another class. Other party-specific state writers run under different callback bindings, after their own mode entry; the reset before the baseball binding prevents inherited live or pending values. Complete original238CC0 pointer/rel32 inventory has only the232BA0 publication and no direct entry. Original five-record actor table[6020E8,602124) has only its constructor/update reads and no writer/escaping cell. Therefore every nonzero actor updated by238CC0 has class0..4 and only the five original update-column words are reachable. Original inactive/null/pause guards and tail ABI remain. Evidence: away41-scene-modules.json, away41-actor-lifetime-refs.txt, away41-actor-lifetime-functions, away41-ball-state-overlap-writes.json and the original complete actor constructor reports. Relative-write indexes alone were not treated as proof: the actual ESI+BC/BD scheduler aliases and module ESI+50/+51 aliases were inspected. Newly reached class4 updater22E520 uses the private player-state proof from batch38. Module2 init8DF50 sets each actor ID ball+2E to its loop index0..7 at8E087, and8C7B0/89FA0 preserve that exact ID across record resets. All eight24-byte private contexts at879714+i*24 are zeroed by238150 and their state+5 is changed only by22DA40 verified constants0..4 or22E4D0 zero initialization. Original lifetime/method and neighbor alias proofs from38 apply.22E520 computes its exact ID context and calls column+0C at22E563; it reloads context+5 at22E568 before selecting column+4 at22E57B. Both sets consist of five original nonzero words from the immutable5F9488 table ending5F94D8. The first callback cannot invalidate the second index: all positive state writers retain0..4. These new calls are bound before their updater becomes a generated target and are not counted as closures from the174-site baseline. Original actor update word60211C verifies the22E520 entry.
+
+
+Idle-demo actor update family, 2026-10-28
+Verified default.xbe SHA256: 9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2.
+The idle demo stops at 8BF80 because its actor update callback was absent from the native table. The dispatcher is 9DAB0, with the indirect call at 9DAFC (FF505C). Its eight 1B0-byte player records begin at 738DF0 and carry the actor pointer at +104. Creator 8C1A0 obtains the initialized 2F0-byte actor through 9D790/9D4B0, publishes it at 8C235, and selects argument5 or default8BF80 for actor +5C. Wrappers 8C300 and238CF0 forward callback arguments5 and6 respectively. Their complete direct-caller domain supplies only the eleven targets below. The only live header override, 1CB114, reinstalls the same1BAA40. Record resets preserve the pointer; release paths clear it. The zero +5C store in9B690 is relative to actor+C4 and cannot overwrite the callback header.
+Complete nonnull domain: 8BF80,BA870,9D9A0,10E6F0,1178E0,129E30,137720,192E80,1AB1B0,1BAA40,22CC90. Exact literal sources are the static_calls.json group for9DAFC and build/logs/idle-demo-callback-literals.json. All35 original relative references to the three creator/wrapper entries were checked against complete bounded CFGs; no tail jumps or literal publication of those entry addresses were found. See idle-demo-all-entry-references.json and idle-demo-reference-check.json. Callback registration facts also retain the actor pointer held in EDI across verified original matrix helpers27EC0,298B0 and29A90. All original callback code, null guards and caller cleanup are preserved.
+Validation: Recover-Calls Check passed with one closure, zero introduced sites, no lost code or target bindings, and all10336 native functions compiled. Game built through Build.ps1 -Stage Game -AllowPartial -Workers3. A hidden, muted 180-second idle run completed16138 frames with no failure and a controls-demonstration image; see build/logs/idle-demo-fixed.json and build/checks/idle-demo-fixed.png. The resolved dispatch calls original native targets directly, so absence of9DAFC from the optional unresolved-call trace is expected and is not used as static closure evidence. Remaining unresolved sites:169, down from170.
+
+World3 deferred render callback discovery, 2026-10-28
+Verified XBE SHA256: 9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2.
+User stop: build/logs/game-stopped-1793218769920.json. Target D8F60 was absent from the fixed native table. Return1F88A identifies original CALL EAX at1F888, not the preceding PUSH at1F887. Dispatcher1F860 traverses the active context's sorted list at+104 and invokes node+4 with the node pointer; the original null guard and four-byte caller cleanup remain.
+Verified registration1F770 inserts its argument1 node into that exact list, using node+0 as next and node+8 as sort key. ProducerDA510 obtains a20-byte node from1F7E0 atDA5E2, rejects null, pushes the node atDA5EE and the sort context atDA5EF, then installs D8F60 into node+4 atDA5F0 before calling1F770 atDA5FA. Its related registration installs D9540 atDA5B2, also after the pointer PUSH and before1F770 atDA5BC.
+Root cause: record_callback_values searched field installations only before the pointer PUSH. PUSH snapshots the address; the record can still be initialized before its consumer runs. The offline decoder now additionally searches from the consumer CALL when a bounded, straight-line instruction proof retains the same pointer register from PUSH through CALL. Register writes, incoming control-flow joins, intervening calls and transfers block this extension. Existing discoveries remain; the general-purpose arena is not incorrectly typed as callback storage.
+Native Check passes with no lost functions/bindings or new unresolved sites. It adds23 distinct registration targets across25 producer entries; seven functions that were actually missing are now compiled:24C50,82950,CC030,D8F60,16A060,289B50,290D90. D8F60's complete346-instruction CFG spans D8F60 through RET D9535, uses one cdecl record argument at entryESP+4, and restores its original E4-byte frame and saved registers. All10343 discovered functions compile, totaling884363 instructions. Original bounded CFGs are cached by the call-workflow packet; detailed deltas are in build/logs/world3-callback-recovery.json.
+The mutable generic render dispatcher is not claimed closed:169 unresolved sites remain. This corrects callback entry discovery without a scene-specific seed, stub, runtime instruction decoding, or an invented finite dispatcher domain. Game and diagnostics both built with3 workers. The shared native CPU check passes all10 cases; see build/logs/world3-cpu-check.json. Actual World3 playthrough is left to manual verification; the available saved profile resumes World1 stage1-4.
+Final smoke validation: hidden, muted ordinary-controller run completed1800 frames and664995 draws without a boundary failure. It uses only the isolated world2-profile copy; original user storage was not modified. Report: build/logs/world3-build-smoke.json.
+
+All-calls goal, batch1/2 (2026-10-28): 169 ->167 unresolved sites.
+Closed Dogfight physical-player dispatcher115A6F (four states) and paired
+character dispatcher119B0C (eleven states). Complete state-method/lifetime CFGs
+and original reference inventories are in call-workflow, dogfight-*.json and
+mode-00588*-refs.jsonl. The only exact table references are dispatch operands
+115A72 and119B0F; neighboring constants were separately excluded. Both native
+checks passed without lost code/targets or newly introduced unresolved sites;
+all10350 discovered functions compile. No runtime link yet: related families
+are being batched through the Analysis stage. Earlier exploratory SDK switch
+and typed object registration evidence is retained in all-calls-* and sdk-*;
+those incomplete proofs are not claimed as closures. SDK325B70's two-level map
+must retain valid bit-composite selectors or account for accidental executable
+words, rather than assume every byte index is a valid declared format. The
+four typed-object callback arrays require complete type/registration/lifetime
+proofs; current research has not established those domains.
+All-calls goal, batch 3: typed CC-byte objects (169 -> 163 overall).
+Verified original six arrays55578C..5558DC, 14 slots each, original defaults5558E0..F4, and seven/eight overrides5965B0/C8. Native references confirms10 constructor calls in8 owners and4 registration calls in151590/1515B0, with no code-pointer literal publication. Constructor type proof87A82 supplies eleven types0,1,2,3,4,7,8,9,10,11,12. Original88100 clears144 CC-byte slots while inactive;15DB0/15D80 manage separate flags. Audited36 initial callbacks and10 distinct nonzero replacement callbacks, with complete bounded CFGs. Header+4 candidates were vector/subobject/other-collision-argument stores; notably86830 usesEDI for the typed record andESI for its second argument. Bound update8795B, draw86140 and release8606A/8790C to their own original slots/default/replacements. Native Check:4 recovered,0 introduced,10350 compiled,163 unique unresolved, no lost code/target bindings.
+The native tool now offers references XBE FIRST END: a bounded64KiB-chunk scan of mapped original bytes for literal addresses and executable E8/E9 candidates, capped at4096 results. Candidates require original CFG/pointer-use verification; byte overlaps and unbacked padding are not code proofs. This supplies complete candidate inventories without retaining/decoding the whole image.
+All-calls goal, batch4: B4-byte typed pool (163 -> 158).
+Reused original constructor2587A8 proof for types0,2,4,5,6,7,8,9,11 and checked live lifetime at892B18:256 records, B400-byte clear258D50 ends89DF18, separate word counter and flag allocator. Bounded native CFG audit covers15 original callbacks,24 nonzero replacement callbacks, pool visitors and original hooks108440/221360. Header candidates are rebasedvectors, separate+60 data, second collision records or newly allocated tasks; no live type-tag replacement. Bound phase1/2/4/5 sites258532/25871A/25860A/25865A/258BB4 to their original fields, per-field defaults, stack literals10A290,58CB10 and five1C-byte5F7E70 replacement rows. Check:5 recovered,0 introduced,10352 functions compiled,158 unique unresolved, no lost code/target bindings. Native reference and compact header-alias inventories remain in ignored build/logs/menu-*.json; these filenames do not assert that the pool is a menu object type.
+All-calls goal,batch5: optional codec output records (158 ->153).
+Native scalar/reference inventory found the scaled4CE record setter2EC310 and consumer2ED96B. Complete relative/literal/interior scan of2EC310..2EC337 finds only constructor call2EBFA5.2EBEF0 zeroesEBX at2EBF06 and its four-iteration loop passes zero stream/callback/data for all4 records. Checked complete intervening helper CFGs: EBX untouched or saved/restored. Codec packet handlers set active selector1/2/3 at2ED055/2EC4AD/2EC68B; these records are separate from input-stream interfaces and active decoder hooks1318/131C. Added scoped zero source2ED972 owned only by2ED900. Existing zero-conditioned control-flow proof validates its explicit null guard and excludes all5 calls; original operands/guards remain intact. Native Check:5 recovered,0 introduced,10352 compiled,153 unresolved,no lost code/bindings.
+Milestone build at158 unresolved passed: Windows game/full tool linked,10 CPU checks passed; silent hidden1800-frame Challenge input run passed,565511 draws,3772 submissions,normal Native window closed boundary. Native reports all-calls-milestone-*.json/logs in ignored build/logs.
+All-calls goal,batch6: primary stream error callbacks (153 ->149).
+Constructor2D2890 installs default original diagnostic handler2D23B0 at+38, callback-data self at+3C and6C0BA0 interface. Reset/operations preserve these fields. Setter2D29E0 is sole alternative writer; exact original reference inventory has only6C0BCC interface publication and byte overlap235C32 CALL238960. Original indexed +2C calls are2CD52D/2CDDDC (resolved other interfaces) and2DB0AE (separate manager callback). No original stream error registration reaches the setter. Bound2409/251B/2620/280E to constructor literal2D290E. Check:4 recovered,0 introduced,10352 compiled,149 unresolved,no lost code/bindings.
+All-calls goal,batch7: queue-stream private pool (149 ->142).
+Advanced beyond the older negative factory lead with a complete bounded native address/publication audit. Owned pool95DA60..95E660 contains64 records of48 bytes. Its only actual base uses4006/4035 clear300 dwords;0D4C/0FBA/42A4 are one-past comparisons for the separate568-byte controller pool959360..95DA60, not queue pointers. Apparent interior references DE1D7/232C08 are CALL/JMP opcode overlaps. No interior owned-pool pointer escapes, record allocator/publication or nonzero writer is present. The closed original private-call inventory for3C60..3FEF has only five wrapper calls417E/41A8/41D3/41F2/4216; wrappers are in unexposed interface6C0C00. Per-record setter4100 is its unused+2C method. This positively establishes the owned pool's zero lifetime and receiver-flow scope; it does not invent a default from the incomplete compiled writer index. Seven exact scoped loads now use the existing checked null-guard proof. Check:7 recovered,0 introduced,10352 compiled,142 unresolved,no lost code/bindings. Evidence:other-stream-*-references.json, bounded between-methods decode, pool-user CFGs; original guards/operands remain intact.
+
+All-calls goal,batch8: PILOT2 physical states (142 ->141).
+Original module entry12AF10 installs physical hook126D40 through F9E30;
+the original module string is RELOCATION PILOT2 LOADED. Participant builder
+12B250 calls physical constructor8C1A0 for each active participant with type17h
+and callback129E30. Constructor8C1EE and reset8C7B0 clear state byte+154.
+The complete13 original state handlers preserve or assign states0..12;
+external scoped helpers1254E0/1292C0/1297E0/12A6D1/12AD26 were also audited,
+including absolute pool writes that the displacement-only inventory misses.
+The initial AL at1254FC is2, and all five following absolute state stores use2.
+Native reference inventories cover the full physical pool and displacement154;
+all37 scoped references have complete bounded CFGs. The exact immutable table
+is[589C78,589CAC), with13 original targets. Its sole original interior address
+reference is dispatch operand126D52; adjacent numeric configuration is excluded.
+Bound tail126D4F with its verified entry prefix. Native Check passes:1 recovered,
+0 introduced,10357 functions compiled,141 unresolved,no lost code/bindings.
+Reports:all-calls-pilot-physical-check.json and pilot-*-references.json in ignored
+build/logs. Paired character dispatcher12C1CA remains unresolved: its separate
+state initialization/lifetime proof is incomplete and is not inferred from this
+physical-object proof. User requested wrapping up and building after this batch.
+Wrap-up validation: Game stage and full diagnostics tool built successfully with
+3 workers; compiler/linker work stayed in the bounded build pool. Existing native
+CPU checks pass. Silent hidden Challenge-input run passes1800 frames and556059
+draws, ending with the normal Native window closed boundary. Reports are
+all-calls-wrap-game-build.txt,all-calls-wrap-tool-build.txt,
+all-calls-wrap-cpu-check.json and all-calls-wrap-challenge-check.json.
+Recovery stops here at141 unresolved sites in124 families,10357 compiled functions
+and885522 instructions. The all-calls goal is unfinished; this is the requested
+wrap-up after batch8, with no further recovery batch started.

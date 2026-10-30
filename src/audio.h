@@ -19,6 +19,7 @@ struct AudioFormat {
 };
 struct MixBin {std::uint32_t bin;std::int32_t volume;};
 struct AudioPosition {std::uint32_t play,write;};
+struct AudioStats {std::uint64_t batches=0,mix_ns=0,overruns=0;};
 enum class AudioBus {none,submix};
 std::vector<float> decode_audio(AudioFormat,std::span<const std::byte>);
 class Audio {
@@ -50,6 +51,9 @@ public:
     std::uint32_t sample_clock() const {return frames_processed_.load(std::memory_order_relaxed);}
     std::string failure();
     bool output_ready() const {return stream_!=nullptr;}
+    void output_gain(float);
+    void recording(bool enabled) {recording_.store(enabled,std::memory_order_relaxed);}
+    AudioStats stats() const {return {batches_.load(),mix_ns_.load(),overruns_.load()};}
 private:
     struct Voice {
         AudioFormat format;
@@ -83,6 +87,8 @@ private:
     std::array<Voice,256> voices_{};
     std::array<std::uint32_t,32> bin_headroom_{};
     std::atomic<std::uint32_t> frames_processed_{0};
+    std::atomic<bool> recording_{false};
+    std::atomic<std::uint64_t> batches_{0},mix_ns_{0},overruns_{0};
     bool failed_=false;
     std::array<char,256> failure_{};
 };

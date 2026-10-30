@@ -217,6 +217,20 @@
       "prefix": "56E8F9FEFFFF833D080C340000",
       "stack_cleanup": 4,
       "evidence": "Original SDK entry, first instruction bytes and RET cleanup verified. Public operations use the native SDL mixer; object layouts follow SMB Deluxe constructors 339A3F, 33A6E6, 33B09A and buffer data/region helpers 33AACA/33A803."
+    },
+    {
+      "address": "0x0031F560",
+      "name": "D3D_LockTexture",
+      "prefix": "8B4424148B4C24108B54240C",
+      "stack_cleanup": 20,
+      "evidence": "Verified original texture lock wrapper forwards resource, face zero, mip, output, rectangle and flags to 321BA0 and returns RET 14h. The original helper computes the lock; native service invalidates cached views on writable access."
+    },
+    {
+      "address": "0x00320E30",
+      "name": "D3D_LockSurface",
+      "prefix": "8B4424108B4C240C8B542408",
+      "stack_cleanup": 16,
+      "evidence": "Verified original surface lock wrapper forwards resource, face zero and mip zero to 321BA0 and returns RET 10h. Original layout helper remains ahead-of-time compiled."
     }
   ]
 }

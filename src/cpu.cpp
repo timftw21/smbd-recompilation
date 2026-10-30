@@ -2,10 +2,66 @@
 #include "call_trace.h"
 #include "file.h"
 #include <algorithm>
+#include <cmath>
 #include <map>
 #include <sstream>
 
 namespace smbd {
+[[noreturn,gnu::noinline,gnu::cold]] void Memory::range_error(std::uint32_t address,std::size_t size) {
+    throw std::runtime_error(std::format("Guest memory access at 0x{:08X}, {} bytes, outside the mapped regions",address,size));
+}
+std::byte* Memory::mapped_pointer(std::uint32_t address,std::size_t size) const noexcept {
+    for(unsigned i=0;i<region_count_;++i) {
+        const auto& region=regions_[i];
+        const auto offset=static_cast<std::uint64_t>(address)-region.base;
+        if(size<=region.bytes.size() && offset<=region.bytes.size()-size) return region.bytes.data()+offset;
+    }
+    return nullptr;
+}
+double frame_gain_double(FloatingState& state,double gain) {
+    if(frame_step.delta==1) return gain;
+    HostFloatingScope floating(state);
+    if(!std::isfinite(gain) || gain<0 || gain>1) throw std::runtime_error("Invalid continuous response coefficient");
+    return gain==1?1:-std::expm1(std::log1p(-gain)*frame_step.delta);
+}
+__m128 frame_gain(FloatingState& state,__m128 gain) {
+    if(frame_step.delta==1) return gain;
+    return _mm_move_ss(gain,_mm_set_ss(static_cast<float>(frame_gain_double(state,_mm_cvtss_f32(gain)))));
+}
+void frame_ball_step(FloatingState& state,Memory& memory,std::uint32_t ball,std::array<std::uint32_t,3>& displacement) {
+    const double dt=frame_step.delta;
+    if(dt==1) return;
+    HostFloatingScope floating(state);
+    const auto value=[&](std::uint32_t address){return double(std::bit_cast<float>(memory.load<std::uint32_t>(address)));};
+    std::array<double,3> velocity{},acceleration{},normal{};
+    double normal_velocity=0,normal_acceleration=0,length=0;
+    for(unsigned axis=0;axis<3;++axis) {
+        velocity[axis]=std::bit_cast<float>(displacement[axis]);
+        acceleration[axis]=dt?(value(ball+0x1C+axis*4)-velocity[axis])/dt:0;
+        normal[axis]=value(ball+0x11C+axis*4);length+=normal[axis]*normal[axis];
+        normal_velocity+=velocity[axis]*normal[axis];normal_acceleration+=acceleration[axis]*normal[axis];
+    }
+    double position_velocity=dt,position_force=dt*(dt+1)*0.5,velocity_force=dt;
+    const bool grounded=(memory.load<std::uint32_t>(ball+0x128)&1) && length>0 && std::isfinite(length);
+    if(grounded) {
+        const auto loss=value(memory.load<std::uint32_t>(0x6C7EA8)==60?0x347BC8:0x3FAE78);
+        // Fractional iterate of the original contact step:
+        // p += v+a; v = (v+a)*(1-loss). This also preserves acceleration's
+        // interaction with drag, rather than scaling the two independently.
+        const auto gain=-std::expm1(std::log1p(-loss)*dt);
+        position_velocity=gain/loss;
+        position_force=(dt-(1-loss)*position_velocity)/loss;
+        velocity_force=(1-loss)*position_velocity/(1-gain);
+    }
+    for(unsigned axis=0;axis<3;++axis) {
+        const auto vn=grounded?normal[axis]*normal_velocity/length:velocity[axis];
+        const auto an=grounded?normal[axis]*normal_acceleration/length:acceleration[axis];
+        const auto vt=velocity[axis]-vn,at=acceleration[axis]-an;
+        const auto distance=vn*dt+an*(dt*(dt+1)*0.5)+vt*position_velocity+at*position_force;
+        displacement[axis]=std::bit_cast<std::uint32_t>(static_cast<float>(distance));
+        if(grounded) memory.store<std::uint32_t>(ball+0x1C+axis*4,std::bit_cast<std::uint32_t>(static_cast<float>(velocity[axis]+an*dt+at*velocity_force)));
+    }
+}
 namespace {
 struct CallSample {
     std::uint64_t visits=0;

@@ -8,6 +8,7 @@ struct ID3D11Device;
 struct ID3D11DeviceContext;
 
 namespace smbd {
+class Performance;
 struct Image {
     std::uint32_t width, height;
     std::vector<std::byte> rgba;
@@ -84,19 +85,26 @@ struct RenderStats {
     std::uint64_t draws = 0, vertices = 0, shader_compilations = 0, vertex_bytes = 0;
     double gpu_ms = 0;
     bool gpu_timing_valid = false;
+    std::uint64_t texture_bytes=0,target_bytes=0;
+    std::uint32_t texture_slots=0;
+    std::uint32_t resolution_scale=1;
+    std::uint64_t total_vertex_bytes=0,texture_uploads=0,texture_upload_bytes=0,target_creations=0,target_copies=0;
+    std::uint64_t buffer_maps=0,state_misses=0,layout_misses=0,sampler_misses=0,program_creations=0;
 };
 
 class Renderer {
 public:
     explicit Renderer(std::uint32_t width, std::uint32_t height,
-                      bool warp = false, bool debug = false);
+                      bool warp = false, bool debug = false,unsigned resolution_scale=1);
     ~Renderer();
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
-    std::uint32_t upload(const TextureData&);
+    std::uint32_t upload(const TextureData&,bool reuse_slot=true);
+    void release_texture(std::uint32_t);
+    void release_target(std::uint32_t);
     std::uint32_t create_target(std::uint32_t width,std::uint32_t height,
                                 SurfaceColor=SurfaceColor::rgba8,SurfaceDepth=SurfaceDepth::z24s8,
-                                std::uint32_t shared_color=UINT32_MAX);
+                                std::uint32_t shared_color=UINT32_MAX,bool reuse_slot=true);
     void grow_target(std::uint32_t target,std::uint32_t width,std::uint32_t height);
     void set_target(std::uint32_t target=0);
     void copy_target(std::uint32_t destination); // GPU copy for later sampling.
@@ -106,11 +114,18 @@ public:
                      std::uint32_t width,std::uint32_t height);
     void copy_to_main();
     void resize(std::uint32_t width, std::uint32_t height);
+    void aspect_ratio(float);
     void attach_window(void* native_window);
-    bool display(); // Scale the main image to the window and bind its overlay target.
-    void present(bool vsync);
+    void publish_frame(); // Retain one complete source image, independent of subsequent guest draws.
+    bool display(bool published=false,bool wait=true);
+    bool present(bool vsync,bool wait=true);
     ID3D11Device* native_device() const;
     ID3D11DeviceContext* native_context() const;
+    void performance(Performance*,std::uint64_t next_frame);
+    Performance* performance() const;
+    void performance_frame(std::uint64_t next_frame);
+    void finish_performance();
+    void performance_resources();
     void prepare(const RenderState&); // Cached D3D11 states; shaders are built ahead of time.
     std::uint32_t prepare_program(const VertexProgram&, bool launch = false);
     std::uint32_t prepare_fixed(const FixedTransform& = {});
@@ -129,6 +144,8 @@ public:
                       std::span<const std::uint32_t> indices={});
     void end();
     Image readback(); // Explicit diagnostic operation; never implicit in draw/present.
+    Image read_target(std::uint32_t target);
+    std::vector<std::byte> read_depth(std::uint32_t target);
     Image read_display();
     RenderStats stats() const;
     std::string adapter() const;

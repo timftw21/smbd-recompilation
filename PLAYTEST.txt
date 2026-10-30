@@ -1,7 +1,7 @@
 Super Monkey Ball Deluxe - manual Windows playtest
 
-1. Double-click Play.cmd in D:\smbd-recompilation.
-   It opens an interactive session with audio muted.
+1. Double-click Play.cmd in the project folder.
+   It opens the settings menu. Choose Play game when the files are ready.
 2. Click the game window, press Enter for Start, and use the menus to choose
    Main Game > Story Mode. Start World 1 to play 1-1 SIMPLE.
 3. Close the game window to exit.
@@ -11,10 +11,101 @@ arrow keys = menu/D-pad; W/A/S/D = left stick/stage tilt.
 Movement keys apply full tilt, so use short taps for finer control.
 
 Controller: left stick tilts the stage; A confirms, B goes back, Start pauses.
+F1/Esc or the controller Back button opens settings. Keyboard and controller
+navigation work in the settings menu; game inputs are held neutral while it is open.
+Settings save automatically to data/local/settings.cfg. Restart game applies
+resolution and aspect changes. Audio, V-sync and fullscreen apply immediately.
+General > Refresh rate changes the rendering limit immediately. It offers
+Unlimited, common rates and rates reported by the current display, and saves
+your selection. V-sync can further limit presentation to the display rate.
+New frames render the current scene, with time-scaled main-game ball motion
+(including drop and reset motion), camera response, stage animation and
+character poses. Frames are not blended
+or repeated to fill the selected rate. Rules, input, replay recording and
+legacy controllers retain their original 60 Hz timing. Audio uses its own
+sample clock; video retains its source cadence. Actual FPS depends on CPU/GPU
+cost. See knowledge/true_refresh.txt for coverage and measured limits.
+The widescreen option uses the original game's Xbox display setting.
+Play.cmd follows the Audio settings; --mute always silences explicit checks.
 
-Optional report, from PowerShell in D:\smbd-recompilation:
+Optional report, from PowerShell in the project folder:
   .\Play.cmd --report build\logs\manual-playtest.json
 
 Verified milestone: first-level GOAL and loading 1-2 DIAMOND.
-Remaining work: 774 unresolved calls, additional Xbox services, visual/timing
+Remaining work: three unresolved indirect call sites, additional Xbox services, wider visual/timing
 accuracy and wider game-mode coverage. This is a playable prototype.
+
+Rendering diagnostics: press F8 while an issue is visible. The window title shows
+when the capture finishes and where it was saved: build/captures/frame-*.
+Keep that entire folder and describe what looks wrong. F8 waits for a frame
+boundary and records the following complete frame; another capture can be made
+as soon as the first finishes. Capturing briefly pauses rendering to save files.
+
+Each folder contains frame.png, the same frame scaled to the window in window.png,
+draws.jsonl (draws, clears, copies, registers, shader tokens, constants and layouts),
+vertex/index buffers, guest texture bytes, native shaders, target images and raw
+depth/stencil buffers. game-state.json and guest-memory.bin save the CPU/thread
+state and 64 MiB guest RAM at the request, before the captured GPU frame.
+window.json records the build, target hash, display settings and session-log path.
+The first F8 also arms the existing 64-entry recent-file-operation history for
+later captures. No capture tracing or readback runs before a capture is requested.
+
+capture.json reports completion, errors and any size limits reached. GPU captures
+are bounded to 2048 draws, 48 MiB of streamed trace, 128 MiB of binary resources and
+160 MiB of uncompressed target images, in addition to the fixed RAM snapshot and
+window image. A missing resource has a null data field; captures never overwrite
+an existing folder. Capture errors appear in the title and session log.
+
+Advanced, silent command-line capture of the complete frame after frame 120:
+  .\Play.cmd --hidden --mute --frames 122 --capture-at 120 --capture-frame build\captures\example
+Use a new directory each time. --capture FRAME.png still saves only the final
+screenshot when the run ends.
+
+Performance diagnostics: F9 starts recording; F9 again saves to a new
+build/captures/performance-* folder. Recording stops after 60 seconds. F8 also
+saves a performance snapshot when recording. The Diagnostics page has both buttons.
+Keep performance.bin, performance.json, performance.txt and settings.cfg together.
+Reports include frame percentiles, CPU phases and code addresses, GPU spans,
+resource/memory trends and audio mixing counters. Missing GPU data is explicit.
+Normal play leaves detailed recording off. Cooperative samples identify leads,
+not exact per-function costs. Capture IO frames are excluded from percentiles.
+  .\build\windows\Release\smbd-tool.exe inspect-performance PERFORMANCE.bin NEW_OUTPUT_DIRECTORY
+Silent scripted recording after frame 900, for 240 game frames:
+  .\Play.cmd --hidden --mute --frames 1200 --performance build\captures\performance-example --performance-at 900 --performance-frames 240
+--storage DIRECTORY selects a separate save folder for diagnostics. Normal saves
+live in data/user; keep storage.key with that entire folder when backing it up.
+--settings PATH selects separate preferences, and --xbe/--disc override game paths.
+--settings-capture NEW_DIRECTORY renders all five settings pages without booting.
+
+Repeatable performance benchmark (PowerShell, from the project folder):
+  .\tools\Benchmark.ps1
+It uses Practice Mode > AIAI > Story World 2 > 3 COMPOSITION, neutral stick,
+two seconds of gameplay warmup, then twenty seconds of original game ticks.
+Three hidden, muted runs use separate copies of data/user saves. World 2 and
+Composition must be unlocked. Native 1x, widescreen, 360 Hz, VSync off.
+Results, screenshots and CPU/GPU frame reports go to build/checks/composition-*.
+The target remains 2.778 ms per frame. A successful run validates the scene;
+benchmark.json separately reports whether its p99 frame time meets the target.
+Use -Runs, -Seconds, -Storage, -Executable or -Output to override the defaults.
+The game's --benchmark-ticks COUNT option requires --input and --performance;
+recording starts when the input script finishes and exits after COUNT rule ticks.
+
+Offline frame inspection, without booting or opening an audio device:
+  .\build\windows\Release\smbd-tool.exe replay-frame data\local\default.xbe CAPTURE_DIRECTORY NEW_OUTPUT_DIRECTORY
+The tool saves frame.png, difference.png and report.json using the shared renderer.
+--through DRAW stops after a numbered draw; --draw DRAW isolates one draw.
+--join-arrays reconnects contiguous DRAW_ARRAYS packet ranges in older captures
+made before the strip-continuity fix. It checks packet addresses, vertex ranges,
+layouts, buffers and graphics state before joining them. New captures already
+contain combined draws. Frame traces and resource reads remain bounded.
+check-texture-cache verifies texture reloads, GPU-slot recycling and shared target
+lifetimes without opening a game window or an audio device. Capture manifests
+also report texture uploads, evictions and the live cache-entry count.
+check-timing verifies independent clocks, fractional deadlines, catch-up and
+refresh changes without booting. check-presentation NEW_OUTPUT_DIRECTORY uses
+a hidden, silent native window to verify completed images, target restoration,
+window/source resizing, 1x/4x rendering, all aspect ratios and saved refresh rates.
+
+Crash diagnostics: both executables write structured logs beside the executable in logs/.
+Advanced: --watch-write 0xADDRESS stops on a main-thread byte write and records the
+active game address, CPU registers and native stack. Up to four watches are supported.

@@ -19,7 +19,7 @@
     }
   ],
   "buildPresets": [
-    { "name": "release", "configurePreset": "windows", "configuration": "Release", "jobs": 1, "targets": ["smbd-tool", "smbd"] },
-    { "name": "tools-release", "configurePreset": "tools", "configuration": "Release", "jobs": 1, "targets": ["smbd-tool"] }
+    { "name": "release", "configurePreset": "windows", "configuration": "Release", "jobs": 3, "targets": ["smbd-tool", "smbd"] },
+    { "name": "tools-release", "configurePreset": "tools", "configuration": "Release", "jobs": 3, "targets": ["smbd-tool"] }
   ]
 }

@@ -1,11 +1,16 @@
 #include "gpu.h"
+#include "performance.h"
 #include "cpu.h"
+#include "diagnostics.h"
+#include "shaders.h"
 #include <d3d11.h>
 #include <wrl/client.h>
 #include <algorithm>
 #include <chrono>
 #include <deque>
 #include <map>
+#include <set>
+#include <sstream>
 #include <tuple>
 
 namespace smbd {
@@ -22,6 +27,56 @@ unsigned attribute_bytes(std::uint32_t format) {
 }
 void checked_gpu(HRESULT status) {if(FAILED(status)) throw std::runtime_error(std::format("GPU completion query failed: 0x{:08X}",static_cast<unsigned>(status)));}
 }
+RenderState gpu_render_state(std::span<const std::uint32_t,2048> registers,std::uint32_t primitive) {
+    const auto reg=[&](unsigned method) {return registers[method/4];};
+    RenderState s;
+    const auto horizontal=reg(0x200),vertical=reg(0x204);
+    s.scissor_test=true;s.scissor={std::int32_t(horizontal&0xFFFF),std::int32_t(vertical&0xFFFF),
+        std::int32_t((horizontal&0xFFFF)+(horizontal>>16)),std::int32_t((vertical&0xFFFF)+(vertical>>16))};
+    s.primitive=primitive;s.blend=reg(0x304)!=0;s.depth_test=reg(0x30C)!=0;s.depth_write=reg(0x35C)!=0;
+    s.alpha_test=reg(0x300)!=0;s.cull=reg(0x308)!=0;s.front_ccw=reg(0x3A0)==0x901;
+    s.depth_function=reg(0x354);s.alpha_function=reg(0x33C);s.alpha_reference=reg(0x340);
+    s.blend_source=reg(0x344);s.blend_destination=reg(0x348);s.blend_equation=reg(0x350);
+    s.cull_face=reg(0x39C);s.color_mask=reg(0x358);s.stencil_test=reg(0x32C)!=0;
+    s.stencil_write_mask=reg(0x360)&255;s.stencil_function=reg(0x364);s.stencil_reference=reg(0x368)&255;s.stencil_read_mask=reg(0x36C)&255;
+    s.stencil_fail=reg(0x370);s.stencil_depth_fail=reg(0x374);s.stencil_pass=reg(0x378);
+    s.polygon_offset=reg(0x338)!=0;s.polygon_offset_scale=real(reg(0x384));s.polygon_offset_bias=real(reg(0x388));
+    s.fog_enable=reg(0x2A4)!=0;const auto fog_color=reg(0x2A8);
+    s.fog_color=(fog_color&0xFF00FF00U)|((fog_color&255)<<16)|((fog_color>>16)&255);s.fog_mode=reg(0x29C);
+    s.fog_parameters={real(reg(0x9C0)),real(reg(0x9C4))};
+    s.combiner_control=reg(0x1E60);s.final_inputs={reg(0x288),reg(0x28C)};s.final_factors={reg(0x1E20),reg(0x1E24)};
+    for(unsigned i=0;i<8;++i) {
+        s.color_inputs[i]=reg(0xAC0+i*4);s.alpha_inputs[i]=reg(0x260+i*4);
+        s.color_outputs[i]=reg(0x1E40+i*4);s.alpha_outputs[i]=reg(0xAA0+i*4);
+        s.factor0[i]=reg(0xA60+i*4);s.factor1[i]=reg(0xA80+i*4);
+    }
+    for(unsigned i=0;i<4;++i) {
+        const auto method=0x1B00+i*0x40;
+        s.texture_modes[i]=(reg(0x1E70)>>(i*5))&31;
+        s.texture_sources[i]=i<2?0:(reg(0x1E78)>>(8+i*4))&15;
+        s.texture_clip[i]=(reg(0x17F8)>>(i*4))&15;s.texture_address[i]=reg(method+8);
+        const auto filter=reg(method+0x14);
+        s.linear_filter[i]=((filter>>24)&15)==2;s.alpha_kill[i]=(reg(method+12)&4)!=0;
+    }
+    return s;
+}
+std::uint32_t prepare_gpu_program(Renderer& renderer,std::span<const std::uint32_t,2048> registers,const VertexProgram& program) {
+    const auto reg=[&](unsigned method) {return registers[method/4];};
+    const auto mode=reg(0x1E94)&3;
+    std::uint32_t shader;
+    if(mode==2) shader=renderer.prepare_program(program);
+    else if(mode==0) {
+        if(reg(0x314)) throw std::runtime_error("Fixed lighting requires the corresponding shader path");
+        FixedTransform fixed{};fixed.skin=reg(0x328);fixed.normalize=reg(0x3A4)!=0;
+        fixed.fog=reg(0x2A4)!=0;fixed.fog_source=reg(0x2A0);
+        for(unsigned stage=0;stage<4;++stage) {
+            fixed.texture_matrix[stage]=reg(0x420+stage*4)!=0;
+            for(unsigned lane=0;lane<4;++lane) fixed.texgen[stage][lane]=reg(0x3C0+stage*16+lane*4);
+        }
+        shader=renderer.prepare_fixed(fixed);
+    } else throw std::runtime_error("Unsupported NV097 transform mode");
+    return shader;
+}
 struct Gpu::Impl {
     Renderer& renderer;Memory& memory;Gpu& owner;
     std::uint32_t semaphore_base;
@@ -34,6 +89,7 @@ struct Gpu::Impl {
     VertexConstants constants{};
     ProgramVertex current{};
     std::uint32_t program_load=0,constant_load=0,primitive=0,target=0;
+    std::uint32_t array_first=0,array_count=0,array_command=0,array_callsite=0;
     std::vector<std::uint32_t> indices,inline_words;
     struct Draw {
         RenderState state;VertexConstants constants;ProgramView view;ProgramVertex current;
@@ -46,11 +102,123 @@ struct Gpu::Impl {
     unsigned draw_count=0;
     struct Surface {std::uint32_t identifier,width,height;};
     std::map<std::array<std::uint32_t,4>,Surface> targets;
-    std::map<std::array<std::uint32_t,5>,std::uint32_t> textures;
-    struct Fence {ComPtr<ID3D11Query> query;std::uint32_t address=0,value=0;};
+    struct Texture {std::uint32_t identifier,size;};
+    std::map<std::array<std::uint32_t,5>,Texture> textures;
+    struct Fence {ComPtr<ID3D11Query> query;std::uint32_t address=0,value=0;bool callback=false;};
     std::array<Fence,64> fences;
     unsigned fence_head=0,fence_count=0;
     GpuStats statistics;
+    FrameCaptureStatus capture;
+    bool capture_active=false;
+    std::string capture_source;
+    std::ofstream capture_trace;
+    std::set<std::uint32_t> capture_textures;
+    std::uint64_t capture_bytes=0,capture_text_bytes=0,capture_image_bytes=0,capture_first_frame=0;
+    unsigned capture_draws=0;
+    std::uint32_t command_address=0,submission_callsite=0;
+    // Four 4x color images need about 79 MB; three raw depths need 59 MB in
+    // addition to shaders/resources. Each image is read/written separately.
+    static constexpr std::uint64_t binary_limit=128*1024*1024,text_limit=48*1024*1024,image_limit=160*1024*1024;
+    void capture_manifest() {
+        write_text(capture.directory/"capture.json",std::format(
+            "{{\"format\":\"smbd-frame-capture-v1\",\"source_sha256\":{},\"pending\":{},\"complete\":{},\"truncated\":{},\"error\":{},\"first_frame\":{},\"last_frame\":{},\"draws\":{},\"binary_bytes\":{},\"trace_bytes\":{},\"image_rgba_bytes\":{},\"texture_uploads_total\":{},\"texture_evictions_total\":{},\"target_evictions_total\":{},\"texture_cache_entries\":{}}}\n",
+            json(capture_source),capture.pending,capture.complete,capture.truncated,json(capture.error),capture_first_frame,
+            statistics.flips,capture_draws,capture_bytes,capture_text_bytes,capture_image_bytes,
+            statistics.texture_uploads,statistics.texture_evictions,statistics.target_evictions,textures.size()),true);
+    }
+    void capture_abort(std::string_view reason) {
+        capture.pending=false;capture.complete=false;capture.error=reason;capture_active=false;
+        try {if(capture_trace.is_open()) capture_trace.close();} catch(...) {}
+        try {capture_manifest();} catch(...) {}
+        diagnostic_record("{\"type\":\"frame_capture_error\",\"directory\":"+json(path_text(capture.directory))+",\"message\":"+json(reason)+'}');
+    }
+    template<class F> void capture_try(F&& action) {
+        try {action();} catch(const std::exception& error) {capture_abort(error.what());}
+    }
+    void capture_record(std::string_view record,bool final=false) {
+        if(capture_text_bytes+record.size()+1>(final?text_limit:text_limit-4096)) {capture.truncated=true;return;}
+        capture_trace<<record<<'\n';capture_text_bytes+=record.size()+1;
+    }
+    std::string capture_data(const std::string& name,Bytes bytes) {
+        if(bytes.size()>binary_limit-capture_bytes) {capture.truncated=true;return "null";}
+        std::ofstream output(capture.directory/name,std::ios::binary|std::ios::trunc);
+        output.exceptions(std::ios::failbit|std::ios::badbit);
+        output.write(reinterpret_cast<const char*>(bytes.data()),static_cast<std::streamsize>(bytes.size()));output.close();
+        capture_bytes+=bytes.size();return json(name);
+    }
+    void capture_shader(ShaderKind kind,unsigned index=0,const VertexProgram* vertex=nullptr) {
+        const auto binary=shader_binary(kind,vertex);
+        const auto data=capture_data(std::format("shader-{:02}-{:03}.dxbc",unsigned(kind),index),binary.bytes);
+        std::string record=std::format("{{\"type\":\"native_shader\",\"kind\":{},\"bytes\":{},\"data\":{}",unsigned(kind),binary.bytes.size(),data);
+        if(vertex) record+=std::format(",\"program_start\":{},\"program\":{}",vertex->start,json(hex_bytes(std::as_bytes(std::span(vertex->tokens)))));
+        capture_record(record+'}');
+    }
+    void capture_draw(std::uint32_t first,const Draw& draw,std::uint32_t shader,const VertexLayout& layout,
+                      const std::array<std::uint32_t,16>& bases,bool inlined,std::span<const std::uint32_t> elements) {
+        if(capture_draws==2048 || capture_text_bytes+64*1024>text_limit-4096) {capture.truncated=true;return;}
+        const auto number=capture_draws++;
+        std::ostringstream record;
+        record<<std::format("{{\"type\":\"draw\",\"draw\":{},\"command_address\":{},\"callsite\":{},\"first\":{},\"count\":{},\"target\":{},\"shader\":{},\"program_start\":{},\"primitive\":{},\"registers\":{},\"program\":{},\"constants\":{},\"current\":{},\"view\":{},\"textures\":[",
+            number,json(hex32(command_address)),json(hex32(submission_callsite)),first,draw.count,target,shader,program.start,draw.state.primitive,
+            json(hex_bytes(std::as_bytes(std::span(registers[0])))),json(hex_bytes(std::as_bytes(std::span(program.tokens)))),
+            json(hex_bytes(std::as_bytes(std::span(draw.constants)))),json(hex_bytes(std::as_bytes(std::span(draw.current.attributes)))),
+            json(hex_bytes(std::as_bytes(std::span(&draw.view,1)))));
+        for(unsigned i=0;i<4;++i) {if(i) record<<',';record<<draw.state.textures[i];}
+        record<<"],\"streams\":[";
+        for(unsigned i=0;i<draw.stream_count;++i) {
+            if(i) record<<',';const auto& stream=draw.streams[i];
+            const auto name=std::format("vertex-{:04}-{}.bin",number,i);
+            record<<std::format("{{\"address\":{},\"stride\":{},\"size\":{},\"data\":{}}}",
+                inlined?"null":json(hex32(bases[i]+first*stream.stride)),stream.stride,stream.bytes.size(),capture_data(name,stream.bytes));
+        }
+        record<<"],\"attributes\":[";
+        for(unsigned i=0;i<layout.size();++i) {if(i) record<<',';const auto& a=layout[i];record<<std::format("[{},{},{}]",a.stream,a.offset,a.format);}
+        record<<std::format("],\"indices\":{{\"count\":{},\"element_bytes\":4,\"data\":{}}}}}",elements.size(),
+            elements.empty()?"null":capture_data(std::format("indices-{:04}.bin",number),std::as_bytes(elements)));
+        capture_record(record.view());
+    }
+    void capture_surface(std::uint32_t id,std::uint32_t width,std::uint32_t height,const std::array<std::uint32_t,4>& key) {
+        const auto name=id?std::format("target-{}-{:08X}.png",id,key[0]):"frame.png";
+        std::string image="null",depth="null";
+        const auto scale=renderer.stats().resolution_scale;
+        const auto size=std::uint64_t(width)*height*4*scale*scale;
+        if(size<=image_limit-capture_image_bytes) {
+            save_png(renderer.read_target(id),capture.directory/name);image=json(name);capture_image_bytes+=size;
+        } else capture.truncated=true;
+        if(id) {
+            const auto depth_size=std::uint64_t(width)*height*scale*scale*(((key[2]>>4)&15)==1?2:4);
+            if(depth_size<=binary_limit-capture_bytes) depth=capture_data(std::format("depth-{}.bin",id),renderer.read_depth(id));
+            else capture.truncated=true;
+        }
+        capture_record(std::format("{{\"type\":\"surface\",\"resource\":{},\"color\":{},\"depth\":{},\"format\":{},\"pitch\":{},\"width\":{},\"height\":{},\"image\":{},\"depth_data\":{}}}",
+            id,json(hex32(key[0])),json(hex32(key[1])),json(hex32(key[2])),json(hex32(key[3])),width,height,image,depth));
+    }
+    void capture_flip() {
+        capture_try([&] {
+            if(capture_active) {
+                const auto main=renderer.read_target(0);
+                save_png(main,capture.directory/"frame.png");capture_image_bytes+=main.rgba.size();
+                for(const auto& [key,surface]:targets) capture_surface(surface.identifier,surface.width,surface.height,key);
+                capture_record(std::format("{{\"type\":\"end\",\"frame\":{},\"draws\":{},\"binary_bytes\":{},\"truncated\":{}}}",
+                    statistics.flips,capture_draws,capture_bytes,capture.truncated),true);
+                capture_trace.close();capture_active=false;capture.pending=false;capture.complete=true;capture_manifest();
+                diagnostic_record("{\"type\":\"frame_capture_saved\",\"directory\":"+json(path_text(capture.directory))+",\"truncated\":"+(capture.truncated?"true":"false")+'}');
+            } else {
+                capture_first_frame=statistics.flips+1;capture_active=true;
+                capture_trace.clear();capture_trace.open(capture.directory/"draws.jsonl",std::ios::binary|std::ios::trunc);
+                capture_trace.exceptions(std::ios::failbit|std::ios::badbit);
+                capture_record(std::format("{{\"type\":\"header\",\"format\":\"smbd-gpu-frame-v1\",\"source_sha256\":{},\"adapter\":{},\"frame\":{},\"resolution_scale\":{},\"byte_order\":\"little\",\"draw_limit\":2048,\"binary_limit\":{},\"trace_limit\":{},\"image_rgba_limit\":{}}}",
+                    json(capture_source),json(renderer.adapter()),capture_first_frame,renderer.stats().resolution_scale,binary_limit,text_limit,image_limit));
+                capture_record("{\"type\":\"initial_registers\",\"data\":"+json(hex_bytes(std::as_bytes(std::span(registers))))+'}');
+                for(unsigned i=0;i<unsigned(ShaderKind::count);++i) {
+                    const auto kind=ShaderKind(i);
+                    if(kind!=ShaderKind::vertex && kind!=ShaderKind::launch && kind!=ShaderKind::gui_vertex && kind!=ShaderKind::gui_pixel) capture_shader(kind);
+                }
+                const auto vertices=static_vertex_shaders();
+                for(unsigned i=0;i<vertices.size();++i) capture_shader(vertices[i].launch?ShaderKind::launch:ShaderKind::vertex,i,&vertices[i].program);
+            }
+        });
+    }
     Impl(Renderer& r,Memory& m,Gpu& o,std::uint32_t base,std::span<const GraphicsObject> profile):renderer(r),memory(m),owner(o),semaphore_base(base) {
         for(const auto& object:profile) {
             if(!object_classes.emplace(object.handle,object.kind).second) throw std::runtime_error("Duplicate native graphics object handle");
@@ -62,8 +230,17 @@ struct Gpu::Impl {
         for(auto& fence:fences) checked_gpu(renderer.native_device()->CreateQuery(&description,&fence.query));
     }
     std::uint32_t reg(unsigned method) const {return registers[0][method/4];}
+    void emit_arrays() {
+        if(!array_count) return;
+        const auto count=array_count;array_count=0;
+        const auto command=command_address,callsite=submission_callsite;
+        command_address=array_command;submission_callsite=array_callsite;
+        draw(array_first,count);
+        command_address=command;submission_callsite=callsite;
+    }
     void flush() {
         if(!draw_count) return;
+        PerfScope scope(renderer.performance(),PerfPhase::render);
         renderer.begin(0,1,false);
         try {
             for(const auto& draw:std::span(draws).first(draw_count)) {
@@ -104,7 +281,7 @@ struct Gpu::Impl {
                 shared=image.identifier;break;
             }
             flush();found=targets.emplace(key,Surface{renderer.create_target(width,height,color==3?SurfaceColor::rgb565:SurfaceColor::rgba8,
-                zeta==1?SurfaceDepth::z16:SurfaceDepth::z24s8,shared),width,height}).first;
+                zeta==1?SurfaceDepth::z16:SurfaceDepth::z24s8,shared,!capture.pending),width,height}).first;
         } else if(width>found->second.width || height>found->second.height) {
             flush();auto& surface=found->second;
             const auto w=std::max(width,surface.width),h=std::max(height,surface.height);
@@ -147,43 +324,26 @@ struct Gpu::Impl {
         const auto address=reg(method)&0x0FFFFFFF;
         const std::array key{address,format,image,pitch,reg(method+0x20)};
         auto found=textures.find(key);
-        if(found==textures.end()) found=textures.emplace(key,renderer.upload({width,height,static_cast<TextureFormat>(code),
-            Bytes(static_cast<const std::byte*>(memory.access(address,static_cast<std::size_t>(size))),static_cast<std::size_t>(size)),
-            mips,linear?pitch:0,cube,depth})).first;
+        if(found==textures.end()) {
+            const auto id=renderer.upload({width,height,static_cast<TextureFormat>(code),
+                Bytes(static_cast<const std::byte*>(memory.access(address,static_cast<std::size_t>(size))),static_cast<std::size_t>(size)),
+                mips,linear?pitch:0,cube,depth},!capture.pending);
+            found=textures.emplace(key,Texture{id,static_cast<std::uint32_t>(size)}).first;++statistics.texture_uploads;
+        }
+        const auto id=found->second.identifier;
+        if(capture_active && !capture_textures.contains(id)) capture_try([&] {
+            capture_textures.insert(id);
+            const auto data=capture_data(std::format("texture-{}.bin",id),
+                Bytes(static_cast<const std::byte*>(memory.access(address,static_cast<std::size_t>(size))),static_cast<std::size_t>(size)));
+            capture_record(std::format("{{\"type\":\"texture\",\"resource\":{},\"address\":{},\"width\":{},\"height\":{},\"depth\":{},\"format\":{},\"mips\":{},\"pitch\":{},\"cubemap\":{},\"size\":{},\"guest_data\":{}}}",
+                id,json(hex32(address)),width,height,depth,code,mips,linear?pitch:0,cube,size,data));
+        });
         if(linear) view.texture_scales[stage]={1.0f/width,1.0f/height,1.0f/depth,1};
-        return found->second;
+        return id;
     }
     RenderState state(ProgramView& view) {
-        RenderState s;
-        const auto horizontal=reg(0x200),vertical=reg(0x204);
-        s.scissor_test=true;s.scissor={std::int32_t(horizontal&0xFFFF),std::int32_t(vertical&0xFFFF),
-            std::int32_t((horizontal&0xFFFF)+(horizontal>>16)),std::int32_t((vertical&0xFFFF)+(vertical>>16))};
-        s.primitive=primitive;s.blend=reg(0x304)!=0;s.depth_test=reg(0x30C)!=0;s.depth_write=reg(0x35C)!=0;
-        s.alpha_test=reg(0x300)!=0;s.cull=reg(0x308)!=0;s.front_ccw=reg(0x3A0)==0x901;
-        s.depth_function=reg(0x354);s.alpha_function=reg(0x33C);s.alpha_reference=reg(0x340);
-        s.blend_source=reg(0x344);s.blend_destination=reg(0x348);s.blend_equation=reg(0x350);
-        s.cull_face=reg(0x39C);s.color_mask=reg(0x358);s.stencil_test=reg(0x32C)!=0;
-        s.stencil_write_mask=reg(0x360)&255;s.stencil_function=reg(0x364);s.stencil_reference=reg(0x368)&255;s.stencil_read_mask=reg(0x36C)&255;
-        s.stencil_fail=reg(0x370);s.stencil_depth_fail=reg(0x374);s.stencil_pass=reg(0x378);
-        s.polygon_offset=reg(0x338)!=0;s.polygon_offset_scale=real(reg(0x384));s.polygon_offset_bias=real(reg(0x388));
-        s.fog_enable=reg(0x2A4)!=0;const auto fog_color=reg(0x2A8);
-        s.fog_color=(fog_color&0xFF00FF00U)|((fog_color&255)<<16)|((fog_color>>16)&255);s.fog_mode=reg(0x29C);
-        s.fog_parameters={real(reg(0x9C0)),real(reg(0x9C4))};
-        s.combiner_control=reg(0x1E60);s.final_inputs={reg(0x288),reg(0x28C)};s.final_factors={reg(0x1E20),reg(0x1E24)};
-        for(unsigned i=0;i<8;++i) {
-            s.color_inputs[i]=reg(0xAC0+i*4);s.alpha_inputs[i]=reg(0x260+i*4);
-            s.color_outputs[i]=reg(0x1E40+i*4);s.alpha_outputs[i]=reg(0xAA0+i*4);
-            s.factor0[i]=reg(0xA60+i*4);s.factor1[i]=reg(0xA80+i*4);
-        }
-        for(unsigned i=0;i<4;++i) {
-            const auto method=0x1B00+i*0x40;
-            s.texture_modes[i]=(reg(0x1E70)>>(i*5))&31;
-            s.texture_sources[i]=i<2?0:(reg(0x1E78)>>(8+i*4))&15;
-            s.texture_clip[i]=(reg(0x17F8)>>(i*4))&15;s.texture_address[i]=reg(method+8);
-            const auto filter=reg(method+0x14);
-            s.linear_filter[i]=((filter>>24)&15)==2;s.alpha_kill[i]=(reg(method+12)&4)!=0;
-            if((reg(method+12)&0x40000000U) && s.texture_modes[i]) s.textures[i]=texture(i,view);
-        }
+        auto s=gpu_render_state(registers[0],primitive);
+        for(unsigned i=0;i<4;++i) if((reg(0x1B0C+i*0x40)&0x40000000U) && s.texture_modes[i]) s.textures[i]=texture(i,view);
         return s;
     }
     void draw(std::uint32_t first,std::uint32_t count,std::span<const std::uint32_t> elements={},bool inlined=false) {
@@ -194,19 +354,7 @@ struct Gpu::Impl {
         draw.view.depth_scale=constants[58][2];
         if(draw.view.depth_scale<=0) throw std::runtime_error("NV097 viewport depth scale was not initialized");
         draw.state=state(draw.view);
-        const auto mode=reg(0x1E94)&3;
-        std::uint32_t shader;
-        if(mode==2) shader=renderer.prepare_program(program);
-        else if(mode==0) {
-            if(reg(0x314)) throw std::runtime_error("Fixed lighting requires the corresponding shader path");
-            FixedTransform fixed{};fixed.skin=reg(0x328);fixed.normalize=reg(0x3A4)!=0;
-            fixed.fog=reg(0x2A4)!=0;fixed.fog_source=reg(0x2A0);
-            for(unsigned stage=0;stage<4;++stage) {
-                fixed.texture_matrix[stage]=reg(0x420+stage*4)!=0;
-                for(unsigned lane=0;lane<4;++lane) fixed.texgen[stage][lane]=reg(0x3C0+stage*16+lane*4);
-            }
-            shader=renderer.prepare_fixed(fixed);
-        } else throw std::runtime_error("Unsupported NV097 transform mode");
+        const auto shader=prepare_gpu_program(renderer,registers[0],program);
         VertexLayout layout{};
         std::array<std::uint32_t,16> bases{},strides{};
         unsigned inline_stride=0;
@@ -237,6 +385,7 @@ struct Gpu::Impl {
             draw.streams[stream]={Bytes(static_cast<const std::byte*>(memory.access(static_cast<std::uint32_t>(address),static_cast<std::size_t>(size))),static_cast<std::size_t>(size)),strides[stream]};
         }
         draw.layout=renderer.prepare_layout(shader,layout);renderer.prepare(draw.state);
+        if(capture_active) capture_try([&] {capture_draw(first,draw,shader,layout,bases,inlined,elements);});
         draw.indices.assign(elements.begin(),elements.end());
         if(++draw_count==draws.size()) flush();
     }
@@ -277,18 +426,21 @@ struct Gpu::Impl {
                 throw std::runtime_error("Initial image blit must define complete rows from the origin");
             const auto color=bpp==2?SurfaceColor::rgb565:SurfaceColor::rgba8;
             const std::array key{destination,0U,bpp==2?0x123U:0x128U,destination_pitch|(destination_pitch<<16)};
-            to=targets.emplace(key,Surface{renderer.create_target(width,height,color),width,height}).first;
+            to=targets.emplace(key,Surface{renderer.create_target(width,height,color,SurfaceDepth::z24s8,UINT32_MAX,!capture.pending),width,height}).first;
         } else if(dx+width>to->second.width || dy+height>to->second.height)
             grow_color(to->first,to->second,std::max(dx+width,to->second.width),std::max(dy+height,to->second.height));
         renderer.copy_region(to->second.identifier,from->second.identifier,sx,sy,dx,dy,width,height);
+        if(capture_active) capture_try([&] {capture_record(std::format("{{\"type\":\"blit\",\"command_address\":{},\"source\":{},\"destination\":{},\"source_xy\":[{},{}],\"destination_xy\":[{},{}],\"size\":[{},{}]}}",
+            json(hex32(command_address)),from->second.identifier,to->second.identifier,sx,sy,dx,dy,width,height));});
         ++statistics.blits;
     }
-    void fence(std::uint32_t address,std::uint32_t value) {
+    void fence(std::uint32_t address,std::uint32_t value,bool callback=false) {
         flush();if(fence_count==fences.size()) poll(true);
-        auto& result=fences[(fence_head+fence_count)%fences.size()];result.address=address;result.value=value;
+        auto& result=fences[(fence_head+fence_count)%fences.size()];result.address=address;result.value=value;result.callback=callback;
         renderer.native_context()->End(result.query.Get());++fence_count;++statistics.fences;
     }
     void poll(bool wait) {
+        PerfScope scope(renderer.performance(),PerfPhase::gpu_wait,wait?unsigned(PerfGpuWait::idle):unsigned(PerfGpuWait::poll));
         const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
         if(wait) renderer.native_context()->Flush();
         while(fence_count) {
@@ -300,11 +452,18 @@ struct Gpu::Impl {
                 if(std::chrono::steady_clock::now()>=deadline) throw std::runtime_error("Native GPU completion timed out");
                 SwitchToThread();continue;
             }
-            const auto& completed=fences[fence_head];if(completed.address) memory.store<std::uint32_t>(completed.address,completed.value);
+            const auto& completed=fences[fence_head];
+            const auto address=completed.address,value=completed.value;const bool callback=completed.callback;
+            if(!callback && address) memory.store<std::uint32_t>(address,value);
             fence_head=(fence_head+1)%static_cast<unsigned>(fences.size());--fence_count;
+            if(callback) {owner.completion(address,value);++statistics.callbacks;}
         }
     }
     void method(unsigned subchannel,unsigned method,std::uint32_t data) {
+        // DRAW_ARRAYS words are ranges in one primitive, not independent draws.
+        // Keep adjacent ranges joined across packet/submission boundaries. End,
+        // a state change, or a noncontiguous range finishes the pending draw.
+        if(array_count && (subchannel || method!=0x1810 || (data&0xFFFFFF)!=array_first+array_count)) emit_arrays();
         ++statistics.methods;
         if(method==0) {
             const auto found=object_classes.find(data);
@@ -370,7 +529,13 @@ struct Gpu::Impl {
                 if(!indices.empty()) {const auto maximum=*std::ranges::max_element(indices);draw(0,maximum+1,indices);}
                 primitive=0;indices.clear();
             }
-        } else if(method==0x1810) draw(data&0xFFFFFF,(data>>24)+1);
+        } else if(method==0x1810) {
+            if(!primitive || !indices.empty() || !inline_words.empty()) throw std::runtime_error("NV097 array range has no primitive or mixes vertex sources");
+            const auto count=(data>>24)+1;
+            if(count>32768-array_count) throw std::runtime_error("NV097 array primitive exceeds its vertex bound");
+            if(!array_count) {array_first=data&0xFFFFFF;array_command=command_address;array_callsite=submission_callsite;}
+            array_count+=count;
+        }
         else if(method==0x1800) {indices.push_back(data&0xFFFF);indices.push_back(data>>16);}
         else if(method==0x1808) indices.push_back(data);
         else if(method==0x1818) inline_words.push_back(data);
@@ -420,38 +585,136 @@ struct Gpu::Impl {
                 std::int32_t((h>>16)+1),std::int32_t((v>>16)+1)};
             const auto value=reg(0x1D8C),zeta=(reg(0x208)>>4)&15;
             renderer.clear_buffers(data,reg(0x1D90),zeta==1?float(value&0xFFFF)/65535:float(value>>8)/16777215,static_cast<std::uint8_t>(value),rectangle);
+            if(capture_active) capture_try([&] {capture_record(std::format("{{\"type\":\"clear\",\"command_address\":{},\"target\":{},\"flags\":{},\"color\":{},\"depth_stencil\":{},\"format\":{},\"rectangle\":[{},{},{},{}]}}",
+                json(hex32(command_address)),target,data,json(hex32(reg(0x1D90))),json(hex32(value)),json(hex32(reg(0x208))),rectangle[0],rectangle[1],rectangle[2],rectangle[3]));});
             ++statistics.clears;
         } else if(method==0x1D70) {
             if(reg(0x1A4)!=8 || reg(0x1D6C)>92) throw std::runtime_error("Unbound NV097 semaphore DMA range");
             fence(semaphore_base+reg(0x1D6C),data);
+        } else if(method==0x100 && (data==6 || data==7)) {
+            if(!owner.completion) throw std::runtime_error("Native graphics completion callbacks are not bound");
+            fence(reg(0x1D8C),reg(0x1D90),true);
         } else if(method==0x110) {flush();fence(0,0);poll(true);}
-        else if(method==0x12C) {flush();select_target();renderer.copy_to_main();target=0;++statistics.flips;if(owner.flip) owner.flip();}
+        else if(method==0x12C) {
+            flush();select_target();renderer.copy_to_main();target=0;++statistics.flips;
+            if(capture.pending) capture_flip();
+            if(owner.flip) owner.flip();
+        }
         if(indices.size()>32768 || inline_words.size()>2*1024*1024) throw std::runtime_error("NV097 inline draw exceeds its bound");
     }
 };
 Gpu::Gpu(Renderer& renderer,Memory& memory,std::uint32_t semaphore_base,std::span<const GraphicsObject> profile):impl_(std::make_unique<Impl>(renderer,memory,*this,semaphore_base,profile)) {}
-Gpu::~Gpu()=default;
-void Gpu::submit(std::uint32_t begin,std::uint32_t end) {
+Gpu::~Gpu() {if(impl_->capture.pending) impl_->capture_abort("Game ended before the captured frame completed");}
+void Gpu::invalidate_memory(std::uint32_t address,std::uint32_t size) {
+    if(!size) return;
+    auto& g=*impl_;address&=0x0FFFFFFF;
+    const auto end=std::uint64_t(address)+size;
+    if(end>0x10000000) throw std::runtime_error("Graphics invalidation wraps guest physical memory");
+    const auto overlaps=[&](std::uint32_t start,std::uint64_t bytes) {return bytes && start<end && address<std::uint64_t(start)+bytes;};
+    const auto affected=[&](const auto& item) {
+        const auto& [key,surface]=item;const auto format=key[2],pitch=key[3];
+        const bool swizzled=((format>>8)&15)==2;
+        const auto color_bytes=std::uint64_t(swizzled?surface.width*((format&15)==3?2:4):pitch&65535)*surface.height;
+        const auto depth_bytes=std::uint64_t(swizzled?surface.width*(((format>>4)&15)==1?2:4):pitch>>16)*surface.height;
+        return overlaps(key[0],color_bytes) || (key[1] && overlaps(key[1],depth_bytes));
+    };
+    if(!std::ranges::any_of(g.textures,[&](const auto& item) {return overlaps(item.first[0],item.second.size);}) &&
+       !std::ranges::any_of(g.targets,affected)) return;
+    // Submit every queued use of the old views before releasing or recycling them.
+    g.emit_arrays();g.flush();
+    const auto retired=[&](std::uint32_t id) {
+        if(g.capture_active) g.capture_try([&] {g.capture_record(std::format("{{\"type\":\"release\",\"resource\":{}}}",id));});
+    };
+    for(auto item=g.textures.begin();item!=g.textures.end();) {
+        if(!overlaps(item->first[0],item->second.size)) {++item;continue;}
+        const auto id=item->second.identifier;retired(id);g.renderer.release_texture(id);
+        item=g.textures.erase(item);++g.statistics.texture_evictions;
+    }
+    for(auto item=g.targets.begin();item!=g.targets.end();) {
+        if(!affected(*item)) {++item;continue;}
+        const auto& surface=item->second;
+        if(g.capture_active) g.capture_try([&] {g.capture_surface(surface.identifier,surface.width,surface.height,item->first);});
+        retired(surface.identifier);
+        if(g.target==surface.identifier) g.target=0;
+        g.renderer.release_target(surface.identifier);item=g.targets.erase(item);++g.statistics.target_evictions;
+    }
+}
+void Gpu::capture_frame(const std::filesystem::path& directory,std::string_view source_sha256) {
     auto& g=*impl_;
+    if(directory.empty() || g.capture.pending) throw std::runtime_error("A frame capture is already pending or its directory is empty");
+    if(!directory.parent_path().empty()) std::filesystem::create_directories(directory.parent_path());
+    if(!std::filesystem::create_directory(directory)) throw std::runtime_error("Frame capture directory already exists");
+    g.capture={directory,true};g.capture_active=false;g.capture_source=source_sha256;
+    g.capture_bytes=g.capture_text_bytes=g.capture_image_bytes=g.capture_first_frame=0;g.capture_draws=0;g.capture_textures.clear();
+    g.capture_try([&] {g.capture_manifest();});
+    if(!g.capture.error.empty()) throw std::runtime_error(g.capture.error);
+}
+const FrameCaptureStatus& Gpu::capture_status() const {return impl_->capture;}
+void Gpu::cancel_capture(std::string_view reason) {if(impl_->capture.pending) impl_->capture_abort(reason);}
+void Gpu::submit(std::uint32_t begin,std::uint32_t end,std::uint32_t callsite) {
+    auto& g=*impl_;
+    PerfScope scope(g.renderer.performance(),PerfPhase::gpu_commands);
     if(end<begin || ((end-begin)&3) || end-begin>4*1024*1024) throw std::runtime_error("Invalid native GPU submission range");
     ++g.statistics.submissions;
+    g.submission_callsite=callsite;
+    // Push buffers are contiguous mapped RAM. Keep their checked mapping while
+    // processing live bytes, rather than looking up the same RAM alias per word.
+    const auto source_begin=begin;
+    const auto* commands=begin<end?static_cast<const std::byte*>(g.memory.access(begin,end-begin)):nullptr;
+    const auto load=[&](std::uint32_t address) {
+        std::uint32_t value;std::memcpy(&value,commands+(address-source_begin),sizeof(value));
+        if constexpr(std::endian::native==std::endian::big) value=std::byteswap(value);
+        return value;
+    };
     while(begin<end) {
-        const auto header=g.memory.load<std::uint32_t>(begin);begin+=4;++g.statistics.packets;
+        const auto header=load(begin);begin+=4;++g.statistics.packets;
         if(header&0xA0030003U) throw std::runtime_error(std::format("Unsupported NV2A packet 0x{:08X} at 0x{:08X}",header,begin-4));
         const auto count=(header>>18)&0x7FF,first=header&0x1FFC,subchannel=(header>>13)&7;
         if(count>(end-begin)/4 || (!(header&0x40000000U) && count && first+(count-1)*4>=0x2000))
             throw std::runtime_error("NV2A packet extends beyond its submission or method bank");
+        // These aligned packets upload whole rows; dispatching each word repeats
+        // the same state checks and address conversions up to 32 times.
+        if(!subchannel && g.classes[0]==0x97 && !(header&0x40000000U) &&
+           count && count<=32 && !(count&3) && (first==0xB00 || first==0xB80)) {
+            const bool code=first==0xB00;
+            auto& load=code?g.program_load:g.constant_load;
+            const auto capacity=code?g.program.tokens.size():g.constants.size();
+            if(load<capacity && count/4<=capacity-load) {
+                if(g.array_count) g.emit_arrays();
+                const auto bytes=count*4;
+                const auto* source=commands+(begin-source_begin);
+                std::memcpy(g.registers[0].data()+first/4,source,bytes);
+                if(code) std::memcpy(g.program.tokens.data()+load,source,bytes);
+                else std::memcpy(g.constants.data()+load,source,bytes);
+                load+=count/4;g.statistics.methods+=count;
+                if(g.capture_active) g.command_address=begin+bytes-4;
+                begin+=bytes;continue;
+            }
+        }
+        if(std::endian::native==std::endian::little && !subchannel && g.classes[0]==0x97 &&
+           (header&0x40000000U) && first==0x1818 && count &&
+           g.inline_words.size()+count<=2*1024*1024 && g.indices.size()<=32768) {
+            if(g.capture_active) g.command_address=begin;
+            if(g.array_count) g.emit_arrays();
+            const auto previous=g.inline_words.size();const auto bytes=count*4;
+            g.inline_words.resize(previous+count);
+            std::memcpy(g.inline_words.data()+previous,commands+(begin-source_begin),bytes);
+            g.registers[0][first/4]=load(begin+bytes-4);g.statistics.methods+=count;
+            if(g.capture_active) g.command_address=begin+bytes-4;
+            begin+=bytes;continue;
+        }
         for(unsigned word=0;word<count;++word) {
             const auto method=first+((header&0x40000000U)?0:word*4);
-            g.method(subchannel,method,g.memory.load<std::uint32_t>(begin));begin+=4;
+            if(g.capture_active) g.command_address=begin;
+            g.method(subchannel,method,load(begin));begin+=4;
         }
     }
     g.flush();g.renderer.native_context()->Flush();g.poll(false);
 }
 bool Gpu::busy() {auto& g=*impl_;g.poll(false);return g.fence_count!=0;}
-void Gpu::wait() {auto& g=*impl_;g.flush();g.fence(0,0);g.poll(true);}
+void Gpu::wait() {auto& g=*impl_;g.emit_arrays();g.flush();g.fence(0,0);g.poll(true);}
 void Gpu::snapshot() {
-    auto& g=*impl_;g.flush();
+    auto& g=*impl_;g.emit_arrays();g.flush();
     // Main holds the last presented frame. The bound surface may belong to an
     // unfinished frame or an offscreen pass when execution stops.
     if(g.statistics.flips) g.renderer.set_target(0);
@@ -459,4 +722,141 @@ void Gpu::snapshot() {
     g.target=0;
 }
 GpuStats Gpu::stats() const {return impl_->statistics;}
+std::string Gpu::check_texture_cache() {
+    Renderer renderer(8,8,false,true);
+    std::vector<std::byte> ram(64*1024);Memory memory(0,ram);
+    constexpr std::array profile{GraphicsObject{0xD,0x97}};
+    Gpu gpu(renderer,memory,0,profile);auto& g=*gpu.impl_;
+    const auto reg=[&](unsigned method)->std::uint32_t& {return g.registers[0][method/4];};
+    reg(0x1B00)=0x80004000;reg(0x1B04)=(0x12U<<8)|(1U<<16)|(2U<<4);
+    reg(0x1B10)=32U<<16;reg(0x1B1C)=(8U<<16)|8U;
+    std::vector<std::pair<std::string,bool>> cases;
+    const auto expect=[&](std::string name,bool passed) {cases.emplace_back(std::move(name),passed);};
+    const auto sample=[&](std::uint32_t id) {
+        RenderState state;state.primitive=8;state.texture_modes[0]=1;state.textures[0]=id;state.final_inputs={8,0x1800};
+        std::array<Vertex,4> vertices{};
+        constexpr std::array<Float4,4> positions{{{-1,1,0,1},{1,1,0,1},{1,-1,0,1},{-1,-1,0,1}}};
+        constexpr std::array<Float4,4> uv{{{0,0,0,1},{1,0,0,1},{1,1,0,1},{0,1,0,1}}};
+        for(unsigned i=0;i<4;++i) {vertices[i].position=positions[i];vertices[i].uv[0]=uv[i];}
+        renderer.set_target(0);renderer.prepare(state);renderer.begin();renderer.draw(state,vertices);renderer.end();
+        const auto image=renderer.readback();const auto pixel=(4*8+4)*4;
+        return (std::uint32_t(image.rgba[pixel])<<16)|(std::uint32_t(image.rgba[pixel+1])<<8)|std::uint32_t(image.rgba[pixel+2]);
+    };
+    ProgramView view;
+    memory.fill_elements<std::uint32_t>(0x4000,0xFFFF0000,64,false);
+    const auto original=g.texture(0,view);
+    expect("initial texture upload",sample(original)==0xFF0000);
+    gpu.invalidate_memory(0x80005000,4096);
+    expect("unrelated memory release retains the texture",g.texture(0,view)==original && g.statistics.texture_uploads==1);
+    reg(0x1B20)=1;const auto alias=g.texture(0,view);reg(0x1B20)=0;
+    expect("distinct views share the same guest allocation",alias!=original && g.textures.size()==2);
+    gpu.invalidate_memory(0x80004010,4);
+    expect("overlapping release evicts every view and address alias",g.textures.empty() && g.statistics.texture_evictions==2 && !renderer.stats().texture_bytes);
+    memory.fill_elements<std::uint32_t>(0x4000,0xFF00FF00,64,false);
+    expect("reused allocation uploads its new pixels",sample(g.texture(0,view))==0x00FF00);
+    bool cycles=true;
+    for(unsigned i=0;i<64;++i) {
+        gpu.invalidate_memory(0x4000,256);
+        const auto color=i&1?0xFF336699U:0xFFCC8844U;
+        memory.fill_elements<std::uint32_t>(0x4000,color,64,false);
+        const auto id=g.texture(0,view);
+        cycles&=id<=2 && sample(id)==(color&0xFFFFFF);
+    }
+    expect("64 unload/reload cycles preserve pixels and reuse GPU slots",cycles && renderer.stats().texture_slots==2 && renderer.stats().texture_bytes==256);
+    gpu.invalidate_memory(0x4000,256);
+    reg(0x200)=reg(0x204)=8U<<16;reg(0x208)=0x128;reg(0x20C)=32U|(32U<<16);reg(0x210)=0x6000;reg(0x214)=0x7000;
+    g.select_target();renderer.clear(0xFF112233);
+    reg(0x214)=0x8000;g.select_target();const auto shared=g.target;
+    expect("shared color storage is counted once",renderer.stats().target_bytes==8*8*20);
+    gpu.invalidate_memory(0x80007000,256);
+    const auto image=renderer.readback();const auto pixel=(4*8+4)*4;
+    expect("retiring one depth allocation preserves its live color alias",g.targets.size()==1 && g.target==shared &&
+        image.rgba[pixel]==std::byte{0x11} && image.rgba[pixel+1]==std::byte{0x22} && image.rgba[pixel+2]==std::byte{0x33});
+    gpu.invalidate_memory(0x6000,256);
+    expect("retiring target storage frees its view and restores the main target",g.targets.empty() && !g.target && renderer.stats().target_bytes==8*8*8);
+    memory.fill_elements<std::uint32_t>(0x4000,0xFF0000FF,64,false);
+    expect("a retired target slot can hold an ordinary texture",sample(g.texture(0,view))==0x0000FF);
+    const TextureData data{8,8,TextureFormat::argb8_linear,Bytes(ram).subspan(0x4000,256),1,32};
+    const auto temporary=renderer.upload(data);renderer.release_texture(temporary);
+    const auto captured=renderer.upload(data,false);
+    expect("capture uploads do not recycle earlier resource IDs",captured!=temporary);
+    renderer.release_texture(captured);
+    // Original InsertCallback packets use the native completion queue, in order
+    // with preceding GPU work and semaphore writes.
+    std::vector<std::pair<std::uint32_t,std::uint32_t>> notifications;
+    bool ordered=true;
+    gpu.completion=[&](std::uint32_t routine,std::uint32_t context) {
+        ordered&=memory.load<std::uint32_t>(0x300)==0x12345678;
+        notifications.emplace_back(routine,context);
+    };
+    g.fence(0x300,0x12345678);
+    constexpr std::array commands{0x00040000U,0xDU,
+        0x00081D8CU,0x1234U,0xAAU,0x00040100U,6U,
+        0x00081D8CU,0x5678U,0xBBU,0x00040110U,0U,0x00040100U,7U};
+    for(unsigned i=0;i<commands.size();++i) memory.store<std::uint32_t>(0x1000+i*4,commands[i]);
+    gpu.submit(0x1000,0x1000+static_cast<unsigned>(commands.size()*4));gpu.wait();
+    expect("graphics callbacks preserve packet order, target, context and preceding fences",ordered &&
+        notifications==std::vector<std::pair<std::uint32_t,std::uint32_t>>{{0x1234,0xAA},{0x5678,0xBB}} && g.statistics.callbacks==2);
+    struct Upload {unsigned first,count,load;bool repeat;};
+    constexpr std::array uploads{Upload{0xB00,32,128,false},Upload{0xB80,32,184,false},
+        Upload{0xB00,4,135,false},Upload{0xB80,4,191,false},Upload{0xB04,3,135,false},Upload{0xB84,3,191,false},
+        Upload{0xB00,8,135,true},Upload{0xB80,8,191,true},Upload{0xB80,33,184,false},
+        Upload{0xB00,8,135,false},Upload{0xB80,8,191,false}};
+    bool uploads_match=true;
+    for(const auto& upload:uploads) {
+        g.program_load=g.constant_load=upload.load;
+        const auto registers=g.registers[0];const auto program=g.program;
+        const auto constants=g.constants;
+        const auto methods=g.statistics.methods;
+        std::array<std::uint32_t,33> data{};
+        for(unsigned i=0;i<upload.count;++i) data[i]=i%3?0x80000000U+i*0x1020304U:0x7F800001U+i;
+        std::string scalar_error,packet_error;
+        try {for(unsigned i=0;i<upload.count;++i) g.method(0,upload.first+(upload.repeat?0:i*4),data[i]);}
+        catch(const std::runtime_error& error) {scalar_error=error.what();}
+        const auto expected_registers=g.registers[0];const auto expected_program=g.program;
+        const auto expected_constants=g.constants;
+        const auto expected_program_load=g.program_load,expected_constant_load=g.constant_load;
+        const auto expected_methods=g.statistics.methods;
+        g.registers[0]=registers;g.program=program;g.constants=constants;
+        g.program_load=g.constant_load=upload.load;g.statistics.methods=methods;
+        memory.store<std::uint32_t>(0x1000,(upload.count<<18)|upload.first|(upload.repeat?0x40000000U:0));
+        for(unsigned i=0;i<upload.count;++i) memory.store<std::uint32_t>(0x1004+i*4,data[i]);
+        try {gpu.submit(0x1000,0x1004+upload.count*4);}
+        catch(const std::runtime_error& error) {packet_error=error.what();}
+        uploads_match&=scalar_error==packet_error && g.registers[0]==expected_registers && g.program==expected_program &&
+            !std::memcmp(&g.constants,&expected_constants,sizeof(g.constants)) && g.program_load==expected_program_load &&
+            g.constant_load==expected_constant_load && g.statistics.methods==expected_methods;
+    }
+    expect("bulk shader uploads match scalar processing, including partial rows and bounds failures",uploads_match);
+    memory.map(0x80001000U,std::span(ram).subspan(0x1000));
+    bool inline_match=true;
+    const auto registers=g.registers[0];const auto methods=g.statistics.methods;
+    struct InlineUpload {unsigned count;bool repeat,alias;};
+    for(const auto upload:std::array<InlineUpload,6>{{{0,true,false},{1,true,false},{8,true,false},
+                                                   {2047,true,false},{3,false,false},{8,true,true}}}) {
+        const auto reset=[&] {g.registers[0]=registers;g.statistics.methods=methods;g.inline_words.assign(1,0xAABBCCDDU);};
+        reset();
+        memory.store<std::uint32_t>(0x1000,(upload.count<<18)|0x1818|(upload.repeat?0x40000000U:0));
+        for(unsigned i=0;i<upload.count;++i) {
+            const auto data=0x3F800000U+i*0x10203;
+            memory.store<std::uint32_t>(0x1004+i*4,data);
+            g.method(0,0x1818+(upload.repeat?0:i*4),data);
+        }
+        const auto expected_registers=g.registers[0];const auto expected_words=g.inline_words;
+        const auto expected_methods=g.statistics.methods;
+        reset();const auto begin=upload.alias?0x80001000U:0x1000U;
+        gpu.submit(begin,begin+4+upload.count*4);
+        inline_match&=g.registers[0]==expected_registers && g.inline_words==expected_words && g.statistics.methods==expected_methods;
+    }
+    g.inline_words.clear();
+    expect("inline vertex packets match scalar processing, including RAM aliases and maximum packet size",inline_match);
+    const auto errors=renderer.errors();expect("D3D11 validation clean",errors.empty());
+    const bool passed=std::ranges::all_of(cases,[](const auto& item) {return item.second;});
+    std::ostringstream output;output<<std::format("{{\"format\":\"smbd-texture-cache-v1\",\"adapter\":{},\"passed\":{},\"reload_cycles\":64,\"resident_texture_bytes\":{},\"cases\":[",
+        json(renderer.adapter()),passed,renderer.stats().texture_bytes);
+    for(unsigned i=0;i<cases.size();++i) {if(i) output<<',';output<<std::format("{{\"name\":{},\"passed\":{}}}",json(cases[i].first),cases[i].second);}
+    output<<"],\"errors\":[";
+    for(unsigned i=0;i<errors.size();++i) {if(i) output<<',';output<<json(errors[i]);}
+    return output.str()+"]}";
+}
 }

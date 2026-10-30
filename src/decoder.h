@@ -15,7 +15,14 @@ struct Instruction {
     std::optional<std::uint32_t> kernel_ordinal;
     std::optional<std::uint32_t> source_slot;
     std::vector<std::uint32_t> jump_targets;
+    std::vector<std::uint32_t> null_sources;
     std::optional<std::uint32_t> tail_target;
+    std::optional<std::uint32_t> zero_guard;
+    std::optional<std::uint32_t> zero_source;
+    std::vector<std::uint32_t> zero_sources;
+    std::optional<std::uint32_t> invalid_target;
+    std::optional<std::uint32_t> guard_owner;
+    bool native_zero_source=false;
     bool tail_dispatch=false;
     std::optional<std::uint32_t> target() const;
     std::string report() const;
@@ -59,4 +66,6 @@ Function recover(Xbe& image, std::uint32_t address, std::uint32_t instruction_bu
 std::optional<std::uint32_t> indirect_slot(const Function& function,const Instruction& instruction);
 std::string disassemble(Xbe& image, std::uint32_t address, std::uint32_t byte_count);
 std::string analyse(Xbe& image, std::uint32_t address, std::uint32_t instruction_budget);
+std::string analyse(Xbe& image, std::uint32_t address, std::uint32_t instruction_budget, Decoder& decoder);
+std::string analyse_arguments(Xbe& image,std::uint32_t address,std::uint32_t callee,unsigned argument,std::uint32_t instruction_budget);
 }

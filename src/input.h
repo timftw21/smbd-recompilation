@@ -23,6 +23,7 @@ public:
     void update();
     void keyboard(bool enabled) {keyboard_=enabled;updated_=0;}
     void capture_keyboard(bool captured) {capture_keyboard_=captured;}
+    void capture(bool captured) {if(capture_all_!=captured) {capture_all_=captured;updated_=0;}}
     std::uint32_t connected() const;
     const GamepadState& state(unsigned port) const;
     bool has_rumble(unsigned port) const;
@@ -32,6 +33,7 @@ private:
     void refresh();
     bool keyboard_,pump_events_;
     bool capture_keyboard_=false;
+    bool capture_all_=false;
     std::array<SDL_Gamepad*,4> devices_{};
     std::array<GamepadState,4> states_{};
     std::uint64_t updated_=0;

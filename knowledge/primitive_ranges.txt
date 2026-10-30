@@ -1,0 +1,137 @@
+Contiguous NV097 array ranges - 2026-10-28
+XBE SHA256: 9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2
+
+User capture: build/captures/frame-1793202293811-49917431100, frame 8438.
+Scene: Story Mode stage select, World 1 Jungle Island, 1-1 SIMPLE.
+Original-game reference: user-provided bGlZDPry4V.jpg. Video source and timestamp
+were not provided; aspect ratio differs. It independently shows smooth ball
+surfaces without the recomp's rectangular holes. This is not a full parity check.
+
+The captured draws 230..234 are one contiguous NV097 DRAW_ARRAYS packet:
+  command addresses: 81464560, 81464564, 81464568, 8146456C, 81464570
+  first vertices:    0,        256,      512,      768,      1024
+  vertex counts:    256,      256,      256,      256,      34
+Their registers differ only in the DRAW_ARRAYS range word at 1810; their shader,
+constants, current attributes and vertex layout agree. The 32-byte streams are
+consecutive at 01F5A000, 01F5C000, 01F5E000, 01F60000 and 01F62000.
+
+The old bridge submitted each range as a separate native triangle strip. Each
+boundary lost the two triangles joining adjacent ranges. These gaps are visible
+on both large background balls and the small selectable balls. A strip containing
+1058 vertices must preserve its connections across these five command words.
+
+Independent implementation evidence: xemu's NV097 DRAW_ARRAYS handler joins
+consecutive array ranges before issuing the host draw, and separates disjoint
+ranges. Its draw-end path submits the accumulated ranges.
+https://github.com/xemu-project/xemu/blob/master/hw/xbox/nv2a/pgraph/pgraph.c
+  DEF_METHOD(NV097, DRAW_ARRAYS), lines 2455..2494 as inspected on 2026-10-28.
+https://github.com/xemu-project/xemu/blob/master/hw/xbox/nv2a/pgraph/gl/draw.c
+  pgraph_gl_draw_end / pgraph_gl_flush_draw.
+This is research evidence only; no xemu code or runtime dependency is included.
+
+Fix: retain a pending contiguous array range until End, a graphics-state change
+or a disjoint range. Packet and submission boundaries do not split it. Rendering
+uses the existing bounded native stream path, preserving primitive order and
+winding. Captures now describe the combined draw and retain its first command
+address. The existing 32768-vertex / 8 MiB-per-stream bounds remain explicit.
+
+Validation on NVIDIA GeForce RTX 5060 Ti:
+- Offline replay of all 927 captured draws reproduces the captured RGB pixels
+  exactly, with no D3D11 debug errors.
+- Reconstruction of contiguous packet ranges uses 785 native draws and changes
+  3707 pixels, filling the rectangular gaps; D3D11 reports no errors.
+- The original buffers, textures, constants and shaders are used. Replay shares
+  graphics-state and vertex-program preparation with gameplay.
+Artifacts: build/checks/rectangles/baseline and build/checks/rectangles/joined.
+
+Final native validation: tools/Build.ps1 -Stage Game -AllowPartial -Workers 3
+passed, with the unresolved-call count unchanged at 170. A hidden, muted game run
+captured frame 1202 through the actual packet bridge. Its capture includes joined
+array draws of 428, 1225, 354, 586 and 1198 vertices. All 410 captured native draws
+replay with zero differing RGB pixels and no D3D11 errors. The existing native
+image-copy diagnostics also pass. This run validates rendering and capture; it
+does not establish complete gameplay or performance acceptance.
+Final comparison: build/checks/rectangles/final-before and final-after.
+Structured validation: build/logs/rectangle-fix-validation.json.
+
+The request-time RAM snapshot is two frames older than the captured GPU frame.
+Its push-buffer addresses have already been reused for vertex data. It must not
+be used as the captured command stream; the per-draw records and buffers provide
+the contemporaneous evidence.
+
+World 2 loading stop: incomplete primitive tails - 2026-10-28
+Verified XBE SHA256: 9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2.
+User report: build/logs/game-stopped-1793217468443.json. The boundary is
+"Incomplete triangle list", at CDevice_KickOff (3207B0) while draining graphics
+work. This is the host renderer's count%3 rejection, not an unresolved call.
+
+An incomplete primitive is legal: completed triangles render and the remaining
+one or two vertices are discarded. Primary references:
+https://registry.khronos.org/OpenGL/specs/gl/glspec15.pdf
+  Primitive specification for triangles (3n+k vertices, final k ignored).
+https://microsoft.github.io/DirectX-Specs/d3d/archive/D3D11_3_FunctionalSpec.htm
+  Section8.13, Partially Completed Primitives. Lists/strips discard incomplete
+  primitives, including a five-vertex triangle list producing one triangle.
+NV097 implementation cross-check:
+https://github.com/xemu-project/xemu/blob/master/hw/xbox/nv2a/pgraph/gl/draw.c
+  pgraph_gl_flush_draw forwards element/array counts to the graphics API without
+  requiring a multiple of three. This is research, not a runtime dependency.
+
+Fix: use D3D11's native incomplete-tail handling for line/triangle lists. For
+converted loops, fans, polygons, quads and quad strips, emit only complete
+primitives; an undersized primitive emits no geometry. Resource, index and
+buffer bounds remain checked. No draw is replaced with a fabricated triangle.
+
+Focused validation uses derived variants of captured World1 draw926 from
+frame-1793202293811-49917431100, not an invented World2 capture. The original
+four-vertex triangle-list variant reproduces the exact error before rebuilding
+(build/logs/primitive-tail-before.txt). All23 valid variants pass after the fix:
+indexed/array triangle tails, line tails, quad tails, quad-strip tails, and
+undersized converted primitives. Nineteen pixel comparisons have zero changes
+against visible complete-geometry baselines or the empty image. An invalid
+vertex index still fails. Results: build/logs/world2-primitive-pixels.json.
+A separate complete782-draw ultrawide frame replays with zero differing RGB
+pixels and zero D3D11 errors (build/checks/world2-render-regression/report.json).
+Hardware: NVIDIA GeForce RTX5060Ti. Game build: Build.ps1 -Stage Game
+-AllowPartial -Workers3. The unresolved-site count remains169. The supplied
+stop log has no draw buffers; an actual World2 playthrough was not automated.
+
+Challenge menu packed vertex alignment - 2026-10-28
+Verified XBE SHA256: 9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2.
+User stop: game-stopped-1793220165955.json, Native vertex stream layout failed
+with E_INVALIDARG at320B00. A silent native controller run reproduces it at
+frame1140, entering Challenge through Main Game -> Challenge ->1 player.
+Detailed declaration: v0=SHORT1(raw) at0, v1=FLOAT3 at2, v2=FLOAT3 at14,
+v3=FLOAT2 at26, all in one34-byte stream. These are actual captured fields,
+not inferred asset types. D3D11 cannot use those float offsets directly.
+
+Primary alignment requirements: Microsoft Direct3D11.3 functional specification,
+section4.4.6 Element Alignment and8.19.3 Buffer/Structure Offsets and Strides:
+https://microsoft.github.io/DirectX-Specs/d3d/archive/D3D11_3_FunctionalSpec.htm
+Native element alignment is min(nextPowerOfTwo(format width),4); starting
+buffer offsets and row strides must preserve that alignment as well.
+
+Fix: cache a separate native declaration only for misaligned source streams.
+Copy each original attribute's bytes into aligned upload fields; retain the
+original source layout, NV097 format, shader interpretation and data. The
+observed layout becomes offsets0,4,16,28 with stride36. Native fetched widths
+reserve padding for three-component byte/short formats too. All upload strides
+are aligned to the stream's strongest element requirement. Aligned streams
+retain the direct-copy path. Source/stream/upload bounds and the1024-layout
+cache bound remain. This is shared rendering behavior, with no Challenge-only
+case or runtime shader compilation. Failed layout messages retain the original
+source declaration so another format failure can be identified from its log.
+
+Validation: the original renderer also rejects captured draw236 from frame1142.
+An independently constructed aligned buffer for that draw renders successfully
+with the old renderer. The fixed renderer's original packed buffer produces
+identical RGB pixels, preserving the visible output (challenge-alignment-pixels).
+The real game completes1800 frames and reaches Challenge's first stage PLAIN;
+its603-draw F8 capture is complete and untruncated. Full replay differs by zero
+RGB pixels and reports no D3D11 errors. The earlier782-draw World1 ultrawide
+capture also replays with zero RGB differences and zero errors. Both executables
+built with3 workers. NVIDIA GeForce RTX5060Ti; unresolved calls unchanged at169.
+Artifacts: build/logs/challenge-validation.json, build/checks/challenge-after.png,
+build/checks/challenge-aligned-frame, challenge-fixed-frame and
+challenge-world1-regression. Controller input and storage use the isolated
+world2-profile fixture; original user storage is not modified.

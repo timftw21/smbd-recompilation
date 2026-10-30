@@ -41,10 +41,15 @@ public:
     bool restores = false;
     bool returns = false;
     bool floating = false;
+    bool force_scratch = false;
     std::set<std::uint32_t> loop_headers;
     std::map<std::string,std::string> native_helpers;
     std::map<std::string,std::string> native_declarations;
     std::ostringstream body;
+    void legacy_scope() {
+        body << "    struct FrameDeltaRestore { float previous; ~FrameDeltaRestore() { smbd::frame_step.delta=previous; } } frame_delta_restore{smbd::frame_step.delta};\n"
+                "    smbd::frame_step.delta=1;\n";
+    }
 
     std::string read_reg(ZydisRegister value) {
         const auto part = reg(value);
@@ -259,6 +264,13 @@ public:
             if (!memory->size || memory->size%8) throw std::runtime_error("Unsupported x87 memory width");
             body << "    const auto fp_address=" << address(*memory) << ";\n"
                  << "    auto* fp_memory=memory.access(fp_address," << memory->size/8 << ");\n";
+            if(instruction.address==0xB3E19 || instruction.address==0xB3E21) {
+                const auto expected=instruction.address==0xB3E19?"DD05D8244000":"DD05D0244000";
+                if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!=expected) throw std::runtime_error("Original camera response signature differs");
+                native_declarations["frame_gain_double"]="double frame_gain_double(FloatingState&,double);\n";
+                body << "    const double response=frame_gain_double(cpu.floating,std::bit_cast<double>(memory.load<std::uint64_t>(fp_address)));\n"
+                        "    fp_memory=const_cast<double*>(&response);\n";
+            }
         }
         if (!control) {
             body << "    cpu.floating.instruction=" << constant(instruction.address) << ";\n"
@@ -304,6 +316,161 @@ public:
         body << label(instruction.address) << ": { // " << instruction.text << '\n';
         if(loop_headers.contains(instruction.address))
             body << "    if(smbd::checkpoint_due(cpu)) { commit(); smbd::checkpoint(cpu," << constant(instruction.address) << "); }\n";
+        if(instruction.address==0x14F00) {
+            if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="6A04") throw std::runtime_error("Original frame entry signature differs");
+            calls=restores=true;native_declarations["frame_begin"]="void native_frame_begin(Cpu&,Memory&);\n";
+            body << "    commit(); native_frame_begin(cpu,memory); restore();\n";
+        }
+        constexpr std::pair<std::uint32_t,std::uint32_t> rule_calls[]={{0x14F30,0xEBD40},{0x14F4D,0x23F590},{0x14F52,0x23ECC0},
+            {0x14F6A,0x23FB50},{0x14F82,0x16E30},{0x14F9A,0x15A90},{0x14FB2,0x1ADA0},{0x150B5,0x23EEC0},
+            {0x79652,0x775E0}};
+        for(const auto& [site,target]:rule_calls) if(instruction.address==site) {
+            if(ins.mnemonic!=ZYDIS_MNEMONIC_CALL || ins.length!=5 || instruction.target()!=target)
+                throw std::runtime_error("Original rule-tick call signature differs");
+            body << "    if(!smbd::frame_step.logic) goto " << label(next) << ";\n";
+            legacy_scope();
+        }
+        if(instruction.address==0x794E1) {
+            if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="F6C601")
+                throw std::runtime_error("Original window input signature differs");
+            body << "    if(!smbd::frame_step.logic) goto " << label(0x7954A) << ";\n";
+        }
+        if(instruction.address==0x8FF4C) {
+            if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="E81FFDFFFF") throw std::runtime_error("Original main-game force call differs");
+            force_scratch=true;used.insert(6);
+            body << "    for(unsigned axis=0;axis<3;++axis) frame_force[axis]=memory.load<std::uint32_t>(esi+0x1CU+axis*4);\n";
+        }
+        if(instruction.address==0x8FF51) {
+            if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="F30F1007") throw std::runtime_error("Original force/position boundary differs");
+            force_scratch=true;used.insert(6);
+            native_declarations["frame_ball_step"]="void frame_ball_step(FloatingState&,Memory&,std::uint32_t,std::array<std::uint32_t,3>&);\n";
+            body << "    smbd::frame_ball_step(cpu.floating,memory,esi,frame_force);\n";
+        }
+        constexpr std::pair<std::uint32_t,std::string_view> main_positions[]={{0x8FF55,"F30F584604"},{0x8FF64,"F30F584608"},{0x8FF73,"F30F58460C"}};
+        for(unsigned axis=0;axis<3;++axis) if(instruction.address==main_positions[axis].first) {
+            if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!=main_positions[axis].second) throw std::runtime_error("Original main-game position integration differs");
+            force_scratch=floating=true;
+            const auto left=vector(operands[0]),right=vector(operands[1],true);
+            body << "    if(smbd::frame_step.delta!=1) {\n"
+                    "    smbd::set_xmm(cpu.floating,0,_mm_move_ss(" << left << ",_mm_add_ss(smbd::scalar_vector(frame_force[" << axis << "])," << right << ")));\n"
+                    "    } else {\n";
+            vector_write(operands[0],"_mm_add_ss("+left+','+right+')');body << "    }\n}\n";return;
+        }
+        // These counters measure game time; all following flag consumers are
+        // independent TESTs or loop arithmetic, not the omitted INC/DEC flags.
+        constexpr std::pair<std::uint32_t,std::string_view> tick_counters[]={{0x15110,"41"},{0x1511B,"FF05D0926C00"},
+            {0x81243,"FF0580FF7200"},{0x8D8DD,"40"},{0x8D98D,"40"},{0x8D522,"40"},{0x901BE,"40"},{0x8C71F,"48"},{0x9D076,"48"},{0x9D087,"48"},{0xBAEA4,"41"},{0xB3C32,"40"},{0x13791D,"48"}};
+        for(const auto& [site,bytes]:tick_counters) if(instruction.address==site) {
+            if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!=bytes) throw std::runtime_error("Original timed counter signature differs");
+            body << "    if(!smbd::frame_step.logic) goto " << label(next) << ";\n";
+        }
+        if(instruction.address==0xB3C3B) {
+            if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="48") throw std::runtime_error("Original camera duration counter differs");
+            uses_flags=writes_flags=true;used.insert(0);
+            body << "    if(!smbd::frame_step.logic) { flags=(smbd::sub_flags<32>(flags,eax,0)&~smbd::carry)|(flags&smbd::carry);goto " << label(next) << "; }\n";
+        }
+        if(instruction.address==0x8DCFD) {
+            if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="40") throw std::runtime_error("Original ball reset timer differs");
+            // The preceding physics and transforms run per scene. Age, reset
+            // countdown and the one-shot respawn below retain rule cadence.
+            body << "    if(!smbd::frame_step.logic) goto " << label(0x8DE4B) << ";\n";
+        }
+        if(instruction.address==0x811A8) {
+            if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="F30F2A0580FF7200") throw std::runtime_error("Original stage clock signature differs");
+            calls=restores=floating=true;native_declarations["stage_time"]="void native_stage_time(Cpu&,Memory&);\n";
+            body << "    commit(); native_stage_time(cpu,memory); restore();\n}\n";return;
+        }
+        if(instruction.address==0x750FA) {
+            if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="A1B0936C00") throw std::runtime_error("Original sprite update boundary differs");
+            body << "    if(!smbd::frame_step.logic) goto " << label(0x75161) << ";\n";
+        }
+        // Update-only callbacks keep their original rule cadence. Drawing and
+        // transform construction following these calls still run every frame.
+        constexpr std::pair<std::uint32_t,std::string_view> update_callbacks[]={{0x75148,"FFD0"},{0x8795B,"FF148DC4575500"},
+            {0x25860A,"FF148DC0486900"},{0x4DC3D,"FF1485F02F4B00"},{0x9D9E4,"E8475B0000"},{0x811C6,"FFD0"}};
+        for(const auto& [site,bytes]:update_callbacks) if(instruction.address==site) {
+            if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!=bytes) throw std::runtime_error("Original update callback signature differs at "+hex32(site));
+            body << "    if(!smbd::frame_step.logic) goto " << label(next) << ";\n";legacy_scope();
+        }
+        if(instruction.address==0xB75A2 || instruction.address==0xB75B1) {
+            const auto expected=instruction.address==0xB75A2?"FF1598A05600":"FF149590A05600";
+            if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!=expected)
+                throw std::runtime_error("Original camera dispatch signature differs");
+            body << "    const bool continuous_camera=(" << read(operands[0]) << ")==0xB3BA0U;\n"
+                    "    if(!continuous_camera && !smbd::frame_step.logic) goto " << label(next) << ";\n"
+                    "    struct FrameDeltaRestore { float previous; ~FrameDeltaRestore() { smbd::frame_step.delta=previous; } } frame_delta_restore{smbd::frame_step.delta};\n"
+                    "    if(!continuous_camera) smbd::frame_step.delta=1;\n";
+        }
+        if(instruction.address==0x8C406) {
+            if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="FF148570745500") throw std::runtime_error("Original ball-state dispatch differs");
+            used.insert(0);
+            body << "    const bool continuous_ball=eax==4 || eax==6 || eax==20 || eax==28 || eax==32;\n"
+                    "    if(!continuous_ball && !smbd::frame_step.logic) goto " << label(next) << ";\n";
+            body << "    struct FrameDeltaRestore { float previous; ~FrameDeltaRestore() { smbd::frame_step.delta=previous; } } frame_delta_restore{smbd::frame_step.delta};\n"
+                    "    if(!continuous_ball) smbd::frame_step.delta=1;\n";
+        }
+        if(instruction.address==0xBAF14) {
+            if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="FF2485E8565700") throw std::runtime_error("Original background update dispatch differs");
+            body << "    if(!smbd::frame_step.logic) goto " << label(0xBAF1B) << ";\n";legacy_scope();
+        }
+        // Original 8A2C0: transformed acceleration -> velocity -> position.
+        // Moving-stage transforms add the change in frame displacement to
+        // velocity. Convert that change back to the game's 1/60-second units.
+        constexpr std::pair<std::uint32_t,std::string_view> surface_velocity[]={{0x7B3C9,"F30F584500"},{0x7B3E3,"F30F584620"},{0x7B3FD,"F30F584624"},
+            {0x7B49C,"F30F58461C"},{0x7B4BA,"F30F584620"},{0x7B4D4,"F30F584624"}};
+        for(const auto& [site,bytes]:surface_velocity) if(instruction.address==site) {
+            if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!=bytes) throw std::runtime_error("Original moving-surface velocity signature differs");
+            floating=true;
+            const auto left=vector(operands[0]),right=vector(operands[1],true);
+            const auto correction="(smbd::frame_step.delta==1?"+left+":_mm_mul_ss("+left+",_mm_set_ss(smbd::frame_step.delta>0?1/smbd::frame_step.delta:0)))";
+            vector_write(operands[0],"_mm_add_ss("+correction+','+right+')');body << "}\n";return;
+        }
+        // Restrict time scaling to the six proved integration operations.
+        constexpr std::pair<std::uint32_t,std::string_view> integration[]={{0x8A4FE,"F30F58442410"},{0x8A50E,"F30F584C2414"},{0x8A514,"F30F58542418"},
+            {0x8A51E,"F30F584604"},{0x8A532,"F30F584E08"},{0x8A538,"F30F58C2"}};
+        for(const auto& [site,bytes]:integration) if(instruction.address==site) {
+            if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!=bytes || ins.mnemonic!=ZYDIS_MNEMONIC_ADDSS)
+                throw std::runtime_error("Original ball integration signature differs");
+            floating=true;
+            const auto left=vector(operands[0]),right=vector(operands[1],true);
+            std::string value;
+            if(site<=0x8A514) {
+                if(site==0x8A4FE) {
+                    force_scratch=true;used.insert(6);
+                    body << "    for(unsigned axis=0;axis<3;++axis) frame_force[axis]=memory.load<std::uint32_t>(esi+0x1CU+axis*4);\n";
+                }
+                value="_mm_add_ss("+left+",smbd::frame_increment("+right+"))";
+            }
+            else {
+                force_scratch=true;used.insert(6);
+                if(site==0x8A51E) {
+                    native_declarations["frame_ball_step"]="void frame_ball_step(FloatingState&,Memory&,std::uint32_t,std::array<std::uint32_t,3>&);\n";
+                    body << "    if(smbd::frame_step.delta!=1) {\n"
+                            "        for(unsigned axis=0;axis<3;++axis) memory.store<std::uint32_t>(esi+0x1CU+axis*4,cpu.floating.xmm[axis][0]);\n"
+                            "        smbd::frame_ball_step(cpu.floating,memory,esi,frame_force);\n"
+                            "        for(unsigned axis=0;axis<3;++axis) cpu.floating.xmm[axis][0]=memory.load<std::uint32_t>(esi+0x1CU+axis*4);\n    }\n";
+                }
+                const auto axis=site==0x8A51E?0:site==0x8A532?1:2;
+                const auto position=site==0x8A538?left:right;
+                value="(smbd::frame_step.delta==1?_mm_add_ss("+left+','+right+"):_mm_move_ss("+left+",_mm_add_ss(smbd::scalar_vector(frame_force["+std::to_string(axis)+"]),"+position+")))";
+            }
+            vector_write(operands[0],value);body << "}\n";return;
+        }
+        if(instruction.address==0x2A647) {
+            if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="E834BD0000")
+                throw std::runtime_error("Original frame wait call signature differs");
+            calls=restores=true;
+            native_declarations["frame_wait"]="void native_frame_wait(Cpu&,Memory&);\n";
+            body << "    commit(); cpu.eip=0x0002A647U; native_frame_wait(cpu,memory); restore();\n";
+        }
+        if(instruction.address==0x2A65B) {
+            if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="72EA" || instruction.target()!=0x2A647)
+                throw std::runtime_error("Original frame wait branch signature differs");
+            // The independent producer clock replaces this display-counter
+            // spin. Keep the original counter read, arithmetic and frame end.
+            body << "    goto " << label(next) << ";\n}\n";
+            return;
+        }
         bool terminator = false;
         switch (ins.mnemonic) {
         case ZYDIS_MNEMONIC_WBINVD:
@@ -484,6 +651,27 @@ public:
                 if(operands[i].type==ZYDIS_OPERAND_TYPE_MEMORY)
                     body << "    if(" << address(operands[i]) << "&15U) throw std::runtime_error(\"Unaligned guest MOVAPS\");\n";
             auto value=vector(operands[1],scalar);
+            if(instruction.address==0x8B42D) {
+                if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="F30F114058")
+                    throw std::runtime_error("Original contact friction signature differs");
+                native_declarations["frame_gain"]="__m128 frame_gain(FloatingState&,__m128);\n";
+                used.insert(4);
+                value="((memory.load<std::uint32_t>(memory.load<std::uint32_t>(esp+4)+0x128)&1)?smbd::frame_gain(cpu.floating,"+value+"):"+value+')';
+            }
+            if(instruction.address==0x31563 || instruction.address==0x3157B) {
+                const auto expected=instruction.address==0x31563?"F30F110528DF6D00":"F30F110D34DF6D00";
+                if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!=expected)
+                    throw std::runtime_error("Original orthographic projection signature changed");
+                // Mode 1 stores the orthographic X scale and offset. Preserve
+                // the native 16:9 canvas while widening its projection to 21:9.
+                // Perspective cameras use the game's aspect setting instead.
+                body << "    if(cpu.ultrawide) { const auto status=_mm_getcsr();\n";
+                vector_write(operands[0],"_mm_mul_ss("+value+",_mm_set_ss(16.0f/21))",true);
+                body << "    _mm_setcsr(status); } else {\n";
+                vector_write(operands[0],value,true);
+                body << "    }\n";
+                break;
+            }
             if (scalar && operands[0].type==ZYDIS_OPERAND_TYPE_REGISTER && operands[1].type==ZYDIS_OPERAND_TYPE_REGISTER)
                 value="_mm_move_ss("+vector(operands[0])+','+value+')';
             vector_write(operands[0],value,scalar); break;
@@ -515,6 +703,35 @@ public:
             std::string value="_mm_"+name+'(';
             if (!unary) value+=vector(operands[0])+',';
             value+=vector(operands[1],scalar)+')';
+            constexpr std::pair<std::uint32_t,std::string_view> time_adds[]={{0xBAEA7,"F30F58C1"},{0xBAECB,"F30F58D9"},{0xBAEF2,"F30F58D1"},
+                {0x8FE43,"F30F58442414"},{0x8FE53,"F30F58442418"},{0x8FE63,"F30F5844241C"},
+                {0x9CB35,"F30F5C0D847B3400"},{0x9CB3F,"F30F580D847B3400"},{0x9CBBC,"F30F5C0D847B3400"},{0x9CBC6,"F30F580D847B3400"},
+                {0x9CDAD,"F30F5C0D847B3400"},{0x9CDB7,"F30F580D847B3400"},{0x9CE34,"F30F5C0D847B3400"},{0x9CE3E,"F30F580D847B3400"}};
+            for(const auto& [site,bytes]:time_adds) if(instruction.address==site) {
+                if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!=bytes || (ins.mnemonic!=ZYDIS_MNEMONIC_ADDSS && ins.mnemonic!=ZYDIS_MNEMONIC_SUBSS))
+                    throw std::runtime_error("Original background clock signature differs");
+                value=std::string(ins.mnemonic==ZYDIS_MNEMONIC_ADDSS?"_mm_add_ss(":"_mm_sub_ss(")+vector(operands[0])+",smbd::frame_increment("+vector(operands[1],true)+"))";
+            }
+            if(instruction.address==0x97D37) {
+                if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="F30F59542410") throw std::runtime_error("Original animation advance signature differs");
+                value="smbd::frame_increment("+value+')';
+            }
+            if(instruction.address==0x9C58B) {
+                if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="F30F584048") throw std::runtime_error("Original animation end check signature differs");
+                value="_mm_add_ss("+vector(operands[0])+",smbd::frame_increment("+vector(operands[1],true)+"))";
+            }
+            constexpr std::pair<std::uint32_t,std::string_view> responses[]={{0xA7C14,"F30F59C8"},{0xA7C2E,"F30F59C8"},{0xA7C4C,"F30F59C8"},
+                {0xA7D1B,"F30F59D1"},{0xA7D2E,"F30F59D1"},{0xA9DD0,"F30F59C8"},{0xA9DEA,"F30F59C8"},{0xA9E08,"F30F59C8"},{0x8B58A,"F30F59C8"}};
+            for(const auto& [site,bytes]:responses) if(instruction.address==site) {
+                if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!=bytes || ins.mnemonic!=ZYDIS_MNEMONIC_MULSS)
+                    throw std::runtime_error("Original motion response signature differs");
+                native_declarations["frame_gain"]="__m128 frame_gain(FloatingState&,__m128);\n";
+                value="_mm_mul_ss("+vector(operands[0])+",frame_gain(cpu.floating,"+vector(operands[1],true)+"))";
+            }
+            if(instruction.address==0xB3E3C) {
+                if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="F30F5E05487F6C00") throw std::runtime_error("Original camera time interval signature differs");
+                value="smbd::frame_increment("+value+')';
+            }
             if (unary && scalar) value="_mm_move_ss("+vector(operands[0])+','+value+')';
             vector_write(operands[0],value); break;
         }
@@ -582,11 +799,22 @@ public:
                 calls=restores=returns=true;
                 body << "    commit();\n    cpu.eip=" << constant(instruction.address) << ";\n"
                     << "    smbd::call_kernel<" << *instruction.kernel_ordinal << ">(cpu,memory);\n    restore();\n    goto done;\n";
+            } else if(instruction.zero_guard) {
+                calls=true;
+                body << "    const auto target=" << read(operands[0]) << ";\n    commit();\n"
+                    << "    cpu.eip=" << constant(instruction.address) << ";\n"
+                    << "    throw smbd::NativeBoundary(target,\"callback was proved unreachable\");\n";
+            } else if(instruction.invalid_target) {
+                calls=true;
+                body << "    const auto target=" << read(operands[0]) << ";\n    commit();\n"
+                    << "    cpu.eip=" << constant(instruction.address) << ";\n"
+                    << "    throw smbd::NativeBoundary(target,\"invalid transfer through an immutable zero slot\");\n";
             } else if(instruction.tail_dispatch) {
                 calls=restores=returns=true;
                 body << "    const auto target=" << read(operands[0]) << ";\n    commit();\n    switch(target) {\n";
                 const std::set<std::uint32_t> targets(instruction.jump_targets.begin(),instruction.jump_targets.end());
                 for(auto target:targets) body << "    case " << constant(target) << ": guest_" << std::format("{:08X}",target) << "(cpu,memory); break;\n";
+                if(!instruction.null_sources.empty()) body << "    case 0U: cpu.eip=" << constant(instruction.address) << "; throw smbd::NativeBoundary(target,\"null callback from a verified table\");\n";
                 body << "    default: throw smbd::NativeBoundary(target,\"tail-call target is outside its verified table\");\n    }\n    restore();\n    goto done;\n";
             } else if (!instruction.jump_targets.empty()) {
                 calls=true;
@@ -648,10 +876,13 @@ public:
                  << ");\n    commit();\n    cpu.eip = " << constant(instruction.target().value_or(instruction.address)) << ";\n    ";
             if (instruction.kernel_ordinal) body << "smbd::call_kernel<" << *instruction.kernel_ordinal << ">(cpu,memory);\n";
             else if (instruction.target()) body << "guest_" << std::format("{:08X}", *instruction.target()) << "(cpu, memory);\n";
+            else if(instruction.zero_guard) body << "throw smbd::NativeBoundary(target,\"callback was proved unreachable\");\n";
+            else if(instruction.invalid_target) body << "throw smbd::NativeBoundary(target,\"invalid transfer through an immutable zero slot\");\n";
             else if(!instruction.jump_targets.empty()) {
                 body << "switch(target) {\n";
                 const std::set<std::uint32_t> targets(instruction.jump_targets.begin(),instruction.jump_targets.end());
                 for(auto target:targets) body << "    case " << constant(target) << ": guest_" << std::format("{:08X}",target) << "(cpu,memory); break;\n";
+                if(!instruction.null_sources.empty()) body << "    case 0U: throw smbd::NativeBoundary(target,\"null callback from a verified table\");\n";
                 body << "    default: throw smbd::NativeBoundary(target,\"call target is outside its verified table\");\n    }\n";
             } else body << "smbd::invoke_native(cpu,memory,target);\n";
             body << "    if (cpu.eip != " << constant(next)
@@ -862,6 +1093,32 @@ public:
 
 LoweredFunction lower(const Function& function) {
     LoweredFunction result;
+    if(function.entry==0x73900) {
+        // The HUD repeatedly searches this 80-entry sprite pool. Lower the
+        // verified loop directly, retaining its stack writes and register ABI.
+        std::string bytes;
+        for(const auto& [pc,instruction]:function.instructions) bytes+=hex_bytes(Bytes(instruction.bytes).first(instruction.decoded.length));
+        if(bytes!="8B15B4936C00568B74240857B8F889720033C9803A0074080FBE780F3BFE740E4105D00000004283F9507CE733C05F5EC3")
+            throw std::runtime_error("Original sprite search signature differs");
+        result.source=R"(void guest_00073900(Cpu& cpu, Memory& memory) {
+    if(smbd::checkpoint_due(cpu)) smbd::checkpoint(cpu,0x73900);
+    const auto stack=cpu.registers[smbd::esp];
+    const auto needle=memory.load<std::uint32_t>(stack+4);
+    const auto status=memory.load<std::uint32_t>(0x6C93B4);
+    memory.store<std::uint32_t>(stack-4,cpu.registers[smbd::esi]);
+    memory.store<std::uint32_t>(stack-8,cpu.registers[smbd::edi]);
+    const auto* active=static_cast<const std::byte*>(memory.access(status,80));
+    unsigned index=0;
+    for(;index<80;++index) if(active[index]!=std::byte{} &&
+        smbd::sign_extend<8>(memory.load<std::uint8_t>(0x7289F8+index*0xD0+15))==needle) break;
+    cpu.registers[smbd::eax]=index<80?0x7289F8+index*0xD0:0;
+    cpu.registers[smbd::ecx]=index;cpu.registers[smbd::edx]=status+index;
+    cpu.flags=smbd::logic_flags<32>(cpu.flags,0);
+    cpu.eip=memory.load<std::uint32_t>(stack);cpu.registers[smbd::esp]=stack+4;
+}
+)";
+        return result;
+    }
     const auto api=std::ranges::find(native_apis,function.entry,&NativeApi::address);
     if(api!=native_apis.end()) {
         std::string prefix;
@@ -900,18 +1157,36 @@ LoweredFunction lower(const Function& function) {
     if (!result.issues.empty()) return result;
     std::ostringstream out;
     for(const auto& [name,declaration] : emitter.native_declarations) out << declaration;
+    if(function.entry==0x12F30 || function.entry==0x13180) out << "bool native_goal_query(Cpu&,Memory&,std::uint32_t);\n";
+    if(function.entry==0x13C80) out << "void native_sample_goals(Cpu&,Memory&);\n";
     out << "void guest_" << std::format("{:08X}", function.entry) << "(Cpu& cpu, [[maybe_unused]] Memory& memory) {\n";
     out << "    if(smbd::checkpoint_due(cpu)) smbd::checkpoint(cpu," << constant(function.entry) << ");\n";
+    if(function.entry==0x12F30 || function.entry==0x13180) {
+        if(hex_bytes(Bytes(function.instructions.at(function.entry).bytes).first(6))!="81EC8C000000") throw std::runtime_error("Original goal query signature differs");
+        out << "    if(native_goal_query(cpu,memory," << constant(function.entry) << ")) return;\n";
+    }
+    if(function.entry==0x13C80) out << "    native_sample_goals(cpu,memory);\n";
+    // Legacy rule/controller services have no render submissions of their own.
+    // Their registered drawing callbacks remain in the per-render-frame path.
+    constexpr std::uint32_t legacy_updates[]={0x27C220,0x260CF0,0x13C80,0x11F60,0x23F8D0,0xF8F90,0x67F00,0x58690,0x994B0,0xEA950,0x610E0,0xA3530,
+        0x8BD80,0x89450,0x10E350,0x115B80,0x127270,0x1A6350,0x1A5070,0x22CC50};
+    if(std::ranges::find(legacy_updates,function.entry)!=std::end(legacy_updates))
+        out << "    if(!smbd::frame_step.logic) { cpu.eip=memory.load<std::uint32_t>(cpu.registers[smbd::esp]);cpu.registers[smbd::esp]+=4;return; }\n"
+               "    struct FrameDeltaRestore { float previous; ~FrameDeltaRestore() { smbd::frame_step.delta=previous; } } frame_delta_restore{smbd::frame_step.delta};\n"
+               "    smbd::frame_step.delta=1;\n";
     for (const auto index : emitter.used)
         out << "    auto " << registers[index] << " = cpu.registers[" << index << "];\n";
     if (emitter.uses_flags) out << "    auto flags = cpu.flags;\n";
+    if (emitter.force_scratch) out << "    std::array<std::uint32_t,3> frame_force{};\n";
     if (emitter.calls) {
-        out << "    const auto commit = [&] {\n";
+        // Outlining these reference captures pins every guest register to the
+        // host stack and prevents promotion between calls and checkpoints.
+        out << "    const auto commit = [&] [[gnu::always_inline]] {\n";
         for (const auto index : emitter.dirty) out << "        cpu.registers[" << index << "] = " << registers[index] << ";\n";
         if (emitter.writes_flags) out << "        cpu.flags = flags;\n";
         out << "    };\n";
         if (emitter.restores) {
-            out << "    const auto restore = [&] {\n";
+            out << "    const auto restore = [&] [[gnu::always_inline]] {\n";
             for (const auto index : emitter.used) out << "        " << registers[index] << " = cpu.registers[" << index << "];\n";
             if (emitter.uses_flags) out << "        flags = cpu.flags;\n";
             out << "    };\n";

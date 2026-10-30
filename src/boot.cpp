@@ -30,7 +30,10 @@ std::string boot_report(const Xbe& image,const BootResult& result) {
            << ",\"graphics\":{\"adapter\":" << json(result.adapter) << ",\"draws\":" << result.draws
            << ",\"frames\":" << result.frames << ",\"submissions\":" << result.submissions << ",\"vertices\":" << result.vertices
            << ",\"blits\":" << result.blits
-           << ",\"capture_written\":" << (result.capture_written?"true":"false") << ",\"capture_error\":" << json(result.capture_error) << "},\"registers\":[";
+           << ",\"completion_callbacks\":" << result.graphics_callbacks
+           << ",\"capture_written\":" << (result.capture_written?"true":"false") << ",\"capture_error\":" << json(result.capture_error)
+           << "},\"simulation\":{\"hz\":60,\"steps\":" << result.simulation_steps << ",\"epochs\":" << result.timing_epochs
+           << ",\"milliseconds\":" << result.simulation_ms << "},\"registers\":[";
     bool first = true;
     for (const auto value : result.cpu.registers) { if (!first) output << ','; first=false; output << json(hex32(value)); }
     output << "],\"history\":[";
@@ -64,7 +67,8 @@ std::string boot_report(const Xbe& image,const BootResult& result) {
     for(const auto& thread:result.threads) {
         if(!first)output<<',';first=false;
         output << "{\"id\":" << thread.id << ",\"routine\":" << json(hex32(thread.routine))
-               << ",\"eip\":" << json(hex32(thread.eip)) << ",\"state\":" << json(thread.state) << '}';
+               << ",\"eip\":" << json(hex32(thread.eip)) << ",\"state\":" << json(thread.state)
+               << ",\"optional_callback_record\":" << json(hex32(thread.optional_callback_record)) << '}';
     }
     return output.str()+"]}";
 }

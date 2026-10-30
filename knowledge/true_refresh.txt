@@ -1,0 +1,287 @@
+True high-refresh audit, 2026-10-28
+
+Verified Xbox executable SHA256:
+9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2
+
+Requirement: run the original scene rendering at the selected refresh rate
+with new motion samples, preserving gameplay and animation speed. Repeating
+completed color images, rerasterizing unchanged poses, and blending successive
+60 Hz poses do not meet this requirement. Native scene stepping is now
+implemented: the original scene loop runs at the rendering rate, with explicit
+time-scaled physics, character animation, stage sampling and camera response.
+The implementation and validation below supersede the initial audit status.
+
+The existing check-timing diagnostic verifies clock arithmetic only. It boots
+no game and checks neither actual scene rendering nor distinct motion samples.
+Its report now states that scope explicitly. Earlier 30/60/360/Unlimited goal
+and image-copy checks validate the repeated-image implementation only.
+
+Bounded original-code evidence is saved privately in build/logs/refresh-*.
+Analysis used native analyse-set with a limit of 4096 instructions per entry;
+the entry, event, mode, transform and motion batches all completed their CFGs.
+Original table/name reads are limited to 528/208 bytes, respectively.
+
+Shared original frame loop: 14F00..15127, reached from 14D80. It performs
+services, input, mode dispatch (15A90), actor/status handling (1ADA0), object
+queue drawing (1FD80), event dispatch (168B0), additional rendering, swap and
+cleanup in one iteration. Global counter 6C9278 and unpaused counter 6C92D0
+advance at 15110..1511B. Raising this loop's frequency alone changes timers,
+motion, animation, input repeat and effects. Lowering its wait to the selected
+rate without converting those updates is incorrect.
+
+Event table 477CE8..477EF8 has 22 original 24-byte records. State is at +0,
+name pointer +4, initializer +8, update +12 and destructor +16. Dispatcher
+168B0 initializes active records, calls their update and handles destruction.
+These names and addresses are read from the verified Xbox executable:
+
+  index  name           update
+    0    STAGE          81130
+    1    WORLD          A8060
+    2    BALL           8C330
+    3    APE            9DAB0
+    4    STOBJ          878C0
+    5    ITEM          2584B0
+    6    RECPLAY       27C220
+    7    OBJ_COLLISION  7F2F0
+    8    NAME_ENTRY    260CF0
+    9    INFO           13C80
+   10    COURSE         11F60
+   11    VIBRATION     23F8D0
+   12    COMMEND        F8F90
+   13    VIEW           67F00
+   14    EFFECT         4DB90
+   15    MINIMAP        58690
+   16    CAMERA         B74C0
+   17    SPRITE         750D0
+   18    MOUSE          994B0
+   19    SOUND          EA950
+   20    BACKGROUND     BAE70
+   21    REND_EFC       610E0
+
+Specific conversion boundaries established so far:
+
+STAGE 81130 computes floating animation time at 72FF84 from its integer
+counter 72FF80, calls 7F730, an optional callback at 72FF88, and 7FB90.
+It conditionally passes the floating time to 80A60 at 81232, then increments
+the integer counter at 81243. Movie/replay branches compute that time
+differently. Increasing the integer counter at display frequency would speed
+stage animation. Sampling a floating stage time is a separate operation from
+advancing the original discrete counter and invoking its stateful callbacks.
+
+BALL 8C330 loops over eight records with stride 1B0, using original status
+and handler tables. It dispatches through 557470 at 8C406 and also performs
+motion, transform, radius/rotation and countdown work. It calls 8B9D0/8AEA0
+under flag guards at 8C49E/8C4C8 and decrements a record countdown at 8C71F.
+Its mixed responsibilities preclude treating the whole routine as render-only
+or multiplying every addition/decrement by a timestep. The ball array starts
+at 738DF0; 739BB4 is its selected-ball pointer in this routine.
+
+APE 9DAB0 copies each active ball position into its character object at +258,
+then calls the character-specific callback at +5C or default 9D9A0. Character
+state, animation advancement and pose sampling need a verified split; changing
+stage time alone cannot make monkey animation or ball motion continuous.
+
+CAMERA B74C0 dispatches through 56A098/56A090 and constructs view transforms.
+WORLD, STOBJ, EFFECT, SPRITE and BACKGROUND have their own updates/callbacks;
+their time-dependent arithmetic is not controlled by the frame-wrapper wait.
+They have no original common timestep; conversion uses verified operation and
+callback boundaries rather than altering every counter or arithmetic operation.
+
+Queue/lifetime distinction: 1FD80 walks linked draw records, calls record[0]
+with record[4] and a zero argument, and advances through record[8]. 6A1E0's
+6A2AE/6A2B6 decrement consumes queued entries counted by 7196E8, which is
+reset to zero at 6A2BE. The previous research incorrectly described that count
+as an effect lifetime. Neither operation should be time-scaled as a timer.
+
+Implemented boundaries:
+
+14F00 starts a native scene step. The original full scene path runs at the
+selected rendering rate; the 2A640 wrapper uses a separate rendering deadline.
+Rates below 60 retain 60 scene/physics updates and present fewer fresh frames.
+Unlimited removes the rendering deadline. Elapsed-time debt is retained and
+individual physics steps are bounded to one original 1/60-second unit.
+
+Rule/input/resource/save calls in 14F00, the logical counters at 15110/1511B,
+and legacy replay, sound, effect, item, sprite and character controllers keep
+60 Hz timing. Their drawing callbacks and following transforms remain in the
+per-scene path. 750D0 explicitly separates sprite updates from 73400 drawing.
+Window input commands consume each original input edge once. Automation and
+capture/performance start points use logical ticks; sample counts use scene
+frames. --frames still counts rendered game scenes.
+
+8A2C0 and the main-game 8FE80/8FC70 pipeline integrate elapsed-time force and
+position. Constant-force integration composes to the original semi-implicit
+Euler step at 60 Hz. Contact drag at 8B42D uses exponential time scaling;
+grounded tangential force, position and drag use the fractional iterate of
+p+=v+a; v=(v+a)*(1-loss). New impacts retain the original impulse response.
+Previous contact flags are at ball+128, proven by 8C382..8C39F. ball+98/+9C
+are the two halves of the current 64-bit flags, not current/previous flags.
+Moving-stage velocity corrections in 7B320 convert frame displacement back
+to velocity in original 1/60-second units. All these lowering sites verify
+their exact original instruction bytes before generating native C++.
+
+811A8 supplies continuous stage animation time without changing its integer
+rule counter. 97D37 scales animation advancement before original wrap/end
+logic; stored animation speed is unchanged. 9C58B uses the same interval in
+its end prediction. Pose sampling remains original NJS code, executed for
+the new scene. World response gains and B3BA0 camera response/seconds are
+normalized; other camera controllers keep their original rule cadence and
+their subsequent view transforms still run for each scene. The eleven
+proved actor callbacks at 9DAFC share the continuously sampled pose path;
+their separate state/facing controllers retain the original cadence.
+
+Both goal queries still execute original swept-rectangle code. The primary
+12F30 query receives ECX=ball and three caller-cleaned output pointers for
+goal ID, animation group and byte-sized type (13D66..13D82, 1305D..1308E).
+The distinct 13180 secondary query uses ECX and one goal-ID output pointer
+(13CE3/13CEB, 1318F, 132BB..132D7). Both have separate pending-event slots.
+A focused native check exercises both actual query ABIs, output widths,
+receiver preservation and positive/negative swept-crossing cases. INFO 13C80
+checks crossings on intermediate physics steps and latches a hit until its
+next rule update. This avoids missing a zero-width trigger between rule
+ticks, including goals in moving animation groups. A crossing is delivered
+once and discarded on scene changes or player lifecycle changes.
+
+Rendering publishes and presents the scene just drawn. Normal scheduler
+polls do not present a retained 60 Hz picture. Original queues are rebuilt
+or walked each scene, rather than retaining opaque transient command data.
+The dynamic vertex/index rings avoid repeated DISCARD stalls and preserve
+each draw's allocation. Texture/render-target caches remain bounded. Video
+keeps its source cadence; audio mixing, device samples and native I/O clocks
+remain independent. No generated frames or pose blending are introduced.
+
+Validation is through native CPU checks, actual hidden/muted game runs,
+consecutive ball/render-matrix/camera/animation samples, original scene draw
+counts, captured images and CPU/GPU performance reports. Synthetic clocks
+and image-copy checks are explicitly not evidence of distinct scene motion.
+Build and ThinLTO link workers are set to three for this task. Runtime
+measurements use Ryzen 5 5600X / RTX 5060 Ti on Windows; a selected limit is
+not a claim that every scene sustains that FPS. Exhaustive party-mode and
+Linux/macOS hardware validation remain outside the checks performed here.
+The existing 141 unresolved original call sites also limit game-mode coverage.
+
+Supplementary research source: camthesaxman/smb-decomp, GameCube SMB1,
+https://github.com/camthesaxman/smb-decomp . Read only as a related-engine
+reference; its addresses/layouts are not proofs for the Xbox Deluxe target.
+
+Night checkpoint, 2026-10-28 (user requested stopping for tonight):
+Latest game/tool build: build/logs/hr-finished-build.txt, Workers=3;
+10357 compiled functions, 141 pre-existing unresolved sites, zero introduced.
+Latest native CPU checks: build/checks/hr-finished-cpu.json, 18 cases passed.
+This includes force/contact integration, platform velocity, animation clocks,
+and both original goal-query calling conventions and swept-crossing cases.
+Graphics checks: hr-release-*; image copy 9 cases, texture cache 12 cases,
+presentation/settings 123 checks, 302-draw replay with zero changed pixels.
+
+The primary goal query is 12F30 (ECX plus three output pointers); 13180 is a
+separate secondary query (ECX plus one output pointer). Both are now sampled
+and latched independently. Earlier experimental runs which missed goals are
+not acceptance results. The last primary-goal runtime check, hr-primary-144,
+cleared 1-1 with 53.23 remaining. The final subsequent code change normalizes
+ball-facing response at 8B58A; it builds and passes the native checks but has
+not yet had its final full-game rerun.
+
+Next work: rerun the latest build at 60/144/Unlimited, check neutral-stick
+pause/resume using build/checks/hr-neutral-pause-input.txt, inspect captures,
+and record final CPU/GPU limits at 360. Existing fresh-frame motion reports
+prove distinct positions, matrices and poses above 60 Hz; they do not prove
+360 FPS performance or exhaustive game-mode parity. No game or build job is
+being intentionally left running. Changes remain uncommitted.
+
+Resumed validation, 2026-10-29:
+
+The final facing-response change passed full hidden/muted runs at 60, 144,
+360 and Unlimited. Each completed the scripted menu/loading/Ready sequence
+and cleared 1-1 SIMPLE. Captures hr-resume-{60,144,360,0}.png show GOAL with
+53.18, 53.23, 53.23 and 53.25 remaining respectively. Run reports and motion
+samples have the matching build/checks/hr-resume-* prefixes. The few original
+ticks of trajectory difference are recorded rather than presented as identical
+physics outcomes at different integration intervals.
+
+Normal-play motion samples (ball type 32) contain these distinct positions,
+render-matrix translations and character animation samples:
+  60 limit: 379 samples over 6.2975222 seconds, 60.02 scene samples/second.
+  144 limit: 356 samples over 2.588944 seconds, 137.12 scene samples/second.
+  360 limit: 664 samples over 4.4313095 seconds, 149.62 scene samples/second.
+  Unlimited: 300 samples over 2.0126282 seconds, 148.56 scene samples/second.
+The 60 Hz series has 379 distinct positions/translations and 377 distinct
+animation values; authored animation values can naturally repeat. The three
+moving-state series above 60 have a distinct ball position, render
+translation and animation sample at every recorded scene. This is evidence of
+new scene motion, separate from synthetic clock or retained-image checks.
+
+hr-resume-pause used the neutral-stick script at the 360 limit. All 35 input
+steps and eight state barriers completed. Its frame capture shows Continue
+game selected and a frozen 58.40 timer. Across 720 paused scene samples over
+1.9975445 seconds, ball position, stage time and character animation each have
+exactly one value. Resuming reached GOAL with 53.16 remaining. Live captures
+show the stage, character, minimap, transparent overlays, HUD and menu assets.
+
+The pause overlay's 188-draw offline replay completes without command errors,
+but differs in 207026 pixels: replay starts with black targets and this paused
+frame relies on a scene background drawn before the capture. It is not an exact
+image-parity pass. The earlier complete 302-draw hr-release-replay remains a
+zero-changed-pixel pass. Initial target contents are a separate existing replay
+limitation; the live paused image retains its background correctly.
+
+Performance is recorded for future optimization, not treated as a requirement
+to reach 360 FPS on this machine (user clarified this on 2026-10-29).
+Hardware: Ryzen 5 5600X / RTX 5060 Ti, Windows x64, native 1x, widescreen,
+VSync off. The first-level Ready/start window at tick 2600 measured:
+  144: frame median/p99 6.9287/9.1562 ms, GPU spans 0.362816/0.576736 ms.
+  360: frame median/p99 4.8343/8.1246 ms, GPU spans 0.346336/0.519616 ms.
+  Unlimited: frame median/p99 4.8678/6.3555 ms, GPU spans 0.387520/0.539520 ms.
+Peak working sets in these recorded windows were about 272..278 MiB.
+These are short, specifically located recordings, not sustained-performance
+claims across all scenes. Motion sampling above covers subsequent rolling
+gameplay; its sample rate is not substituted for CPU/GPU frame percentiles.
+
+Build defaults now select three compiler workers and three linker workers:
+tools/Build.ps1, CMakePresets.json and SMBD_BUILD_WORKERS. LLD /threads:3 and
+/opt:lldltojobs=3 apply to both executables; one link runs at a time. Performance
+counter slot 18 is named logic_ticks to distinguish 60 Hz rules from rendered
+scene frames; its binary layout is unchanged. Final build and native checks
+are build/logs/hr-delivery-build.txt and build/checks/hr-delivery-*.json.
+No new unresolved original calls were introduced. Existing unresolved paths
+and exhaustive party-mode/Linux/macOS validation remain as noted above.
+
+Additional ball-motion boundaries, verified in the same executable:
+557470 contains 36 original ball-type callbacks. Types 6 (8D8F0) and 28
+(8D490) contain the shared 8A2C0 integration and transform pipeline, with
+one-shot audio guarded by a stored flag and age increments at 8D98D/8D522.
+They now execute continuous physics; their age increments remain at 60 Hz.
+Type 20 (8DCC0) runs the same physics, then increments age, decrements its
+16-bit reset countdown and optionally respawns the player. The 8DCFD boundary
+is after its 32-byte call-argument cleanup; intermediate scenes go directly
+to the original 8DE4B epilogue, leaving the timer and reset at rule cadence.
+Other initialization/state callbacks retain the original cadence. This does
+not apply a timestep indiscriminately to their spatial calculations.
+Evidence: bounded build/logs/hr-resume-ball-types native analyses and the
+original 144-byte table at 557470. Final build/check prefixes for this change
+are hr-ball-states; all 18 native checks pass with 3 build/link workers.
+Its first full 360-limit run reached GOAL with 53.25 remaining. That run's
+motion request began after its input script had already ended, so its empty
+motion report is not counted as motion validation.
+hr-ball-states-fresh used a longer input timeline and completed all barriers.
+Its 1024-scene motion report includes 810 consecutive type-6 samples over
+6.0203069 seconds. All 810 ball positions and render translations are distinct,
+while the logical counter advances from tick 2855 to 3217. The same report
+includes 116 normal-play samples with 116 distinct positions/translations.
+The extended run continued through the original post-goal state transitions.
+
+Scope clarification, 2026-10-29: the user explicitly deferred party games.
+The 144-limit Main Game Select and Party Game Select captures display their
+coin icons, text, backgrounds and animation correctly (hr-mode-ready and
+hr-party-select). The exploratory Monkey Race run stopped at untranslated
+original callback 107D10, called from the effect constructor (return address
+4DE67). Its bounded three-instruction body sets argument+0C to 20 and returns;
+it is absent from the current fixed native table. No party call recovery or
+party-specific timing changes were made. Further party work is deferred as
+requested. Likewise, 360 FPS optimization is explicitly deferred.
+
+Current main-game delivery: General refresh selector, fresh native scene
+rendering, continuous ball/camera/stage/character sampling, fixed-cadence rules,
+working goal triggers and pause/resume. Final source build is
+build/logs/hr-ball-states-build.txt; native CPU checks are
+build/checks/hr-ball-states-cpu.json (18 passed). Both executables use three
+compiler/LLD/ThinLTO workers. Changes remain uncommitted for manual checking.

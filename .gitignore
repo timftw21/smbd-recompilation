@@ -6,10 +6,49 @@ AGENTS.md
 /data/local/
 /data/user/
 
-*.iso
-*.xiso
-*.xbe
-*.bin
+*.[iI][sS][oO]
+*.[xX][iI][sS][oO]
+*.[xX][bB][eE]
+*.[bB][iI][nN]
+*.img
+
+# Extracted Xbox assets and title storage, including copies outside data/
+*.xbx
+*.xpr
+*.gma
+*.tpl
+*.adx
+*.sfd
+*.afs
+*.xwb
+*.xsb
+*.xvu
+*.xpu
+UDATA/
+TDATA/
+CACHE/
+save.dat
+*.sav
+settings.cfg
+imgui.ini
+/media/
+/captures/
+/logs/
+
+# Credentials, local identity and machine-specific configuration
+.env
+.env.*
+!.env.example
+!.env.sample
+*.key
+*.pem
+*.pfx
+*.p12
+*.keystore
+.ssh/
+credentials.json
+secrets.json
+secrets.*.json
 
 # Build output and downloaded dependencies
 /build/
@@ -22,6 +61,12 @@ cmake_install.cmake
 install_manifest.txt
 compile_commands.json
 CMakeUserPresets.json
+*.zip
+*.7z
+*.rar
+*.tar
+*.gz
+*.zst
 
 # Compiled programs, libraries and compiler caches
 *.exe
@@ -39,6 +84,9 @@ CMakeUserPresets.json
 *.exp
 *.pdb
 *.ipch
+*.map
+*.bc
+*.ll
 
 # Local analysis databases, captures and crash dumps
 *.i64

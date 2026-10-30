@@ -16,9 +16,16 @@ inline constexpr std::array callback_abis{
 struct CallbackPreserver {
     std::uint32_t address, mask;
     std::string_view prefix;
+    std::uint32_t site;
 };
 inline constexpr std::array callback_preservers{
 @callback_preservers@};
+struct CallbackStackPreserver {
+    std::uint32_t address, index_min, index_max;
+    std::string_view prefix;
+};
+inline constexpr std::array callback_stack_preservers{
+@callback_stack_preservers@};
 struct CallbackFactory {
     std::uint32_t address;
     std::string_view prefix;
