@@ -1,4 +1,10 @@
-# Super Monkey Ball Deluxe — Static Recompilation
+<p align="center">
+  <img src="resources/smbd.png" alt="Super Monkey Ball Deluxe project icon" width="160">
+</p>
+
+<h1 align="center">Super Monkey Ball Deluxe — Static Recompilation</h1>
+
+From the creator of the [Burnout 2 recompilation](https://github.com/timftw21/burnout2-recompilation).
 
 An unofficial native version of the original Xbox game for Windows, built around accurate gameplay, the original presentation, and higher refresh rates.
 
@@ -98,20 +104,6 @@ Movement keys apply full tilt. Short taps allow finer control. Game input is hel
 Game saves and the local storage identity are in `data/user`. **Back up that entire folder, including `storage.key`.** Preferences are in `data/local/settings.cfg`.
 
 Close the game before updating the source. Preserve your `data` and `build` folders, rebuild, then launch `Play.cmd` again. When moving the project or disc image, update the paths in Game Files.
-
-## Performance and diagnostics
-
-The repeatable benchmark uses **Main Game → Practice Mode → AIAI → World 2 → 3 COMPOSITION**. It runs three silent sessions with separate save copies, two seconds of gameplay warmup, and twenty seconds of measured game time:
-
-```powershell
-.\tools\Benchmark.ps1
-```
-
-World 2 and Composition must already be unlocked in your save. Reports and screenshots are written under `build/checks/composition-*`.
-
-On a **Ryzen 5 5600X / GeForce RTX 5060 Ti**, the October 30, 2026 build measured **4.43–4.47 ms median** and **5.06–5.52 ms p99** across three runs at native 1×, widescreen, V-sync off, with 360 Hz selected. The **2.778 ms / 360 Hz target remains unmet**. These are measurements of this scene, not a guarantee for the rest of the game. See [the benchmark research](knowledge/composition_benchmark.txt) for the conditions and validation.
-
-For a rendering issue, press F8. For a slowdown, press F9 to start recording and again to save. [PLAYTEST.txt](PLAYTEST.txt) explains the output files and offline replay commands. Captures can contain game data, memory, and local paths: inspect them before sharing publicly, and keep them out of Git.
 
 ## Development and credits
 
