@@ -1,0 +1,27 @@
+{
+  "osmod": 1,
+  "id": "core",
+  "kind": "core",
+  "name": "SMBD Core",
+  "version": "0.1.0",
+  "targets": ["smbd-us"],
+  "headers": ["core.h"],
+  "sources": ["core.cpp"],
+  "on": { "frame": "core_frame" },
+  "events": {
+    "frame": {
+      "address": "0x00320190",
+      "when": "pre",
+      "doc": "D3DDevice_Swap (XbSymbolDatabase match): once per presented frame, before the swap. core::frame_count() counts these.",
+      "args": []
+    },
+    "pad_read": {
+      "address": "0x003422A4",
+      "when": "post",
+      "doc": "XInputGetState(handle, XINPUT_STATE*) has returned (stdcall, 8 bytes of arguments). core::pad(ctx) is the state the game will see; edit it to change input.",
+      "args": ["handle", "state"]
+    }
+  },
+  "license": "MIT",
+  "description": "The shared hook layer every other mod builds on. Events: frame (once per presented frame) and pad_read (controller state, editable). Always on."
+}

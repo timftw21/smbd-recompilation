@@ -3,6 +3,7 @@
 #include "xbox.h"
 #include "frame_clock.h"
 #include "diagnostics.h"
+#include "osmod_host.h"
 #include "thread_abi.h"
 #include "disc.h"
 #include "disc_cache.h"
@@ -286,6 +287,7 @@ struct Xbox::State {
     State(Xbe& image,Memory& memory,std::span<std::byte> ram,const std::filesystem::path& disc_path,XboxHost host):image(image),memory(memory),ram(ram),host(std::move(host)) {
         if(ram.size()!=64*1024*1024 || !image.supported()) throw std::runtime_error("Native Xbox requires the verified image and 64 MiB RAM");
         frame_step={};reset_frame_history();
+        osmod::host::apply_files();  // mod file switches apply from this boot
         if(!disc_path.empty()) {
             disc=std::make_unique<Disc>(disc_path);
             const auto executable=disc->find("default.xbe");
@@ -1223,6 +1225,20 @@ struct Xbox::State {
         }
         return relative;
     }
+    // OSMod file redirects: open the replacement's sectors, but keep the
+    // original file's size. The game reads each file with the length it
+    // expects, into a buffer of that length, so a replacement must fit the
+    // original slot (the OSMod builder refuses larger ones).
+    std::optional<DiscEntry> lookup_disc(const std::string& relative) {
+        auto original=disc->lookup(relative);
+        const auto target=osmod::host::redirect(relative);
+        if(!original || original->directory() || target==relative) return original;
+        auto replacement=disc->lookup(target);
+        if(!replacement || replacement->directory() || replacement->size>original->size ||
+           std::uint64_t(replacement->sector)*2048+original->size>disc->size()) return original;
+        replacement->name=original->name;replacement->size=original->size;
+        return replacement;
+    }
     std::optional<std::filesystem::path> writable_path(std::string_view name) {
         constexpr std::string_view root="\\DEVICE\\HARDDISK0\\PARTITION";
         const auto key=folded(name);
@@ -1906,7 +1922,7 @@ struct Xbox::State {
         const auto relative=disc_path(*name);
         if(!relative) return open_writable(cpu,*name,options_index,share_index,disposition,information);
         if(!disc) return no_media;
-        const auto entry=disc->lookup(*relative);
+        const auto entry=lookup_disc(*relative);
         if(!entry) return name_not_found;
         const auto access=file_access(argument(cpu,1)),options=argument(cpu,options_index),share=argument(cpu,share_index);
         if(disposition>5 || share>7) return invalid_parameter;
@@ -1926,6 +1942,13 @@ struct Xbox::State {
         const auto address=base|0x80000000U,handle=next_handle; next_handle+=4;
         auto file=std::make_shared<OpenFile>();file->entry=*entry;file->path=*name;
         file->share_path=std::move(share_path);
+        // OSMod files.replace: read this game path from a file a mod built.
+        if(!entry->directory()) if(const auto host_file=osmod::host::replacement(*relative)) {
+            file->native=CreateFileW(host_file->c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,
+                (options&0x30)?0U:FILE_FLAG_OVERLAPPED,nullptr);
+            if(file->native==INVALID_HANDLE_VALUE) throw NativeBoundary(cpu.eip,"OSMod replacement file is missing: "+utf8(host_file->native()));
+            file->host_path=*host_file;
+        }
         file->access=access;file->share=share;file->options=options;file->device=relative->empty();
         memory.store<std::uint16_t>(address,5);
         memory.store<std::uint8_t>(address+2,file_access_flags(access,share));
@@ -2253,7 +2276,7 @@ struct Xbox::State {
                 memory.store<std::uint64_t>(output+32,(size+16383)&~16383ULL);memory.store<std::uint64_t>(output+40,size);
                 memory.store<std::uint32_t>(output+48,data.dwFileAttributes);finish(cpu,8,success);return;
             }
-            const auto entry=disc && relative?disc->lookup(*relative):std::nullopt;
+            const auto entry=disc && relative?lookup_disc(*relative):std::nullopt;
             if(!entry) {finish(cpu,8,disc?name_not_found:no_media);return;}
             OpenFile file;file.entry=*entry;file.path=*name;
             std::uint32_t written=0;finish(cpu,8,file_information(file,argument(cpu,1),52,34,written));

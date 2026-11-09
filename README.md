@@ -109,6 +109,7 @@ Use the bottom row to close settings, restart the running game, restore defaults
 - **Enhancements:** Choose 1×–4× internal resolution, FXAA or supported MSAA levels, and anisotropic filtering up to 16×. The render distance override is recommended at higher internal resolutions. These settings and aspect ratio apply immediately.
 - **Controls:** Rebind keyboard keys, controller buttons, and stick directions, clear bindings, or restore the defaults.
 - **Diagnostics:** Capture a frame or record a slowdown.
+- **Mods:** List the mods built into this copy of the game, with their previews and details, and switch each on or off. A normal build has none; see [osmod/README.md](osmod/README.md) to add some.
 
 Higher rendering rates produce new scene updates. Game rules and input retain their original 60 Hz clock; audio keeps its own sample clock and movies retain their source cadence.
 

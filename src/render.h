@@ -15,6 +15,7 @@ struct Image {
 };
 void save_png(const Image&, const std::filesystem::path&, bool replace = false);
 Image load_image(const std::filesystem::path&);
+Image load_image(std::span<const std::byte>);
 std::string compare_images(const std::filesystem::path& actual,
                            const std::filesystem::path& reference,
                            const std::filesystem::path& difference, unsigned tolerance);

@@ -247,11 +247,28 @@ void save_png(const Image& image, const std::filesystem::path& path, bool replac
     catch (...) { GlobalUnlock(handle); throw; }
     GlobalUnlock(handle);
 }
+namespace {
+Image decode_image(IWICImagingFactory* factory, IWICBitmapDecoder* decoder);
+}
 Image load_image(const std::filesystem::path& path) {
     ComScope scope;
     auto factory = image_factory();
     ComPtr<IWICBitmapDecoder> decoder;
     checked(factory->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder), "Image decoder");
+    return decode_image(factory.Get(), decoder.Get());
+}
+Image load_image(std::span<const std::byte> bytes) {
+    ComScope scope;
+    auto factory = image_factory();
+    ComPtr<IWICStream> stream;
+    checked(factory->CreateStream(&stream), "Image stream");
+    checked(stream->InitializeFromMemory(reinterpret_cast<BYTE*>(const_cast<std::byte*>(bytes.data())), static_cast<DWORD>(bytes.size())), "Image memory");
+    ComPtr<IWICBitmapDecoder> decoder;
+    checked(factory->CreateDecoderFromStream(stream.Get(), nullptr, WICDecodeMetadataCacheOnDemand, &decoder), "Image decoder");
+    return decode_image(factory.Get(), decoder.Get());
+}
+namespace {
+Image decode_image(IWICImagingFactory* factory, IWICBitmapDecoder* decoder) {
     ComPtr<IWICBitmapFrameDecode> frame;
     checked(decoder->GetFrame(0, &frame), "Image frame");
     Image image{};
@@ -265,6 +282,7 @@ Image load_image(const std::filesystem::path& path) {
     checked(converter->CopyPixels(nullptr, image.width * 4, static_cast<UINT>(image.rgba.size()),
                                   reinterpret_cast<BYTE*>(image.rgba.data())), "Image pixels");
     return image;
+}
 }
 std::string compare_images(const std::filesystem::path& actual, const std::filesystem::path& reference,
                            const std::filesystem::path& difference, unsigned tolerance) {

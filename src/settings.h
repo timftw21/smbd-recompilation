@@ -69,5 +69,12 @@ private:
     void refresh_options();
     void show_cursor();
     bool browse(std::array<char,2048>&,bool);
+    // OSMod manager page.
+    std::vector<Microsoft::WRL::ComPtr<ID3D11ShaderResourceView>> mod_previews_;
+    std::vector<float> mod_preview_aspect_;
+    int mod_selected_=-1;
+    bool mods_restart_=false;
+    std::filesystem::path mods_path_;
+    void draw_mods(bool playing);
 };
 }

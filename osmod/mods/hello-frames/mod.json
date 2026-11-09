@@ -1,0 +1,13 @@
+{
+  "osmod": 1,
+  "id": "hello-frames",
+  "name": "Hello Frames",
+  "version": "0.1.0",
+  "targets": ["smbd-us"],
+  "needs": { "core": ">=0.1.0 <0.2.0" },
+  "sources": ["hello_frames.cpp"],
+  "on": { "frame": "hello_frame", "pad_read": "hello_pad" },
+  "order": 100,
+  "license": "MIT",
+  "description": "Proves the bus runs: once a second, writes frame and pad-read counts to osmod-hello.txt in the working folder."
+}

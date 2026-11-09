@@ -5,6 +5,7 @@
 #include "diagnostics.h"
 #include "xbox.h"
 #include "ui_theme.h"
+#include "osmod_host.h"
 #include <SDL3/SDL.h>
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
@@ -278,8 +279,80 @@ SettingsUi::SettingsUi(SDL_Window* window,Renderer& renderer,Settings& settings,
             const_cast<std::byte*>(icon.rgba.data()),static_cast<int>(icon.width*4));
         if(surface) {SDL_SetWindowIcon(window,surface);SDL_DestroySurface(surface);}
     } catch(const std::exception& error) {message(error.what());}
+    mods_path_=path_.parent_path()/"osmod.cfg";
+    osmod::host::load(mods_path_);
+    for(const auto* mod:osmod::host::mods()) {
+        Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> view;float aspect=1;
+        if(mod->preview && mod->preview_size) try {
+            const auto image=load_image(std::span(reinterpret_cast<const std::byte*>(mod->preview),mod->preview_size));
+            view=ui_texture(renderer,image);aspect=float(image.width)/image.height;
+        } catch(const std::exception& error) {message(std::format("Mod {} preview: {}",mod->id,error.what()));}
+        mod_previews_.push_back(view);mod_preview_aspect_.push_back(aspect);
+    }
 }
 SettingsUi::~SettingsUi() {show_cursor();ImGui_ImplDX11_Shutdown();ImGui_ImplSDL3_Shutdown();ImGui::DestroyContext();}
+void SettingsUi::draw_mods(bool playing) {
+    const auto mods=osmod::host::mods();
+    if(mods.empty()) {
+        ImGui::TextWrapped("No mods are built into this game.");ImGui::Spacing();
+        ImGui::TextDisabled("OSMod adds mods when the game is compiled (see osmod/README.md):");
+        ImGui::TextDisabled("python -m osmod build --target osmod --tree . --compile osmod/core <mods>");
+        return;
+    }
+    if(mod_selected_<0) {  // open on the first real mod, not the core
+        mod_selected_=0;
+        for(int i=0;i<int(mods.size());++i) if(mods[i]->enabled) {mod_selected_=i;break;}
+    }
+    mod_selected_=std::clamp(mod_selected_,0,int(mods.size())-1);
+    const auto available=ImGui::GetContentRegionAvail();
+    ImGui::BeginChild("Mod list",{250,available.y-(mods_restart_?34.0f:0.0f)},ImGuiChildFlags_Borders);
+    for(int i=0;i<int(mods.size());++i) {
+        const auto& mod=*mods[i];ImGui::PushID(i);
+        bool on=osmod::host::enabled(mod);
+        ImGui::BeginDisabled(!mod.enabled);
+        if(ImGui::Checkbox("##on",&on)) {
+            osmod::host::set_enabled(mod,on);
+            try {osmod::host::save(mods_path_);} catch(const std::exception& error) {message(error.what());}
+            if(mod.redirect_count || mod.replace_count) mods_restart_=true;
+            message(std::format("{} {}.",mod.name,on?"enabled":"disabled"));
+        }
+        ImGui::EndDisabled();
+        if(!mod.enabled) help("The core is always on: other mods are built on it.");
+        else help(mod.redirect_count || mod.replace_count?"File changes apply when the game restarts.":"Applies immediately.");
+        ImGui::SameLine();
+        if(ImGui::Selectable(mod.name,mod_selected_==i,0,{0,ImGui::GetFrameHeight()})) mod_selected_=i;
+        ImGui::PopID();
+    }
+    ImGui::EndChild();ImGui::SameLine();
+    const auto& mod=*mods[mod_selected_];
+    ImGui::BeginChild("Mod info",{0,available.y-(mods_restart_?34.0f:0.0f)},ImGuiChildFlags_None);
+    if(const auto& preview=mod_previews_[mod_selected_]) {
+        const float width=std::min(ImGui::GetContentRegionAvail().x,360.0f),height=width/mod_preview_aspect_[mod_selected_];
+        ImGui::Image(reinterpret_cast<ImTextureID>(preview.Get()),{width,height});
+    }
+    ImGui::PushFont(nullptr,24);ImGui::TextColored({1,.83f,.32f,1},"%s",mod.name);ImGui::PopFont();
+    ImGui::TextDisabled("%s %s%s%s%s%s",mod.id,mod.version,*mod.authors?"  |  ":"",mod.authors,*mod.license?"  |  ":"",mod.license);
+    ImGui::TextColored(osmod::host::enabled(mod)?ImVec4{.55f,.95f,.45f,1}:ImVec4{.9f,.6f,.4f,1},"%s",
+        !mod.enabled?"Always on":osmod::host::enabled(mod)?"Enabled":"Disabled");
+    if(*mod.description) {ImGui::Spacing();ImGui::TextWrapped("%s",mod.description);}
+    if(*mod.hooks) {ImGui::SeparatorText("HOOKS");ImGui::TextUnformatted(mod.hooks);}
+    if(mod.replace_count) {
+        ImGui::SeparatorText("NEW FILES");
+        ImGui::Text("%zu game files replaced by files this mod built",mod.replace_count);
+        for(std::size_t i=0;i<mod.replace_count && i<4;++i) ImGui::TextDisabled("%s",mod.replaces[i].from);
+        if(mod.replace_count>4) ImGui::TextDisabled("and %zu more",mod.replace_count-4);
+    }
+    if(mod.redirect_count) {
+        ImGui::SeparatorText("FILES");
+        ImGui::Text("%zu disc files redirected",mod.redirect_count);
+        for(std::size_t i=0;i<mod.redirect_count && i<4;++i) ImGui::TextDisabled("%s -> %s",mod.redirects[i].from,mod.redirects[i].to);
+        if(mod.redirect_count>4) ImGui::TextDisabled("and %zu more",mod.redirect_count-4);
+    }
+    if(playing) {ImGui::Spacing();ImGui::TextDisabled("This session: %zu redirects active, %zu files served.",
+        osmod::host::redirects_active(),osmod::host::redirects_served());}
+    ImGui::EndChild();
+    if(mods_restart_) ImGui::TextColored({1,.83f,.25f,1},"File changes apply when the game restarts.");
+}
 void SettingsUi::show_cursor() {
     mouse_activity_=SDL_GetTicks();
     if(cursor_hidden_) {
@@ -413,12 +486,12 @@ void SettingsUi::draw(bool playing,bool recording,double fps,const std::function
         ImGui::TextDisabled("%s",save_hint);
         ImGui::PopFont();
         ImGui::Separator();
-        constexpr const char* pages[]={"Game Files","General","Audio","Graphics","Enhancements","Controls","Diagnostics"};
+        constexpr const char* pages[]={"Game Files","General","Audio","Graphics","Enhancements","Controls","Diagnostics","Mods"};
         const auto content=ImGui::GetContentRegionAvail();
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,ImVec2{12,16});
         ImGui::BeginChild("Navigation",{170,content.y-56},ImGuiChildFlags_Borders);ImGui::PopStyleVar();
         wooden_panel(wood_.Get(),true);
-        for(int i=0;i<7;++i) if(ImGui::Selectable(pages[i],category==i,0,{0,40})) {category=i;binding_action_=-1;}
+        for(int i=0;i<8;++i) if(ImGui::Selectable(pages[i],category==i,0,{0,40})) {category=i;binding_action_=-1;}
         ImGui::EndChild();ImGui::SameLine();
         ImGui::BeginChild("Page",{0,content.y-56},ImGuiChildFlags_Borders);
         wooden_panel(wood_.Get(),true);
@@ -555,6 +628,9 @@ void SettingsUi::draw(bool playing,bool recording,double fps,const std::function
                 ImGui::SeparatorText("ACTIVITY");
                 if(messages_.empty()) ImGui::TextDisabled("No messages yet.");
                 for(auto item=messages_.rbegin();item!=messages_.rend();++item) {ImGui::TextWrapped("%s",item->c_str());ImGui::Spacing();}
+                break;
+            case 7:
+                draw_mods(playing);
                 break;
             }
         } catch(const std::exception& error) {if(category==0) file_message(error.what());else message(error.what());}

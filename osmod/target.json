@@ -1,0 +1,48 @@
+{
+  "osmod": 1,
+  "id": "smbd-us",
+  "name": "Super Monkey Ball Deluxe (US Xbox), smbd-recompilation",
+  "adapter": "source-recomp",
+  "checked_with": "0.4.0",
+  "identity": {
+    "kind": "generated-banner",
+    "value": "9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2",
+    "note": "SHA-256 of the US default.xbe; the recompiler writes it on the first line of every generated shard."
+  },
+  "tree": {
+    "generated": "build/generated",
+    "shards": "game.cpp.*.cpp"
+  },
+  "symbol": "guest_{address:08X}",
+  "definition": "void {symbol}(Cpu& cpu,",
+  "wrapper": {
+    "namespace": "smbd",
+    "signature": "Cpu& cpu, Memory& memory",
+    "call": "cpu, memory",
+    "enter": "osmod::Ctx ctx{cpu, memory}; osmod::enter(ctx);",
+    "skip": "osmod::skip_return(ctx);"
+  },
+  "glue": "target.h",
+  "extra_sources": {
+    "pattern": "game.cpp.{n}.cpp",
+    "first": 900,
+    "last": 999,
+    "note": "CMakeLists.txt globs game.cpp.[0-9][0-9][0-9].cpp into smbd-cpu; stock shards stop at 511."
+  },
+  "build": [
+    "pwsh",
+    "-NoProfile",
+    "-Command",
+    ". ./tools/Initialize-Toolchain.ps1; cmake --build --preset release --target smbd --parallel 3; exit $LASTEXITCODE"
+  ],
+  "build_note": "Do not use tools/Build.ps1 -Stage Game here: it regenerates every shard with --replace. Run `osmod restore` before Build.ps1, and `osmod build` again after it.",
+  "license": "MIT",
+  "host": {
+    "header": "osmod_host.h",
+    "files": true,
+    "note": "src/osmod_host.{h,cpp}: the OSMod reference host. Mods page in Settings, per-mod switches in data/local/osmod.cfg, disc redirects and replacement files.",
+    "files_index": "data/local/disc-index.tsv",
+    "files_dir": "data/local/osmod-files",
+    "fixed_size": true
+  }
+}

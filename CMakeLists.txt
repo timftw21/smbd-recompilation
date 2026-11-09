@@ -361,7 +361,7 @@ FetchContent_Declare(zydis
     GIT_SUBMODULES dependencies/zycore)
 FetchContent_MakeAvailable(zydis)
 
-add_library(smbd-core STATIC src/file.cpp src/disc.cpp src/xbe.cpp src/crypto.cpp)
+add_library(smbd-core STATIC src/file.cpp src/disc.cpp src/xbe.cpp src/crypto.cpp src/osmod_host.cpp)
 target_include_directories(smbd-core PUBLIC src PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 if(WIN32)
     target_sources(smbd-core PRIVATE src/diagnostics.cpp src/performance.cpp)

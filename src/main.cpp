@@ -1,3 +1,4 @@
+#include "osmod_host.h"
 #include "xbox.h"
 #include "render.h"
 #include "gpu.h"
@@ -130,6 +131,7 @@ int run(int argc,wchar_t** argv,bool restarting=false) {
         }
     };
     smbd::Settings settings(root);std::string settings_error;
+    osmod::host::set_root(root);
     try {settings.load(settings_path);} catch(const std::exception& error) {settings_error=error.what();}
     if(!executable_override.empty()) smbd::copy_text(settings.executable.data(),settings.executable.size(),smbd::path_text(std::filesystem::absolute(executable_override)));
     if(!disc_override.empty()) smbd::copy_text(settings.disc.data(),settings.disc.size(),smbd::path_text(std::filesystem::absolute(disc_override)));
@@ -212,7 +214,7 @@ int run(int argc,wchar_t** argv,bool restarting=false) {
     if(!settings_capture.empty()) {
         if(std::filesystem::exists(settings_capture)) throw std::runtime_error("Use a fresh settings capture directory");
         std::filesystem::create_directories(settings_capture);
-        for(int page=0;page<7;++page) {
+        for(int page=0;page<8;++page) {
             ui.category=page;
             unsigned frame=0;
             do {
@@ -231,7 +233,7 @@ int run(int argc,wchar_t** argv,bool restarting=false) {
         ui.visible=false;animation_frame("closing.png");
         while(ui.active()) {renderer.clear(0xFF100C06);renderer.display();ui.draw(true,false,0,[]{},[]{});renderer.present(false);SDL_Delay(1);}
         animation_frame("closed.png");
-        smbd::write_text(settings_capture/"report.json",std::format("{{\"format\":\"smbd-settings-capture-v1\",\"pages\":7,\"passed\":true,\"window_title\":{},\"antialiasing\":{},\"anisotropy\":{}}}\n",
+        smbd::write_text(settings_capture/"report.json",std::format("{{\"format\":\"smbd-settings-capture-v1\",\"pages\":8,\"passed\":true,\"window_title\":{},\"antialiasing\":{},\"anisotropy\":{}}}\n",
             smbd::json(SDL_GetWindowTitle(window.get())),renderer.stats().antialiasing,renderer.stats().anisotropy),false);
         return 0;
     }
