@@ -191,7 +191,7 @@ public:
             native_helpers[helper] = helper + " PROC\n    db 00Fh," +
                 std::format("0{:02X}h,0{:02X}h", ins.opcode, modrm) +
                 (extract ? std::format(",0{:02X}h", immediate) : "") + "\n    ret\n" + helper + " ENDP\n";
-            native_declarations[helper] = "extern \"C\" std::uint32_t " + helper + "();\n";
+            native_declarations[helper] = "extern \"C\" SMBD_HELPER_ABI std::uint32_t " + helper + "();\n";
             floating = true;
             write(instruction.operands[0], helper + "()");
             return;
@@ -231,7 +231,7 @@ public:
             (immediate?std::format("_{:02X}",immediate->imm.value.u):"");
         native_helpers[helper]=helper+" PROC\n    db 00Fh,"+std::format("0{:02X}h",ins.opcode)+
             (empty?"":std::format(",0{:02X}h",modrm))+(immediate?std::format(",0{:02X}h",immediate->imm.value.u):"")+"\n    ret\n"+helper+" ENDP\n";
-        native_declarations[helper]="extern \"C\" void "+helper+'('+(!pointer.empty()?"void*":"")+");\n";
+        native_declarations[helper]="extern \"C\" SMBD_HELPER_ABI void "+helper+'('+(!pointer.empty()?"void*":"")+");\n";
         body << "    " << helper << '(' << pointer << ");\n";
         if(register_write) write(*register_operand,"mmx_word");
     }
@@ -253,7 +253,7 @@ public:
         const auto helper = "smbd_" + mnemonic;
         native_helpers[helper] = helper + " PROC\n    movss xmm0,dword ptr [rcx]\n    " +
             mnemonic + " xmm0,dword ptr [rdx]\n    pushfq\n    pop rax\n    ret\n" + helper + " ENDP\n";
-        native_declarations[helper] = "extern \"C\" std::uint32_t " + helper + "(const void*,const void*);\n";
+        native_declarations[helper] = "extern \"C\" SMBD_HELPER_ABI std::uint32_t " + helper + "(const void*,const void*);\n";
         floating = uses_flags = writes_flags = true;
         body << "    const auto comparison=" << helper << '(' << left << ',' << right << ");\n"
              << "    flags=(flags&~smbd::arithmetic_flags)|(comparison&(smbd::carry|smbd::parity|smbd::zero));\n";
@@ -271,7 +271,7 @@ public:
         native_helpers[helper] = helper + " PROC\n    movups xmm0,xmmword ptr [rcx]\n    " +
             (scalar ? "cmpss xmm0,dword ptr [rdx]," : "cmpps xmm0,xmmword ptr [rdx],") +
             std::to_string(predicate) + "\n    movups xmmword ptr [r8],xmm0\n    ret\n" + helper + " ENDP\n";
-        native_declarations[helper] = "extern \"C\" void " + helper + "(const void*,const void*,void*);\n";
+        native_declarations[helper] = "extern \"C\" SMBD_HELPER_ABI void " + helper + "(const void*,const void*,void*);\n";
         floating = true;
         body << "    " << helper << '(' << left << ',' << right << ',' << left << ");\n";
     }
@@ -297,7 +297,7 @@ public:
         if (status) assembly+="    movzx eax,ax\n";
         assembly+="    ret\n"+helper+" ENDP\n";
         native_helpers[helper]=assembly;
-        native_declarations[helper]="extern \"C\" "+std::string(status||compare_flags?"std::uint32_t ":"void ")+helper+'('+(memory?"void*":"")+");\n";
+        native_declarations[helper]="extern \"C\" SMBD_HELPER_ABI "+std::string(status||compare_flags?"std::uint32_t ":"void ")+helper+'('+(memory?"void*":"")+");\n";
         const bool control=waiting || mnemonic=="fnstsw" || mnemonic=="fnstcw" || mnemonic=="fldcw" ||
             mnemonic=="fnsave" || mnemonic=="frstor" || mnemonic=="fnstenv" || mnemonic=="fldenv" ||
             mnemonic=="fnclex" || mnemonic=="fninit" || mnemonic=="fnop";

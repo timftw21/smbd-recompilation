@@ -2,20 +2,30 @@
 #include "antialiasing.h"
 #include "shaders.h"
 #include "performance.h"
-#include <Windows.h>
+#include <SDL3/SDL.h>
 #include <d3d11.h>
 #include <d3d11sdklayers.h>
 #include <dxgi1_6.h>
+#ifdef _WIN32
+#include <Windows.h>
 #include <wincodec.h>
-#include <wrl/client.h>
+#else
+#include <png.h>
+#include <jpeglib.h>
+#include <csetjmp>
+#include <cstdlib>
+#endif
+#include "com_ptr.h"
 #include <algorithm>
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <format>
 #include <map>
 #include <optional>
 #include <stdexcept>
+#include <thread>
 
 using Microsoft::WRL::ComPtr;
 namespace smbd {
@@ -31,6 +41,7 @@ Float4 color(std::uint32_t argb) {
     return {float((argb >> 16) & 255) / 255, float((argb >> 8) & 255) / 255,
             float(argb & 255) / 255, float(argb >> 24) / 255};
 }
+#ifdef _WIN32
 struct ComScope {
     HRESULT result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     ComScope() { if (result != RPC_E_CHANGED_MODE) checked(result, "COM initialization"); }
@@ -42,6 +53,7 @@ ComPtr<IWICImagingFactory> image_factory() {
                             IID_PPV_ARGS(&factory)), "WIC factory");
     return factory;
 }
+#endif
 void validate_fragment(const RenderState& state) {
     const auto count=state.combiner_control&255;
     if(count>8) throw std::runtime_error("Combiner stage count exceeds eight");
@@ -209,6 +221,7 @@ AttributeFormat attribute_format(std::uint32_t format) {
 void save_png(const Image& image, const std::filesystem::path& path, bool replace) {
     extent(image.width, image.height);
     if (image.rgba.size() != std::size_t(image.width) * image.height * 4) throw std::runtime_error("Invalid RGBA image size");
+#ifdef _WIN32
     ComScope scope;
     auto factory = image_factory();
     ComPtr<IStream> stream;
@@ -246,8 +259,18 @@ void save_png(const Image& image, const std::filesystem::path& path, bool replac
     try { write_text(path, {bytes, static_cast<std::size_t>(info.cbSize.QuadPart)}, replace); }
     catch (...) { GlobalUnlock(handle); throw; }
     GlobalUnlock(handle);
+#else
+    png_image png{};png.version=PNG_IMAGE_VERSION;png.width=image.width;png.height=image.height;png.format=PNG_FORMAT_RGBA;
+    png_alloc_size_t size=0;
+    if(!png_image_write_to_memory(&png,nullptr,&size,0,image.rgba.data(),0,nullptr) || size>128*1024*1024)
+        throw std::runtime_error("Cannot size PNG output");
+    std::string bytes(size,0);
+    if(!png_image_write_to_memory(&png,bytes.data(),&size,0,image.rgba.data(),0,nullptr)) throw std::runtime_error(png.message);
+    bytes.resize(size);write_text(path,bytes,replace);
+#endif
 }
 Image load_image(const std::filesystem::path& path) {
+#ifdef _WIN32
     ComScope scope;
     auto factory = image_factory();
     ComPtr<IWICBitmapDecoder> decoder;
@@ -265,6 +288,42 @@ Image load_image(const std::filesystem::path& path) {
     checked(converter->CopyPixels(nullptr, image.width * 4, static_cast<UINT>(image.rgba.size()),
                                   reinterpret_cast<BYTE*>(image.rgba.data())), "Image pixels");
     return image;
+#else
+    File input(path);const auto magic=input.read(0,std::min<std::uint64_t>(8,input.size()));
+    if(magic.size()==8 && !png_sig_cmp(reinterpret_cast<const unsigned char*>(magic.data()),0,8)) {
+        png_image png{};png.version=PNG_IMAGE_VERSION;
+        if(!png_image_begin_read_from_file(&png,path.c_str())) throw std::runtime_error(png.message);
+        try {
+            extent(png.width,png.height);png.format=PNG_FORMAT_RGBA;
+            Image result{png.width,png.height,std::vector<std::byte>(PNG_IMAGE_SIZE(png))};
+            if(!png_image_finish_read(&png,nullptr,result.rgba.data(),0,nullptr)) throw std::runtime_error(png.message);
+            png_image_free(&png);return result;
+        } catch(...) {png_image_free(&png);throw;}
+    }
+    // libjpeg's error callback must not unwind through C. Keep C++ allocations
+    // outside the setjmp scope and copy the bounded decoded pixels afterwards.
+    struct JpegError {jpeg_error_mgr base;jmp_buf jump;char message[JMSG_LENGTH_MAX];};
+    auto error=std::make_unique<JpegError>();auto decoder=std::make_unique<jpeg_decompress_struct>();
+    decoder->err=jpeg_std_error(&error->base);
+    error->base.error_exit=[](j_common_ptr value) {auto* e=reinterpret_cast<JpegError*>(value->err);value->err->format_message(value,e->message);longjmp(e->jump,1);};
+    FILE* file=std::fopen(path.c_str(),"rb");if(!file) throw std::runtime_error("Cannot open image");
+    unsigned char* volatile pixels=nullptr;
+    if(setjmp(error->jump)) {std::free(pixels);jpeg_destroy_decompress(decoder.get());std::fclose(file);throw std::runtime_error(error->message);}
+    jpeg_create_decompress(decoder.get());jpeg_stdio_src(decoder.get(),file);jpeg_read_header(decoder.get(),TRUE);
+    if(!decoder->image_width || !decoder->image_height || decoder->image_width>4096 || decoder->image_height>4096) {
+        jpeg_destroy_decompress(decoder.get());std::fclose(file);throw std::runtime_error("Image dimensions must be 1..4096");
+    }
+    decoder->out_color_space=JCS_EXT_RGBA;jpeg_start_decompress(decoder.get());
+    const auto width=decoder->output_width,height=decoder->output_height;
+    pixels=static_cast<unsigned char*>(std::malloc(std::size_t(width)*height*4));
+    if(!pixels) {jpeg_destroy_decompress(decoder.get());std::fclose(file);throw std::bad_alloc();}
+    while(decoder->output_scanline<height) {auto* row=pixels+std::size_t(decoder->output_scanline)*width*4;jpeg_read_scanlines(decoder.get(),&row,1);}
+    jpeg_finish_decompress(decoder.get());jpeg_destroy_decompress(decoder.get());std::fclose(file);
+    Image result{width,height,{}};
+    try {result.rgba.assign(reinterpret_cast<std::byte*>(pixels),reinterpret_cast<std::byte*>(pixels)+std::size_t(width)*height*4);}
+    catch(...) {std::free(pixels);throw;}
+    std::free(pixels);return result;
+#endif
 }
 std::string compare_images(const std::filesystem::path& actual, const std::filesystem::path& reference,
                            const std::filesystem::path& difference, unsigned tolerance) {
@@ -354,7 +413,9 @@ struct Renderer::Impl {
     ComPtr<IDXGISwapChain2> swapchain;
     ComPtr<ID3D11Texture2D> published;
     ComPtr<ID3D11ShaderResourceView> published_view;
+#ifdef _WIN32
     HANDLE frame_ready=nullptr;
+#endif
     bool frame_acquired=false,allow_tearing=false;
     UINT swapchain_flags=0;
     std::size_t published_bytes=0;
@@ -483,6 +544,11 @@ struct Renderer::Impl {
     }
     Impl(std::uint32_t w, std::uint32_t h, bool warp, bool debug,unsigned scale) : width(w), height(h),resolution_scale(scale) {
         pipelines.reserve(pipeline_limit);
+#ifndef _WIN32
+        if(warp) throw std::runtime_error("WARP is Windows-only; use a Vulkan software driver on Linux.");
+        if(debug) throw std::runtime_error("The D3D11 debug layer is Windows-only.");
+        SDL_setenv_unsafe("DXVK_WSI_DRIVER","SDL3",1);
+#endif
         if(scale<1 || scale>4) throw std::runtime_error("Internal resolution must be 1x..4x");
         extent(w, h);
         const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_0};
@@ -606,13 +672,20 @@ struct Renderer::Impl {
             }
         }
     }
+#ifdef _WIN32
     ~Impl() {if(frame_ready) CloseHandle(frame_ready);}
-    bool acquire_frame(bool wait) {
+#endif
+    bool acquire_frame(unsigned timeout_ms) {
+#ifdef _WIN32
         if(frame_acquired) return true;
-        const auto status=WaitForSingleObject(frame_ready,wait?INFINITE:0);
+        const auto status=WaitForSingleObject(frame_ready,timeout_ms);
         if(status==WAIT_TIMEOUT) return false;
         if(status!=WAIT_OBJECT_0) throw std::runtime_error("Window frame availability wait failed");
-        frame_acquired=true;return true;
+        frame_acquired=true;
+#else
+        (void)timeout_ms; // DXVK bounds the frame queue in Present.
+#endif
+        return true;
     }
     void draw(const RenderState&, Bytes, std::size_t, std::span<const std::uint32_t>,
               const Program* = nullptr, ProgramUniforms* = nullptr,const PreparedStreams* = nullptr);
@@ -1010,12 +1083,12 @@ void Renderer::performance_frame(std::uint64_t next_frame) {
     r.source_frame=next_frame;r.collect_timings();
 }
 void Renderer::finish_performance() {
-    auto& r=*impl_;r.context->Flush();const auto deadline=GetTickCount64()+100;
+    auto& r=*impl_;r.context->Flush();const auto deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(100);
     do {
         r.collect_timings();
         if(!std::ranges::any_of(r.timings,[&](const auto& t){return t.pending && t.generation==r.profile_generation;})) break;
-        SwitchToThread();
-    } while(GetTickCount64()<deadline);
+        std::this_thread::yield();
+    } while(std::chrono::steady_clock::now()<deadline);
     for(auto& frame:r.profile_frames) if(frame.id) r.report_gpu(frame);
 }
 void Renderer::performance_resources() {
@@ -1029,18 +1102,27 @@ void Renderer::performance_resources() {
     const auto live=std::ranges::count_if(r.textures,[](const auto& view){return bool(view);});
     r.profile->resources(local.CurrentUsage,local.Budget,shared.CurrentUsage,valid,live,r.targets.size(),r.texture_bytes,r.target_bytes+r.presentation_bytes());
 }
-void Renderer::attach_window(void* native_window) {
+void Renderer::attach_window(SDL_Window* sdl_window) {
     auto& r=*impl_;
-    if(r.window || !native_window || !IsWindow(static_cast<HWND>(native_window)))
-        throw std::runtime_error("Attach one valid native window to the renderer");
-    const auto window=static_cast<HWND>(native_window);
+    if(r.window || !sdl_window || !SDL_GetWindowID(sdl_window))
+        throw std::runtime_error("Attach one valid SDL window to the renderer");
+#ifdef _WIN32
+    const auto window=static_cast<HWND>(SDL_GetPointerProperty(SDL_GetWindowProperties(sdl_window),
+        SDL_PROP_WINDOW_WIN32_HWND_POINTER,nullptr));
+    if(!IsWindow(window)) throw std::runtime_error("SDL did not provide a Win32 window");
+#else
+    const auto window=reinterpret_cast<HWND>(sdl_window);
+#endif
     ComPtr<IDXGIDevice> device;ComPtr<IDXGIAdapter> adapter;ComPtr<IDXGIFactory2> factory;
     checked(r.device.As(&device),"Presentation device");checked(device->GetAdapter(&adapter),"Presentation adapter");
     checked(adapter->GetParent(IID_PPV_ARGS(&factory)),"Presentation factory");
     ComPtr<IDXGIFactory5> modern;BOOL tearing=FALSE;
     r.allow_tearing=SUCCEEDED(factory.As(&modern)) &&
         SUCCEEDED(modern->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING,&tearing,sizeof(tearing))) && tearing;
-    r.swapchain_flags=DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT|(r.allow_tearing?DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING:0);
+    r.swapchain_flags=r.allow_tearing?DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING:0;
+#ifdef _WIN32
+    r.swapchain_flags|=DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+#endif
     DXGI_SWAP_CHAIN_DESC1 description{};
     description.Width=r.width;description.Height=r.height;description.Format=DXGI_FORMAT_R8G8B8A8_UNORM;
     description.SampleDesc.Count=1;description.BufferUsage=DXGI_USAGE_RENDER_TARGET_OUTPUT;
@@ -1049,10 +1131,16 @@ void Renderer::attach_window(void* native_window) {
     ComPtr<IDXGISwapChain1> swapchain;
     checked(factory->CreateSwapChainForHwnd(r.device.Get(),window,&description,nullptr,nullptr,&swapchain),"Window swapchain");
     checked(swapchain.As(&r.swapchain),"Window frame latency interface");
+#ifdef _WIN32
     checked(r.swapchain->SetMaximumFrameLatency(1),"Window frame latency");
     r.frame_ready=r.swapchain->GetFrameLatencyWaitableObject();
     if(!r.frame_ready) throw std::runtime_error("Window frame availability handle is missing");
     checked(factory->MakeWindowAssociation(window,DXGI_MWA_NO_ALT_ENTER),"Window association");
+#else
+    ComPtr<IDXGIDevice1> latency_device;
+    checked(device.As(&latency_device),"Presentation latency device");
+    checked(latency_device->SetMaximumFrameLatency(1),"Presentation queue latency");
+#endif
     const auto vs=r.shader(ShaderKind::display_vertex),ps=r.shader(ShaderKind::display_pixel);
     checked(r.device->CreateVertexShader(vs.data(),vs.size(),nullptr,&r.display_vs),"Display vertex shader");
     checked(r.device->CreatePixelShader(ps.data(),ps.size(),nullptr,&r.display_ps),"Display pixel shader");
@@ -1078,6 +1166,9 @@ void Renderer::publish_frame() {
     r.context->CopyResource(r.published.Get(),source);
     r.published_ready=true;r.select_target(r.current_target);
 }
+bool Renderer::wait_for_window_frame(unsigned timeout_ms) {
+    return impl_->window && impl_->acquire_frame(timeout_ms);
+}
 bool Renderer::display(bool published,bool wait) {
     auto& r=*impl_;
     if(published && (!r.published_ready || r.recording)) return false;
@@ -1087,12 +1178,19 @@ bool Renderer::display(bool published,bool wait) {
         auto& main=r.targets.at(0);r.resolve(main);
         if(r.antialiasing) {r.unbind_textures();r.antialiasing->publish(main.texture_view.Get());}
     }
+#ifdef _WIN32
     RECT rectangle{};if(!GetClientRect(r.window,&rectangle)) throw std::runtime_error("Cannot read window dimensions");
     const auto width=static_cast<std::uint32_t>(rectangle.right),height=static_cast<std::uint32_t>(rectangle.bottom);
+#else
+    int pixel_width=0,pixel_height=0;
+    if(!SDL_GetWindowSizeInPixels(reinterpret_cast<SDL_Window*>(r.window),&pixel_width,&pixel_height))
+        throw std::runtime_error(SDL_GetError());
+    const auto width=static_cast<std::uint32_t>(pixel_width),height=static_cast<std::uint32_t>(pixel_height);
+#endif
     if(!width || !height) return false;
     if(width>D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION || height>D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION)
         throw std::runtime_error("Window dimensions exceed the Direct3D 11 limit");
-    if(!r.acquire_frame(wait)) return false;
+    if(!r.acquire_frame(wait?UINT32_MAX:0)) return false;
     r.unbind_textures();r.context->OMSetRenderTargets(0,nullptr,nullptr);
     if(!r.window_view || r.window_width!=width || r.window_height!=height) {
         r.window_view.Reset();checked(r.swapchain->ResizeBuffers(0,width,height,DXGI_FORMAT_UNKNOWN,r.swapchain_flags),"Window resize");
@@ -1303,7 +1401,8 @@ std::uint64_t Renderer::prepare(const RenderState& state) {
         const auto border=color(state.texture_border[i]);std::copy(border.begin(),border.end(),sampler.BorderColor);
         sampler.MaxAnisotropy=strength;sampler.ComparisonFunc=D3D11_COMPARISON_NEVER;
         int bias=filter&0x1FFF;if(bias&0x1000) bias-=0x2000;
-        sampler.MipLODBias=mip?std::clamp(bias/256.0f,D3D11_MIP_LOD_BIAS_MIN,D3D11_MIP_LOD_BIAS_MAX):0;
+        constexpr float min_lod_bias=-16.0f,max_lod_bias=15.99f; // D3D11 sampler limits.
+        sampler.MipLODBias=mip?std::clamp(bias/256.0f,min_lod_bias,max_lod_bias):0;
         sampler.MinLOD=mip?float((control>>18)&0xFFF)/256:0;sampler.MaxLOD=mip?float((control>>6)&0xFFF)/256:0;
         if(r.unlimited_render_distance) sampler.MinLOD=sampler.MaxLOD=0;
         checked(r.device->CreateSamplerState(&sampler, &pipeline.samplers[i]), "Sampler state");

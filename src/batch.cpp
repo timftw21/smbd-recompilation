@@ -645,9 +645,35 @@ Batch recompile_batch(Xbe& image, std::span<const std::uint32_t> seeds,
                    << (unit.floating?std::format("entry_{:08X}",address):symbol(address)) << "},\n";
         source << "}};\n}\nconst std::span<const CompiledFunction> compiled_batch{functions};\n}\n";
         result.source = source.str();
+#ifndef __linux__
         result.assembly="; Native instruction helpers generated from verified XBE "+image.sha256+"\noption casemap:none\n.code\n";
         for(const auto& [name,assembly] : helpers) result.assembly+=assembly;
         result.assembly+="END\n";
+#else
+        // Use the same instruction bodies and register contract on ELF.
+        result.assembly="# Native instruction helpers generated from verified XBE "+image.sha256+"\n.intel_syntax noprefix\n.text\n";
+        for(const auto& [name,assembly] : helpers) {
+            result.assembly+=".globl "+name+"\n.type "+name+",@function\n"+name+":\n";
+            std::istringstream lines(assembly);
+            std::string line;
+            while(std::getline(lines,line)) {
+                if(line.starts_with(name+" ")) continue;
+                if(line.starts_with("    db ")) {
+                    // Byte directives contain only hexadecimal literals.
+                    line.replace(4,2,".byte");
+                    for(std::size_t pos=10;pos<line.size();) {
+                        const auto end=line.find('h',pos);
+                        if(end==std::string::npos) throw std::logic_error("Malformed native helper byte directive");
+                        line.replace(pos,end-pos+1,"0x"+line.substr(pos,end-pos));
+                        pos=end+3;
+                    }
+                }
+                result.assembly+=line+'\n';
+            }
+            result.assembly+=".size "+name+", .-"+name+"\n";
+        }
+        result.assembly+=".section .note.GNU-stack,\"\",@progbits\n";
+#endif
         std::size_t total=result.source.size()+result.header.size()+result.assembly.size();
         for(const auto& piece : result.shards) total+=piece.size();
         if (total > source_limit) throw std::runtime_error("Generated batch exceeds the 256 MiB source limit");

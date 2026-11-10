@@ -1,8 +1,8 @@
-#include "floating.h"
+#include "cpu.h"
 #include <stdexcept>
 
-extern "C" void smbd_fp_enter(void* guest,void* host);
-extern "C" void smbd_fp_leave(void* guest,const void* host);
+extern "C" SMBD_HELPER_ABI void smbd_fp_enter(void* guest,void* host);
+extern "C" SMBD_HELPER_ABI void smbd_fp_leave(void* guest,const void* host);
 
 namespace smbd {
 void FloatingState::environment(void* output) const {

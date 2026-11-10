@@ -1,13 +1,16 @@
 #include "shaders.h"
 #include <d3dcommon.h>
-#include <Windows.h>
+#ifndef _WIN32
+#include "gui_shaders.h"
+#endif
+#include <atomic>
 #include <format>
 #include <stdexcept>
 
 namespace smbd {
 namespace {
 class ShaderBlob final : public ID3DBlob {
-    Bytes bytes_;LONG references_=1;
+    Bytes bytes_;std::atomic<ULONG> references_=1;
 public:
     explicit ShaderBlob(Bytes bytes):bytes_(bytes){}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid,void** result) override {
@@ -16,9 +19,9 @@ public:
         if(iid!=__uuidof(IUnknown) && iid!=__uuidof(ID3DBlob)) return E_NOINTERFACE;
         *result=this;AddRef();return S_OK;
     }
-    ULONG STDMETHODCALLTYPE AddRef() override {return InterlockedIncrement(&references_);}
+    ULONG STDMETHODCALLTYPE AddRef() override {return references_.fetch_add(1,std::memory_order_relaxed)+1;}
     ULONG STDMETHODCALLTYPE Release() override {
-        const auto count=InterlockedDecrement(&references_);if(!count) delete this;return count;
+        const auto count=references_.fetch_sub(1,std::memory_order_acq_rel)-1;if(!count) delete this;return count;
     }
     void* STDMETHODCALLTYPE GetBufferPointer() override {return const_cast<std::byte*>(bytes_.data());}
     SIZE_T STDMETHODCALLTYPE GetBufferSize() override {return bytes_.size();}
@@ -165,6 +168,10 @@ const char* shader_profile(ShaderKind kind) {
     return "vs_5_0";
 }
 std::string shader_source(ShaderKind kind) {
+#ifndef _WIN32
+    if(kind==ShaderKind::gui_vertex) return std::string(gui_vertex_source);
+    if(kind==ShaderKind::gui_pixel) return std::string(gui_pixel_source);
+#endif
     if(kind>=ShaderKind::resample_target && kind<=ShaderKind::resample_multisample_stencil) {
         const bool multisample=kind>=ShaderKind::resample_multisample;
         const bool stencil=kind==ShaderKind::resample_stencil || kind==ShaderKind::resample_multisample_stencil;

@@ -11,10 +11,12 @@ std::string lanes(unsigned mask) {
     return result;
 }
 constexpr std::string_view helpers=R"(
+bool nv_infinite(float x) { return (asuint(x)&0x7FFFFFFF)==0x7F800000; }
 float nv_mul(float a,float b) {
  if(a==0 || b==0) return 0;
  float result=a*b;
- return isinf(result) && isfinite(a) && isfinite(b) ? (asuint(result)&0x80000000 ? -asfloat(0x7F7FFFFF) : asfloat(0x7F7FFFFF)) : result;
+ bool finite_inputs=(asuint(a)&0x7F800000)!=0x7F800000 && (asuint(b)&0x7F800000)!=0x7F800000;
+ return nv_infinite(result) && finite_inputs ? asfloat((asuint(result)&0x80000000)|0x7F7FFFFF) : result;
 }
 float4 nv_mul4(float4 a,float4 b) { return float4(nv_mul(a.x,b.x),nv_mul(a.y,b.y),nv_mul(a.z,b.z),nv_mul(a.w,b.w)); }
 float nv_slt(float a,float b) { return a<b || (asuint(a)==0x80000000 && asuint(b)==0) ? 1 : 0; }
@@ -26,7 +28,7 @@ float nv_rcc(float x) {
 float4 nv_log(float x) {
  float value=abs(x);
  if(value==0) return float4(-asfloat(0x7F800000),1,-asfloat(0x7F800000),1);
- if(isinf(value)) return float4(value,1,value,1);
+ if(nv_infinite(value)) return float4(value,1,value,1);
  float exponent=floor(log2(value));
  return float4(exponent,value/exp2(exponent),log2(value),1);
 }

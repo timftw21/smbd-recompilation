@@ -3,12 +3,15 @@
 #include "target.h"
 #include "kernel_names.h"
 #include "native_apis.h"
+#ifdef _WIN32
 #include <Windows.h>
 #include <intrin.h>
-#ifdef _WIN32
 #include <Psapi.h>
 #else
 #include <sys/resource.h>
+#if defined(__x86_64__)
+#include <cpuid.h>
+#endif
 #include <unistd.h>
 #ifdef __APPLE__
 #include <libproc.h>
@@ -17,20 +20,34 @@
 #endif
 #include <algorithm>
 #include <cmath>
+#include <chrono>
 #include <cstring>
 #include <fstream>
 #include <format>
 #include <span>
 #include <sstream>
+#include <thread>
 #include <vector>
 
 namespace smbd {
 namespace {
 std::string performance_cpu_name() {
+#ifdef _WIN32
     std::array<int,4> registers{};__cpuid(registers.data(),0x80000000);
     if(static_cast<unsigned>(registers[0])<0x80000004) return "Unknown CPU";
     std::array<char,49> name{};
     for(unsigned i=0;i<3;++i) {__cpuid(registers.data(),static_cast<int>(0x80000002+i));std::memcpy(name.data()+i*16,registers.data(),16);}
+#else
+    std::array<char,49> name{};
+#if defined(__x86_64__)
+    if(__get_cpuid_max(0x80000000,nullptr)<0x80000004) return "Unknown CPU";
+    for(unsigned i=0;i<3;++i) {
+        std::array<unsigned,4> words{};
+        __cpuid(0x80000002+i,words[0],words[1],words[2],words[3]);
+        std::memcpy(name.data()+16*i,words.data(),16);
+    }
+#endif
+#endif
     std::string result=name.data();while(!result.empty() && result.back()==' ') result.pop_back();return result;
 }
 }
@@ -75,7 +92,9 @@ struct Data {
     std::array<Cost,cost_limit> costs{};
 };
 static_assert(sizeof(Data)<16*1024*1024);
+#ifdef _WIN32
 std::uint64_t filetime(FILETIME value) {return (std::uint64_t(value.dwHighDateTime)<<32)|value.dwLowDateTime;}
+#endif
 template<class T,std::size_t N> void write(std::ofstream& file,std::span<T,N> values) {file.write(reinterpret_cast<const char*>(values.data()),values.size_bytes());}
 template<class T,std::size_t N> void read(std::ifstream& file,std::span<T,N> values) {
     if(!file.read(reinterpret_cast<char*>(values.data()),values.size_bytes())) throw std::runtime_error("Truncated performance capture");
@@ -375,9 +394,9 @@ std::string inspect_performance(const std::filesystem::path& capture,const std::
 std::string check_performance(const std::filesystem::path& output) {
     if(std::filesystem::exists(output)) throw std::runtime_error("Use a fresh performance check directory");
     Performance profile;PerfCounters counters{};profile.start("offline diagnostic",60,1,false,counters);
-    {PerfScope outer(&profile,PerfPhase::kernel,7);{PerfScope nested(&profile,PerfPhase::render,3);Sleep(2);}Sleep(2);}
+    {PerfScope outer(&profile,PerfPhase::kernel,7);{PerfScope nested(&profile,PerfPhase::render,3);std::this_thread::sleep_for(std::chrono::milliseconds(2));}std::this_thread::sleep_for(std::chrono::milliseconds(2));}
     profile.resources(1024,4096,0,true,2,1,256,768);profile.guest_sample(0x1000,4);profile.source_frame(1,counters);
-    ++counters[unsigned(PerfMetric::draws)];Sleep(2);profile.source_frame(2,counters);profile.gpu_frame(2,{1000000,0,0},1,0,true);profile.stop();profile.save(output/"capture");
+    ++counters[unsigned(PerfMetric::draws)];std::this_thread::sleep_for(std::chrono::milliseconds(2));profile.source_frame(2,counters);profile.gpu_frame(2,{1000000,0,0},1,0,true);profile.stop();profile.save(output/"capture");
     const auto& data=profile.state_->data;
     if(data.header.frames!=2 || data.frames[1].counters[0]!=1 || !data.frames[0].phases[unsigned(PerfPhase::kernel)] || !data.frames[0].phases[unsigned(PerfPhase::render)] || data.frames[1].gpu_status!=1)
         throw std::runtime_error("Performance scopes, counters or GPU association failed");

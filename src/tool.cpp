@@ -4,9 +4,7 @@
 #include "diagnostics.h"
 #include "frame_clock.h"
 #include "installation.h"
-#ifdef _WIN32
 #include "performance.h"
-#endif
 #ifdef SMBD_HAS_SHADERS
 #include "shaders.h"
 #endif
@@ -34,6 +32,17 @@ std::string check_timing() {
     using smbd::FrameClock;
     unsigned checks=0;
     const auto require=[&](bool value) {++checks;if(!value) throw std::runtime_error("Independent frame clock check failed");};
+    const auto pace=[&](unsigned limit,bool vsync,bool drawable,float refresh,unsigned rate,bool display_driven) {
+        const auto result=smbd::presentation_pacing(limit,vsync,drawable,refresh);
+        require(result.rate==rate && result.display_driven==display_driven);
+    };
+    pace(360,false,true,144,360,false);
+    pace(360,true,true,143.98f,144,true);
+    pace(144,true,true,144,144,true);
+    pace(0,true,true,59.94f,60,true);
+    pace(60,true,true,144,60,false);
+    pace(360,true,false,144,144,false);
+    pace(60,true,true,0,60,false);
     std::ostringstream results;
     for(const auto rate:{30U,60U,75U,120U,144U,165U,240U,360U,1000U,0U}) {
         FrameClock game,display;
@@ -82,7 +91,7 @@ std::uint32_t number(std::string_view text) {
 }
 constexpr auto usage =
     "Super Monkey Ball Deluxe native tools (C++23)\n"
-    "  smbd-tool prepare ISO OUTPUT_DIRECTORY [--extract-all]\n"
+    "  smbd-tool prepare ISO OUTPUT_DIRECTORY [--extract-shaders|--extract-all]\n"
     "  smbd-tool verify-disc ISO\n"
     "  smbd-tool install-files ISO OUTPUT_DIRECTORY [--copy-disc]\n"
     "  smbd-tool list ISO [DIRECTORY]\n"
@@ -90,10 +99,8 @@ constexpr auto usage =
     "  smbd-tool inspect|verify|check-image XBE\n"
     "  smbd-tool check-memory-watch [--crash]\n"
     "  smbd-tool check-timing\n"
-#ifdef _WIN32
     "  smbd-tool inspect-performance PERFORMANCE.bin NEW_OUTPUT_DIRECTORY\n"
     "  smbd-tool check-performance NEW_OUTPUT_DIRECTORY\n"
-#endif
     "  smbd-tool verify-analysis XBE INSTRUCTIONS.tsv\n"
 #ifdef SMBD_HAS_SHADERS
     "  smbd-tool compile-shaders XBE OUTPUT.cpp\n"
@@ -142,14 +149,11 @@ int tool_main(int argc, char** argv) {
             output=smbd::compile_shaders(paths[2],paths[3],true);
         } else
 #endif
-#ifdef _WIN32
         if(command=="inspect-performance" && argc==4) {
             output=smbd::inspect_performance(paths[2],paths[3]);
         } else if(command=="check-performance" && argc==3) {
             output=smbd::check_performance(paths[2]);
-        } else
-#endif
-        if(command=="check-timing" && argc==2) {
+        } else if(command=="check-timing" && argc==2) {
             output=check_timing();
         } else if(command=="check-memory-watch" && (argc==2 || (argc==3 && std::string_view(argv[2])=="--crash"))) {
             output=smbd::check_memory_watch(argc==3);
@@ -159,8 +163,13 @@ int tool_main(int argc, char** argv) {
             output=smbd::install_game_files(paths[2],paths[3],argc==5,[](unsigned percent,std::string_view phase) {
                 std::cout<<"SMBD_PROGRESS "<<percent<<' '<<phase<<'\n'<<std::flush;
             });
-        } else if (command == "prepare" && (argc == 4 || (argc == 5 && std::string_view(argv[4]) == "--extract-all"))) {
-            output = smbd::prepare_disc(paths[2], paths[3], argc == 5);
+        } else if (command == "prepare" && (argc == 4 || argc == 5)) {
+            const auto option=argc==5?std::string_view(argv[4]):std::string_view{};
+            auto extraction=smbd::DiscExtraction::executable;
+            if(option=="--extract-all") extraction=smbd::DiscExtraction::all;
+            else if(option=="--extract-shaders") extraction=smbd::DiscExtraction::shaders;
+            else if(argc==5) throw std::runtime_error(usage);
+            output = smbd::prepare_disc(paths[2],paths[3],extraction);
         } else if (command == "verify-analysis" && argc == 4) {
             smbd::Xbe image(paths[2]);
             output = smbd::verify_analysis(image, paths[3]);
@@ -207,7 +216,8 @@ int tool_main(int argc, char** argv) {
                     scale=number(argv[++i]);if(scale<1 || scale>4) throw std::runtime_error(usage);
                 } else throw std::runtime_error(usage);
             }
-            output=blit?smbd::Gpu::check_image_blit(paths[2],warp,true,quality,scale):smbd::check_image_copy(warp,true,quality);
+            constexpr bool debug=smbd::Renderer::debug_layer_available;
+            output=blit?smbd::Gpu::check_image_blit(paths[2],warp,debug,quality,scale):smbd::check_image_copy(warp,debug,quality);
             if(output.find("\"passed\":false")!=std::string::npos) result=3;
         } else if(command=="check-input" && argc==2) {
             output=smbd::check_input();
@@ -358,7 +368,11 @@ int tool_main(int argc, char** argv) {
             }
             const std::filesystem::path destination(paths[6]);
             auto assembly_path=destination;
+#ifdef __linux__
+            assembly_path+=".S";
+#else
             assembly_path+=".asm";
+#endif
             auto header_path=destination; header_path+=".h";
             std::vector<std::filesystem::path> outputs{destination,assembly_path};
             std::vector<std::filesystem::path> shard_paths;

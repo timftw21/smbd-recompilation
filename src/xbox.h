@@ -16,6 +16,7 @@ struct XboxHost {
     std::function<void()> flip;
     std::function<bool(std::uint64_t logic_ticks)> poll;
     std::function<unsigned()> refresh_rate;
+    std::function<bool()> display_paced;
     std::function<void(std::chrono::steady_clock::time_point)> idle;
     std::function<void()> publish_memory;
     std::function<void(Cpu&, Memory&, std::uint32_t)> platform;
@@ -81,6 +82,7 @@ public:
     void output_gain(float);
     void aspect_ratio(unsigned mode);
     void unlimited_render_distance(bool);
+    bool movie_sync() const;
 private:
     friend std::string check_services(Xbe&,const std::filesystem::path&,const std::filesystem::path&);
     friend void native_platform(Cpu&,Memory&,std::uint32_t);

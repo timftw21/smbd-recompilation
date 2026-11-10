@@ -5,6 +5,7 @@
 #include "automation.h"
 #include "call_trace.h"
 #include "diagnostics.h"
+#include "discord.h"
 #include "settings.h"
 #include "frame_clock.h"
 #include <SDL3/SDL.h>
@@ -15,9 +16,16 @@
 #include <fstream>
 #include <format>
 #include <iostream>
+#include <utility>
+#include "host.h"
+#ifdef _WIN32
 #include <Windows.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace {
+#ifdef _WIN32
 void attach_parent_console() noexcept {
     const bool output_missing=_fileno(stdout)<0,error_missing=_fileno(stderr)<0;
     if((!output_missing && !error_missing) || !AttachConsole(ATTACH_PARENT_PROCESS)) return;
@@ -26,22 +34,19 @@ void attach_parent_console() noexcept {
     if(output_missing && !freopen_s(&stream,"CONOUT$","w",stdout)) std::cout.clear();
     if(error_missing && !freopen_s(&stream,"CONOUT$","w",stderr)) std::cerr.clear();
 }
+#endif
 struct Sdl {
     Sdl() {if(!SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMEPAD)) throw std::runtime_error(SDL_GetError());}
     ~Sdl() {SDL_Quit();}
 };
-unsigned presentation_rate(const smbd::Settings& settings,const smbd::SettingsUi& ui) {
-    auto rate=static_cast<unsigned>(settings.refresh_rate);
-    if(settings.vsync && ui.display_refresh()>=30) {
-        const auto display=static_cast<unsigned>(std::lround(ui.display_refresh()));
-        if(!rate || rate>display) rate=display;
-    }
-    return rate;
-}
 std::filesystem::path application_root() {
+#ifdef _WIN32
     std::array<wchar_t,32768> path{};const auto count=GetModuleFileNameW(nullptr,path.data(),static_cast<DWORD>(path.size()));
     if(!count || count==path.size()) throw std::runtime_error("Cannot locate the application folder");
     const auto executable=std::filesystem::path(std::wstring_view(path.data(),count)).parent_path();
+#else
+    const auto executable=smbd::executable_path().parent_path();
+#endif
     auto candidate=executable;
     for(unsigned depth=0;depth<4;++depth,candidate=candidate.parent_path())
         if(std::filesystem::exists(candidate/"knowledge/supported_target.json")) return candidate;
@@ -68,7 +73,7 @@ struct WriteWatches {
         }
     }
 };
-int run(int argc,wchar_t** argv,bool restarting=false) {
+int run(int argc,char** argv,bool restarting=false) {
     const auto startup_started=std::chrono::steady_clock::now();
     std::uint64_t frame_limit=0,seconds=0,capture_at=1,performance_at=1,performance_frames=3600,motion_at=2600,motion_frames=120,benchmark_ticks=0,restart_at=0;
     std::filesystem::path capture,timeline,report,call_trace,frame_capture,storage,performance_output,motion_report;
@@ -77,25 +82,25 @@ int run(int argc,wchar_t** argv,bool restarting=false) {
     bool hidden=false,stop_after_input=false,muted=false,capture_at_set=false,performance_limits_set=false,trace_storage=false;
     std::vector<std::uint32_t> watches;
     for(int i=1;i<argc;++i) {
-        const auto option=smbd::utf8(argv[i]);
+        const auto option=std::string_view(argv[i]);
         if(option=="--hidden") hidden=true;
         else if(option=="--trace-storage") trace_storage=true;
         else if(option=="--mute") muted=true;
         else if(option=="--stop-after-input") stop_after_input=true;
-        else if(option=="--capture" && i+1<argc) capture=argv[++i];
-        else if(option=="--capture-frame" && i+1<argc) frame_capture=argv[++i];
-        else if(option=="--input" && i+1<argc) timeline=argv[++i];
-        else if(option=="--report" && i+1<argc) report=argv[++i];
-        else if(option=="--storage" && i+1<argc) storage=argv[++i];
-        else if(option=="--performance" && i+1<argc) performance_output=argv[++i];
-        else if(option=="--motion-report" && i+1<argc) motion_report=argv[++i];
-        else if(option=="--settings" && i+1<argc) settings_path=argv[++i];
-        else if(option=="--settings-capture" && i+1<argc) settings_capture=argv[++i];
-        else if(option=="--xbe" && i+1<argc) executable_override=argv[++i];
-        else if(option=="--disc" && i+1<argc) disc_override=argv[++i];
-        else if(option=="--trace-calls" && i+1<argc) call_trace=argv[++i];
+        else if(option=="--capture" && i+1<argc) capture=smbd::utf8_path(argv[++i]);
+        else if(option=="--capture-frame" && i+1<argc) frame_capture=smbd::utf8_path(argv[++i]);
+        else if(option=="--input" && i+1<argc) timeline=smbd::utf8_path(argv[++i]);
+        else if(option=="--report" && i+1<argc) report=smbd::utf8_path(argv[++i]);
+        else if(option=="--storage" && i+1<argc) storage=smbd::utf8_path(argv[++i]);
+        else if(option=="--performance" && i+1<argc) performance_output=smbd::utf8_path(argv[++i]);
+        else if(option=="--motion-report" && i+1<argc) motion_report=smbd::utf8_path(argv[++i]);
+        else if(option=="--settings" && i+1<argc) settings_path=smbd::utf8_path(argv[++i]);
+        else if(option=="--settings-capture" && i+1<argc) settings_capture=smbd::utf8_path(argv[++i]);
+        else if(option=="--xbe" && i+1<argc) executable_override=smbd::utf8_path(argv[++i]);
+        else if(option=="--disc" && i+1<argc) disc_override=smbd::utf8_path(argv[++i]);
+        else if(option=="--trace-calls" && i+1<argc) call_trace=smbd::utf8_path(argv[++i]);
         else if(option=="--watch-write" && i+1<argc) {
-            const auto value=smbd::utf8(argv[++i]);
+            const auto value=std::string_view(argv[++i]);
             const bool hex=value.starts_with("0x") || value.starts_with("0X");
             std::uint32_t address=0;
             const auto parsed=std::from_chars(value.data()+(hex?2:0),value.data()+value.size(),address,hex?16:10);
@@ -104,7 +109,7 @@ int run(int argc,wchar_t** argv,bool restarting=false) {
             watches.push_back(address);
         }
         else if((option=="--frames" || option=="--seconds" || option=="--capture-at" || option=="--performance-at" || option=="--performance-frames" || option=="--motion-at" || option=="--motion-frames" || option=="--benchmark-ticks" || option=="--restart-at") && i+1<argc) {
-            const auto value=smbd::utf8(argv[++i]);
+            const auto value=std::string_view(argv[++i]);
             auto& limit=option=="--restart-at"?restart_at:option=="--benchmark-ticks"?benchmark_ticks:option=="--frames"?frame_limit:option=="--seconds"?seconds:option=="--performance-at"?performance_at:option=="--performance-frames"?performance_frames:option=="--motion-at"?motion_at:option=="--motion-frames"?motion_frames:capture_at;
             if(option=="--capture-at") capture_at_set=true;
             if(option=="--performance-at" || option=="--performance-frames") performance_limits_set=true;
@@ -137,7 +142,10 @@ int run(int argc,wchar_t** argv,bool restarting=false) {
         throw std::runtime_error("Cannot enable background controller input for automation");
     Sdl sdl;
     startup_phase("SDL ready");
-    const auto flags=SDL_WINDOW_RESIZABLE|(hidden?SDL_WINDOW_HIDDEN:0);
+    auto flags=SDL_WINDOW_RESIZABLE|(hidden?SDL_WINDOW_HIDDEN:0);
+#ifndef _WIN32
+    flags|=SDL_WINDOW_VULKAN;
+#endif
     std::unique_ptr<SDL_Window,decltype(&SDL_DestroyWindow)> window(
         SDL_CreateWindow("Super Monkey Ball Deluxe",static_cast<int>(720*settings.display_aspect()),720,flags),SDL_DestroyWindow);
     if(!window) throw std::runtime_error(SDL_GetError());
@@ -152,8 +160,10 @@ int run(int argc,wchar_t** argv,bool restarting=false) {
         try {settings.save(settings_path);} catch(const std::exception& save_error) {settings_error+=' ';settings_error+=save_error.what();}
     }
     renderer.aspect_ratio(settings.display_aspect());
-    renderer.attach_window(SDL_GetPointerProperty(SDL_GetWindowProperties(window.get()),SDL_PROP_WINDOW_WIN32_HWND_POINTER,nullptr));
-    smbd::SettingsUi ui(window.get(),renderer,settings,settings_path);
+    renderer.attach_window(window.get());
+    const bool automated=hidden || frame_limit || seconds || restart_at || !timeline.empty() || !frame_capture.empty() || !performance_output.empty();
+    smbd::DiscordPresence presence(SMBD_DISCORD_APPLICATION_ID);
+    smbd::SettingsUi ui(window.get(),renderer,settings,settings_path,automated || !settings_capture.empty()?nullptr:&presence);
     if(!settings_error.empty()) ui.message(settings_error);
     smbd::Xbox* running=nullptr;
     int active_aspect=settings.aspect;
@@ -197,12 +207,18 @@ int run(int argc,wchar_t** argv,bool restarting=false) {
     renderer.clear(0xFF100C06);renderer.display();ui.draw(false,false,0,[]{},[]{});renderer.present(false);
     startup_phase("settings ready");
     smbd::FrameClock launcher_clock;
+    const auto pacing=[&] {
+        constexpr auto unavailable=SDL_WINDOW_HIDDEN|SDL_WINDOW_MINIMIZED|SDL_WINDOW_OCCLUDED;
+        const bool drawable=settings.vsync && !(SDL_GetWindowFlags(window.get())&unavailable);
+        return smbd::presentation_pacing(settings.refresh_rate,settings.vsync,drawable,ui.display_refresh());
+    };
     const auto pace_launcher=[&] {
-        const auto now=smbd::FrameClock::Clock::now();launcher_clock.due(presentation_rate(settings,ui),now);
+        const auto [rate,display_driven]=pacing();
+        if(display_driven) {launcher_clock={};return;}
+        const auto now=smbd::FrameClock::Clock::now();launcher_clock.due(rate,now);
         if(now<launcher_clock.next()) SDL_DelayPrecise(static_cast<Uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(launcher_clock.next()-now).count()));
         const auto finished=smbd::FrameClock::Clock::now();launcher_clock.advance(finished);launcher_clock.skip_missed(finished);
     };
-    const bool automated=hidden || frame_limit || seconds || restart_at || !timeline.empty() || !frame_capture.empty() || !performance_output.empty();
     std::filesystem::path launcher_capture;
     const auto capture_launcher=[&] {
         const auto utc=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
@@ -271,7 +287,7 @@ int run(int argc,wchar_t** argv,bool restarting=false) {
     std::unique_ptr<smbd::Automation> automation;
     if(!timeline.empty()) automation=std::make_unique<smbd::Automation>(timeline);
     smbd::Input input(!automation,false,automation?automation->device():0);
-    std::uint64_t frames=0,presented_frames=0;
+    std::uint64_t frames=0,presented_frames=0,display_paced_frames=0;
     smbd::FrameClock::Time first_source{},last_source{},first_present{},last_present{};
     smbd::FrameClock display_clock;
     double fps=0;std::uint64_t fps_frames=0;auto fps_started=std::chrono::steady_clock::now();
@@ -357,7 +373,12 @@ int run(int argc,wchar_t** argv,bool restarting=false) {
             smbd::diagnostic_record("{\"type\":\"frame_capture_request_error\",\"message\":"+smbd::json(error.what())+'}');
         }
     };
-    const auto display_frame=[&] {
+    const auto display_frame=[&](bool synchronized=false) {
+        if(synchronized) {
+            smbd::PerfScope scope(&performance,smbd::PerfPhase::pacing);
+            // Leave time to fall back to the software clock if the window stops presenting.
+            if(!renderer.wait_for_window_frame(25)) return false;
+        }
         bool displayed;
         {smbd::PerfScope scope(&performance,smbd::PerfPhase::display);displayed=renderer.display(true,!pending_window_capture.empty() && running->capture_status().complete);}
         if(displayed) {
@@ -381,9 +402,11 @@ int run(int argc,wchar_t** argv,bool restarting=false) {
             }
             pending_window_capture.clear();
         }
+        bool presented=false;
         if(displayed) {
             smbd::PerfScope scope(&performance,smbd::PerfPhase::present);
-            if(renderer.present(settings.vsync,false)) {
+            presented=renderer.present(settings.vsync,synchronized && settings.vsync);
+            if(presented) {
                 last_present=smbd::FrameClock::Clock::now();if(!presented_frames) first_present=last_present;
                 ++presented_frames;++fps_frames;
             }
@@ -391,7 +414,9 @@ int run(int argc,wchar_t** argv,bool restarting=false) {
         const auto now=std::chrono::steady_clock::now();
         if(now-fps_started>=std::chrono::milliseconds(500)) {fps=fps_frames/std::chrono::duration<double>(now-fps_started).count();fps_frames=0;fps_started=now;}
         display_clock.advance(now);display_clock.skip_missed(now);
+        return presented;
     };
+    bool display_paced_frame=false;
     host.renderer=&renderer;host.input=&input;host.main_address=0x00014B90;host.capture=capture;
     host.trace_io=!report.empty();
     host.trace_storage=trace_storage;
@@ -401,7 +426,12 @@ int run(int argc,wchar_t** argv,bool restarting=false) {
     host.widescreen=active_widescreen;
     host.ultrawide=active_aspect==2;
     host.unlimited_render_distance=active_unlimited_render_distance;
-    host.refresh_rate=[&] {return presentation_rate(settings,ui);};
+    host.refresh_rate=[&] {return pacing().rate;};
+    host.display_paced=[&] {
+        const bool paced=std::exchange(display_paced_frame,false) && pacing().display_driven;
+        display_paced_frames+=paced;
+        return paced;
+    };
     host.poll=[&](std::uint64_t ticks) {
         logic_ticks=ticks;
         if(automation) automation->update(logic_ticks,memory);
@@ -470,8 +500,11 @@ int run(int argc,wchar_t** argv,bool restarting=false) {
                 value(0x738E0C),value(0x738E10),value(0x738E14),ordinary(ape)?memory.load<std::uint32_t>(ape+0x70):0,ordinary(ape)?memory.load<std::uint32_t>(ape+0x7C):0,ordinary(animation)?value(animation+0x50):0,ordinary(animation)?memory.load<std::uint32_t>(animation+0x54):0,
                 ordinary(movie)?std::bit_cast<std::int32_t>(memory.load<std::uint32_t>(movie+0x80)):-1,ordinary(movie)?memory.load<std::uint32_t>(movie+0x88):0,memory.load<std::uint8_t>(0x756088)!=0,caption_ticks));
         }
-        const auto rate=presentation_rate(settings,ui);
-        if(!rate || rate>=60 || display_clock.due(rate,last_source)) display_frame();
+        const auto [rate,display_driven]=pacing();
+        const bool synchronized=rate>=60 && display_driven && !running->movie_sync();
+        display_paced_frame=false;
+        if(!rate || rate>=60 || display_clock.due(rate,last_source))
+            display_paced_frame=display_frame(synchronized) && synchronized;
         if(performance.active()) {
             performance.source_frame(frames,running->performance_counters());renderer.performance_frame(frames+1);renderer.performance_resources();
             if(benchmark_ticks) {
@@ -550,7 +583,8 @@ int run(int argc,wchar_t** argv,bool restarting=false) {
     }
     std::cout << "{\"boundary\":" << smbd::json(result.boundary) << ",\"eip\":" << smbd::json(smbd::hex32(result.cpu.eip))
               << ",\"frames\":" << result.frames << ",\"draws\":" << result.draws
-              << ",\"presented_frames\":" << presented_frames << ",\"logic_hz\":60,\"native_scene_steps\":true,\"interpolation\":false,\"refresh_rate\":" << settings.refresh_rate
+              << ",\"presented_frames\":" << presented_frames << ",\"display_paced_frames\":" << display_paced_frames
+              << ",\"logic_hz\":60,\"native_scene_steps\":true,\"interpolation\":false,\"refresh_rate\":" << settings.refresh_rate
               << ",\"source_seconds\":" << std::chrono::duration<double>(last_source-first_source).count()
               << ",\"presentation_seconds\":" << std::chrono::duration<double>(last_present-first_present).count()
               << ",\"simulation_steps\":" << result.simulation_steps << ",\"simulation_ms\":" << result.simulation_ms
@@ -573,14 +607,21 @@ int run(int argc,wchar_t** argv,bool restarting=false) {
             xbox.capture_status().complete && window_capture_error.empty()))?0:3;
 }
 }
-int wmain(int argc,wchar_t** argv) {
+int game_main(int argc,char** argv) {
+#ifdef _WIN32
     attach_parent_console();
+#endif
     smbd::initialize_diagnostics();
     try {bool restarting=false;for(;;) {const int result=run(argc,argv,restarting);if(result!=4) return result;restarting=true;}}
     catch(const std::exception& error) {
         smbd::diagnostic_record("{\"type\":\"error\",\"message\":"+smbd::json(error.what())+'}');
         std::cerr << error.what() << '\n';
-        if(argc==1 && _fileno(stderr)<0) {
+#ifdef _WIN32
+        const bool show_error=_fileno(stderr)<0;
+#else
+        const bool show_error=!isatty(STDERR_FILENO);
+#endif
+        if(argc==1 && show_error) {
             auto message=std::string(error.what());
             if(!smbd::diagnostic_log().empty()) message+="\n\nDetails saved: "+smbd::path_text(smbd::diagnostic_log());
             SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,"Super Monkey Ball Deluxe",message.c_str(),nullptr);
@@ -588,3 +629,15 @@ int wmain(int argc,wchar_t** argv) {
         return 1;
     }
 }
+
+#ifdef _WIN32
+int wmain(int argc,wchar_t** argv) {
+    std::vector<std::string> arguments;
+    for(int i=0;i<argc;++i) arguments.push_back(smbd::utf8(argv[i]));
+    std::vector<char*> values;
+    for(auto& argument:arguments) values.push_back(argument.data());
+    return game_main(argc,values.data());
+}
+#else
+int main(int argc,char** argv) {return game_main(argc,argv);}
+#endif

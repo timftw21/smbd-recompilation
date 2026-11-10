@@ -124,7 +124,7 @@ std::string replay_frame(const std::filesystem::path& capture,const std::filesys
         return false;
     });
     if(scale<1 || scale>4 || original.width%scale || original.height%scale) throw std::runtime_error("Invalid captured resolution scale");
-    Renderer renderer(original.width/scale,original.height/scale,false,true,scale);
+    Renderer renderer(original.width/scale,original.height/scale,false,Renderer::debug_layer_available,scale);
     struct Surface {std::array<std::uint32_t,4> key;std::uint32_t width,height,native;};
     std::map<std::uint32_t,Surface> surfaces;
     std::map<std::uint32_t,std::uint32_t> resources;

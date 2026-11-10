@@ -4,13 +4,14 @@
 #include "diagnostics.h"
 #include "shaders.h"
 #include <d3d11.h>
-#include <wrl/client.h>
+#include "com_ptr.h"
 #include <algorithm>
 #include <chrono>
 #include <deque>
 #include <map>
 #include <set>
 #include <sstream>
+#include <thread>
 #include <tuple>
 
 namespace smbd {
@@ -552,7 +553,7 @@ struct Gpu::Impl {
             if(status!=S_OK || !finished) {
                 if(!wait) return;
                 if(std::chrono::steady_clock::now()>=deadline) throw std::runtime_error("Native GPU completion timed out");
-                SwitchToThread();continue;
+                std::this_thread::yield();continue;
             }
             const auto& completed=fences[fence_head];
             const auto address=completed.address,value=completed.value;const bool callback=completed.callback;
@@ -949,7 +950,7 @@ std::string Gpu::check_image_blit(const std::filesystem::path& directory,bool wa
     write_text(directory/"report.json",report+'\n',false);return report;
 }
 std::string Gpu::check_bump_mapping() {
-    Renderer renderer(8,8,false,true);
+    Renderer renderer(8,8,false,Renderer::debug_layer_available);
     renderer.enhancements(0,16);
     const std::array<std::uint32_t,1> bump{0xFF20C040U}; // Signed offsets: blue +64, green -64.
     std::array<std::uint32_t,64> grid{};
@@ -1022,7 +1023,7 @@ std::string Gpu::check_bump_mapping() {
         json(renderer.adapter()),passed,output.str(),messages);
 }
 std::string Gpu::check_texture_cache() {
-    Renderer renderer(8,8,false,true);
+    Renderer renderer(8,8,false,Renderer::debug_layer_available);
     std::vector<std::byte> ram(64*1024);Memory memory(0,ram);
     constexpr std::array profile{GraphicsObject{0xD,0x97}};
     Gpu gpu(renderer,memory,0,profile);auto& g=*gpu.impl_;

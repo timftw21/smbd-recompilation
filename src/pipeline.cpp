@@ -10,7 +10,7 @@
 
 namespace smbd {
 std::string prepare_disc(const std::filesystem::path& image,
-                         const std::filesystem::path& output, bool extract_all) {
+                         const std::filesystem::path& output, DiscExtraction extraction) {
     Disc disc(image);
     const auto target_entry = disc.find("default.xbe");
     if (target_entry.size != target::file_size || disc.sha256(target_entry) != target::sha256)
@@ -37,7 +37,8 @@ std::string prepare_disc(const std::filesystem::path& image,
             const bool executable = directory.empty() && extension == ".xbe";
             const auto digest = disc.sha256(entry);
             index << path << '\t' << entry.sector << '\t' << entry.size << '\t' << digest << '\n';
-            if (extract_all || executable) {
+            const bool shader=extraction==DiscExtraction::shaders && path.starts_with("media/") && extension==".xvu";
+            if (extraction==DiscExtraction::all || executable || shader) {
                 const auto destination = output / utf8_path(path);
                 if (std::filesystem::exists(destination)) {
                     File previous(destination);
@@ -65,7 +66,7 @@ std::string prepare_disc(const std::filesystem::path& image,
            << ",\"executable_sha256\":" << json(executable.sha256)
            << ",\"files\":" << files << ",\"directories\":" << directories.size()
            << ",\"file_bytes\":" << bytes << ",\"extracted\":" << extracted << ",\"reused\":" << reused
-           << ",\"extract_all\":" << (extract_all ? "true" : "false") << ",\"extensions\":[";
+           << ",\"extract_all\":" << (extraction==DiscExtraction::all ? "true" : "false") << ",\"extensions\":[";
     bool first = true;
     for (const auto& [extension, group] : extensions) {
         if (!first) report << ',';

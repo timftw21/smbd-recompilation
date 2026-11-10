@@ -1,5 +1,10 @@
+#ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <iphlpapi.h>
+#include <bcrypt.h>
+#endif
+#include "host.h"
 #include "xbox.h"
 #include "frame_clock.h"
 #include "diagnostics.h"
@@ -12,14 +17,12 @@
 #include "input.h"
 #include "audio.h"
 #include "gpu.h"
-#include <Windows.h>
-#include <iphlpapi.h>
-#include <bcrypt.h>
 #include <algorithm>
 #include <bit>
 #include <chrono>
 #include <cmath>
 #include <deque>
+#include <immintrin.h>
 #include <map>
 #include <optional>
 #include <set>
@@ -63,6 +66,10 @@ std::uint32_t align_up(std::uint32_t value,std::uint32_t alignment) {
     return (value+alignment-1)&~(alignment-1);
 }
 struct ThreadExit { std::uint32_t status; };
+struct VirtualRelease {
+    std::size_t size=0;
+    void operator()(std::byte* address) const {if(address) release_virtual_pages(address,size);}
+};
 char path_character(char ch) {return ch=='/'?'\\':ch>='a' && ch<='z'?char(ch-'a'+'A'):ch;}
 std::string folded(std::string_view text) {
     std::string result(text);
@@ -95,12 +102,14 @@ std::uint32_t file_error(DWORD error) {
     default:throw std::runtime_error(std::format("Unmapped native file error {}",error));
     }
 }
+#ifdef _WIN32
 std::uint32_t dos_error(std::uint32_t status) {
     using Convert=ULONG(WINAPI*)(LONG);
     static const auto convert=reinterpret_cast<Convert>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"RtlNtStatusToDosError"));
     if(!convert) throw std::runtime_error("Native NTSTATUS conversion is unavailable");
     return convert(static_cast<LONG>(status));
 }
+#endif
 }
 struct Xbox::State {
     enum class ThreadState { ready,running,waiting,ended };
@@ -130,7 +139,6 @@ struct Xbox::State {
         ~AlertableWait(){thread.alertable=prior;}
     };
     enum class AllocationKind { pool,virtual_memory,stack,cache };
-    struct VirtualRelease {void operator()(std::byte* p) const {if(p) VirtualFree(p,0,MEM_RELEASE);}};
     struct Allocation {
         std::uint32_t size,protect;
         std::vector<std::uint32_t> pages;
@@ -163,7 +171,9 @@ struct Xbox::State {
         std::uint32_t apc_routine=0,apc_context=0;
         std::uint64_t offset=0;
         bool active=false;
+#ifdef _WIN32
         ~PendingIo() {if(overlap.hEvent) CloseHandle(overlap.hEvent);}
+#endif
     };
     Xbe& image;
     Memory& memory;
@@ -255,7 +265,7 @@ struct Xbox::State {
     bool luma_filter=false;
     std::vector<std::uint32_t> shutdown_registrations;
     std::size_t next_runnable=0;
-    LARGE_INTEGER performance_frequency{};
+    std::uint64_t performance_frequency=1000000000;
     std::chrono::steady_clock::time_point started=std::chrono::steady_clock::now();
     std::chrono::steady_clock::time_point quantum_due;
     std::chrono::steady_clock::time_point video_started;
@@ -267,7 +277,7 @@ struct Xbox::State {
     std::uint32_t stage_expected=UINT32_MAX;
     std::uint32_t stage_groups=0;
     std::vector<FrameCounter> stage_group_clocks;
-    bool in_frame_loop=false;
+    bool in_frame_loop=false,frame_display_paced=false;
     struct Presentation {
         const FramePresentation* layout=nullptr;
         std::uint32_t flags=0;
@@ -322,7 +332,10 @@ struct Xbox::State {
                 memory.store<std::uint32_t>(0x40242C,std::bit_cast<std::uint32_t>(480.0f*21/9));
             }
         }
-        QueryPerformanceFrequency(&performance_frequency);
+#ifdef _WIN32
+        LARGE_INTEGER frequency{};
+        QueryPerformanceFrequency(&frequency);performance_frequency=frequency.QuadPart;
+#endif
         clock={this,[](void* context) {
             const auto& host=*static_cast<State*>(context);
             const auto ns=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -362,20 +375,18 @@ struct Xbox::State {
         memory.store<std::uint64_t>(gdt+16,0x00CF93000000FFFF);
         // This describes the native compatibility module. It contains no original
         // kernel INIT section or executable instruction stream to patch.
-        IMAGE_DOS_HEADER dos{}; dos.e_magic=IMAGE_DOS_SIGNATURE; dos.e_lfanew=0x100;
-        IMAGE_NT_HEADERS32 pe{};
-        pe.Signature=IMAGE_NT_SIGNATURE; pe.FileHeader.Machine=IMAGE_FILE_MACHINE_I386;
-        pe.FileHeader.NumberOfSections=1; pe.FileHeader.SizeOfOptionalHeader=sizeof(IMAGE_OPTIONAL_HEADER32);
-        pe.OptionalHeader.Magic=IMAGE_NT_OPTIONAL_HDR32_MAGIC; pe.OptionalHeader.ImageBase=kernel_base;
-        pe.OptionalHeader.SectionAlignment=page; pe.OptionalHeader.FileAlignment=512;
-        pe.OptionalHeader.SizeOfImage=static_cast<DWORD>(kernel_image.size()); pe.OptionalHeader.SizeOfHeaders=page;
-        IMAGE_SECTION_HEADER section{};
-        std::memcpy(section.Name,".data",5); section.VirtualAddress=page;
-        section.Misc.VirtualSize=static_cast<DWORD>(kernel_image.size()-page);
-        section.Characteristics=IMAGE_SCN_CNT_INITIALIZED_DATA|IMAGE_SCN_MEM_READ|IMAGE_SCN_MEM_WRITE;
-        std::memcpy(kernel_image.data(),&dos,sizeof(dos));
-        std::memcpy(kernel_image.data()+0x100,&pe,sizeof(pe));
-        std::memcpy(kernel_image.data()+0x100+sizeof(pe),&section,sizeof(section));
+        // Fixed PE32 layout, independent of host header packing.
+        const auto set16=[&](std::size_t at,std::uint16_t value) {std::memcpy(kernel_image.data()+at,&value,2);};
+        const auto set32=[&](std::size_t at,std::uint32_t value) {std::memcpy(kernel_image.data()+at,&value,4);};
+        set16(0,0x5A4D);set32(0x3C,0x100); // MZ, PE header offset
+        set32(0x100,0x4550);set16(0x104,0x14C);set16(0x106,1); // PE, i386, one section
+        set16(0x114,0xE0);set16(0x118,0x10B); // PE32 optional header
+        set32(0x134,kernel_base);set32(0x138,page);set32(0x13C,512);
+        set32(0x150,static_cast<std::uint32_t>(kernel_image.size()));set32(0x154,page);
+        constexpr std::size_t section_header=0x1F8;
+        std::memcpy(kernel_image.data()+section_header,".data",5);
+        set32(section_header+8,static_cast<std::uint32_t>(kernel_image.size()-page));
+        set32(section_header+12,page);set32(section_header+36,0xC0000040); // Read/write initialized data
         for(const auto& import : image.imports) memory.store<std::uint32_t>(import.address,0xFFF00000U+import.ordinal*16);
         const auto version=export_data(324,8);
         memory.store<std::uint16_t>(version,1); memory.store<std::uint16_t>(version+4,5838);
@@ -446,8 +457,12 @@ struct Xbox::State {
             throw std::runtime_error("Native save identity is a reparse point");
         std::array<std::byte,32> identity{};
         if(!std::filesystem::exists(path)) {
+#ifdef _WIN32
             if(BCryptGenRandom(nullptr,reinterpret_cast<PUCHAR>(identity.data()),static_cast<ULONG>(identity.size()),BCRYPT_USE_SYSTEM_PREFERRED_RNG)<0)
                 throw std::runtime_error("Cannot create native save identity");
+#else
+            random_bytes(identity.data(),identity.size());
+#endif
             write_text(path,std::string_view(reinterpret_cast<const char*>(identity.data()),identity.size()),false);
         }
         File file(path);
@@ -473,7 +488,7 @@ struct Xbox::State {
     bool commit_virtual(std::uint32_t address,Allocation& block,std::uint32_t first,std::uint32_t last,std::uint32_t protect) {
         const auto missing=std::ranges::count(block.pages.begin()+first,block.pages.begin()+last,0U);
         if(std::uint64_t(missing)*page>available_memory() ||
-            !VirtualAlloc(block.storage.get()+first*page,(last-first)*page,MEM_COMMIT,PAGE_READWRITE)) return false;
+            !commit_virtual_pages(block.storage.get()+first*page,(last-first)*page)) return false;
         for(auto index=first;index<last;) {
             if(block.pages[index]) {++index;continue;}
             const auto start=index;while(index<last && !block.pages[index]) ++index;
@@ -510,7 +525,8 @@ struct Xbox::State {
         }
         if(cursor<lower || std::uint64_t(cursor)+size>limit) return 0;
         Allocation block{size,protect,std::vector<std::uint32_t>(size/page),AllocationKind::virtual_memory,{}};
-        block.storage.reset(static_cast<std::byte*>(VirtualAlloc(nullptr,size,MEM_RESERVE,PAGE_NOACCESS)));
+        block.storage.get_deleter().size=size;
+        block.storage.reset(reserve_virtual_pages(size));
         if(!block.storage) return 0;
         if((flags&MEM_COMMIT) && !commit_virtual(cursor,block,0,size/page,protect)) return 0;
         allocations.emplace(cursor,std::move(block));return cursor;
@@ -1014,7 +1030,7 @@ struct Xbox::State {
         if(reset) {frame_debt=logic_fraction=0;source_clock={};++timing_epochs;stage_expected=UINT32_MAX;stage_groups=0;goal_crossings={};reset_frame_history();}
         const auto rate=render_rate();
         double delta=1;
-        if(!reset && rate!=60) {
+        if(!reset && (rate!=60 || (frame_display_paced && !movie_sync()))) {
             frame_debt+=std::chrono::duration<double>(now-frame_started).count()*60;
             delta=std::min(1.0,frame_debt);frame_debt-=delta;
         }
@@ -1156,16 +1172,21 @@ struct Xbox::State {
         const bool movie=movie_sync();
         // Start playback with a fresh epoch, excluding time spent prebuffering.
         if(movie!=movie_pacing) {source_clock={};movie_pacing=movie;++timing_epochs;}
-        const auto now=FrameClock::Clock::now();source_clock.due(main_frame?render_rate():60,now);source_clock.advance(now);
-        // The common deadline also owns E5990's movie synchronization. Retain
-        // overdue slots: a costly decoded frame can use the following cheap
-        // frame's budget without losing subtitle/controller ticks to a new wait.
-        while(FrameClock::Clock::now()<source_clock.next()) yield(ThreadState::waiting,0,source_clock.next());
+        const bool display_paced=main_frame && !movie && host.display_paced && host.display_paced();
+        if(main_frame) frame_display_paced=display_paced;
+        if(display_paced) source_clock={};
+        else {
+            const auto now=FrameClock::Clock::now();source_clock.due(main_frame?render_rate():60,now);source_clock.advance(now);
+            // Movies retain overdue slots so that a costly decoded frame can
+            // use the following frame's budget without losing movie ticks.
+            while(FrameClock::Clock::now()<source_clock.next()) yield(ThreadState::waiting,0,source_clock.next());
+        }
         timing_finished=FrameClock::Clock::now();if(!simulation_steps) timing_started=timing_finished;
-        if(main_frame && render_rate()!=60) source_clock.discard_overrun(timing_finished);
+        if(main_frame && !display_paced && render_rate()!=60) source_clock.discard_overrun(timing_finished);
         if(!main_frame || frame_step.logic) ++simulation_steps;
         if(!main_frame || frame_step.logic) record_mode();
         if(in_frame_loop && !main_frame) {frame_started=timing_finished;frame_step={};}
+        if(display_paced) yield(); // Poll events, timers and I/O between display-paced frames.
     }
     std::string counted_string(std::uint32_t address) {
         if(!address) return {};
@@ -1843,12 +1864,16 @@ struct Xbox::State {
         }
         auto request=std::ranges::find(pending_io,false,&PendingIo::active);
         if(request==pending_io.end()) throw NativeBoundary(cpu.eip,"native asynchronous file queue exceeds 32 requests");
+#ifdef _WIN32
         if(!request->overlap.hEvent) {
             request->overlap.hEvent=CreateEventW(nullptr,TRUE,FALSE,nullptr);
             if(!request->overlap.hEvent) return fail(no_memory);
         }
         const auto native_event=request->overlap.hEvent;
         request->overlap={};request->overlap.hEvent=native_event;ResetEvent(native_event);
+#else
+        request->overlap={};
+#endif
         request->file=object.file;request->file_object=object.address;
         request->event=event?handles.at(event).address:0;request->status=status;
         request->issuer=current;request->apc_routine=argument(cpu,2);request->apc_context=argument(cpu,3);
@@ -2292,6 +2317,7 @@ struct Xbox::State {
             // network stack. Read the native interfaces; never initialize MCPX.
             if constexpr(Ordinal==253) if(argument(cpu,1)) throw NativeBoundary(cpu.eip,"unsupported Ethernet initialization parameter");
             if(!ethernet_initialized || argument(cpu,0)) {
+#ifdef _WIN32
                 MIB_IF_TABLE2* table=nullptr;const auto result=GetIfTable2(&table);
                 if(result!=NO_ERROR) {
                     if constexpr(Ordinal==253) {finish(cpu,8,static_cast<std::uint32_t>(HRESULT_FROM_WIN32(result)));return;}
@@ -2307,6 +2333,9 @@ struct Xbox::State {
                     ethernet_state=1|(speed>=100000000?2U:speed>=10000000?4U:0U);break;
                 }
                 // Windows does not expose duplex here; do not invent either bit.
+#else
+                ethernet_state=ethernet_status();
+#endif
                 ethernet_initialized=true;
             }
             finish(cpu,Ordinal==253?8:4,Ordinal==253?success:ethernet_state);
@@ -2362,7 +2391,7 @@ struct Xbox::State {
                 if(last>found->second.pages.size()) { finish(cpu,12,invalid_parameter); return; }
                 memory.unmap_dynamic(found->first+first*page,(last-first)*page);
                 if(gpu && found->first<0x10000000U) gpu->invalidate_memory(found->first+first*page,(last-first)*page);
-                if(!VirtualFree(found->second.storage.get()+first*page,(last-first)*page,MEM_DECOMMIT))
+                if(!decommit_virtual_pages(found->second.storage.get()+first*page,(last-first)*page))
                     throw NativeBoundary(cpu.eip,"native virtual-memory decommit failed");
                 std::fill(found->second.pages.begin()+first,found->second.pages.begin()+last,0);
                 memory.store<std::uint32_t>(pointer,found->first+first*page); memory.store<std::uint32_t>(size_pointer,(last-first)*page);
@@ -2487,9 +2516,15 @@ struct Xbox::State {
             memory.store<std::uint8_t>(cpu.fs_base+0x24,static_cast<std::uint8_t>(Ordinal==129?2:cpu.registers[ecx]));
             finish(cpu,0,Ordinal==161?std::nullopt:std::optional<std::uint64_t>{prior});
         } else if constexpr(Ordinal==126 || Ordinal==127) {
-            LARGE_INTEGER value=performance_frequency;
-            if constexpr(Ordinal==126) QueryPerformanceCounter(&value);
-            finish(cpu,0,static_cast<std::uint64_t>(value.QuadPart),true);
+            auto value=performance_frequency;
+            if constexpr(Ordinal==126) {
+#ifdef _WIN32
+                LARGE_INTEGER counter{};QueryPerformanceCounter(&counter);value=counter.QuadPart;
+#else
+                value=performance_clock();
+#endif
+            }
+            finish(cpu,0,value,true);
         } else if constexpr(Ordinal==128) {
             FILETIME value; GetSystemTimeAsFileTime(&value);
             memory.store<std::uint64_t>(argument(cpu,0),(static_cast<std::uint64_t>(value.dwHighDateTime)<<32)|value.dwLowDateTime);
@@ -2524,7 +2559,7 @@ struct Xbox::State {
             if(target==current && target->suspended) yield();
         } else if constexpr(Ordinal==151) {
             const auto end=std::chrono::steady_clock::now()+std::chrono::microseconds(argument(cpu,0));
-            while(std::chrono::steady_clock::now()<end) YieldProcessor();
+            while(std::chrono::steady_clock::now()<end) _mm_pause();
             finish(cpu,4);
         } else if constexpr(Ordinal==99) {
             const auto interval=std::bit_cast<std::int64_t>(memory.load<std::uint64_t>(argument(cpu,2)));
@@ -3147,6 +3182,7 @@ void Xbox::aspect_ratio(unsigned mode) {
     }
 }
 void Xbox::performance_recording(bool enabled) {if(state_->audio) state_->audio->recording(enabled);}
+bool Xbox::movie_sync() const {return state_->movie_sync();}
 void Xbox::unlimited_render_distance(bool enabled) {
     state_->host.unlimited_render_distance=enabled;
     for(auto& thread:state_->threads) thread->cpu.unlimited_render_distance=enabled;

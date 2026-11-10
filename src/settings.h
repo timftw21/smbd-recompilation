@@ -4,20 +4,23 @@
 #include <array>
 #include <deque>
 #include <functional>
+#include <memory>
 #include <vector>
-#include <wrl/client.h>
+#include "com_ptr.h"
 
 struct SDL_Window;
 union SDL_Event;
 struct ID3D11ShaderResourceView;
 struct ImFont;
 namespace smbd {
+class DiscordPresence;
 class Renderer;
 std::string check_presentation(const std::filesystem::path&,const std::filesystem::path& xbe={},const std::filesystem::path& disc={});
 struct Settings {
     std::array<char,2048> executable{},disc{};
     bool show_fps=false,muted=false,mute_on_focus_loss=true,vsync=false,fullscreen=false;
     bool unlimited_render_distance=false;
+    bool discord_presence=false;
     int volume=100,aspect=1,resolution=1,refresh_rate=60,antialiasing=0,anisotropy=0;
     ControlBindings bindings=default_bindings();
     std::filesystem::path root;
@@ -32,7 +35,7 @@ struct Settings {
 };
 class SettingsUi {
 public:
-    SettingsUi(SDL_Window*,Renderer&,Settings&,std::filesystem::path);
+    SettingsUi(SDL_Window*,Renderer&,Settings&,std::filesystem::path,DiscordPresence* presence=nullptr);
     ~SettingsUi();
     bool event(const SDL_Event&);
     void draw(bool playing,bool recording,double fps,const std::function<void()>& capture,const std::function<void()>& performance);
@@ -52,6 +55,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> wood_;
     float icon_aspect_=1;
     Settings& settings_;
+    DiscordPresence* presence_;
     std::filesystem::path path_;
     std::deque<std::string> messages_;
     std::string files_message_;
@@ -65,6 +69,10 @@ private:
     int binding_action_=-1;
     int binding_release_=0;
     std::uint32_t binding_device_=0;
+#ifndef _WIN32
+    struct FileDialog;
+    std::shared_ptr<FileDialog> dialog_;
+#endif
     void rebind(unsigned action,bool controller);
     void refresh_options();
     void show_cursor();

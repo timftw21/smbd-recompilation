@@ -4,6 +4,7 @@
 #include <array>
 #include <atomic>
 #include <bit>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -16,18 +17,25 @@
 #include <string_view>
 #include <type_traits>
 
+// The generated helpers use the same RCX/RDX/R8 register contract on both hosts.
+#if defined(__linux__) && defined(__x86_64__)
+#define SMBD_HELPER_ABI __attribute__((ms_abi))
+#else
+#define SMBD_HELPER_ABI
+#endif
+
 namespace smbd {
 void trace_ui_draw(struct Cpu&,class Memory&);
 extern "C" {
-std::uint32_t smbd_exchange8(void*,std::uint32_t);
-std::uint32_t smbd_exchange16(void*,std::uint32_t);
-std::uint32_t smbd_exchange32(void*,std::uint32_t);
-std::uint32_t smbd_fetch_add8(void*,std::uint32_t);
-std::uint32_t smbd_fetch_add16(void*,std::uint32_t);
-std::uint32_t smbd_fetch_add32(void*,std::uint32_t);
-std::uint32_t smbd_compare_exchange8(void*,std::uint32_t,std::uint32_t);
-std::uint32_t smbd_compare_exchange16(void*,std::uint32_t,std::uint32_t);
-std::uint32_t smbd_compare_exchange32(void*,std::uint32_t,std::uint32_t);
+SMBD_HELPER_ABI std::uint32_t smbd_exchange8(void*,std::uint32_t);
+SMBD_HELPER_ABI std::uint32_t smbd_exchange16(void*,std::uint32_t);
+SMBD_HELPER_ABI std::uint32_t smbd_exchange32(void*,std::uint32_t);
+SMBD_HELPER_ABI std::uint32_t smbd_fetch_add8(void*,std::uint32_t);
+SMBD_HELPER_ABI std::uint32_t smbd_fetch_add16(void*,std::uint32_t);
+SMBD_HELPER_ABI std::uint32_t smbd_fetch_add32(void*,std::uint32_t);
+SMBD_HELPER_ABI std::uint32_t smbd_compare_exchange8(void*,std::uint32_t,std::uint32_t);
+SMBD_HELPER_ABI std::uint32_t smbd_compare_exchange16(void*,std::uint32_t,std::uint32_t);
+SMBD_HELPER_ABI std::uint32_t smbd_compare_exchange32(void*,std::uint32_t,std::uint32_t);
 }
 class Memory;
 struct Cpu;

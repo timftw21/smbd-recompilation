@@ -7,6 +7,8 @@
 struct ID3D11Device;
 struct ID3D11DeviceContext;
 
+struct SDL_Window;
+
 namespace smbd {
 class Performance;
 struct Image {
@@ -111,6 +113,11 @@ struct RenderStats {
 
 class Renderer {
 public:
+#ifdef _WIN32
+    static constexpr bool debug_layer_available=true;
+#else
+    static constexpr bool debug_layer_available=false;
+#endif
     explicit Renderer(std::uint32_t width, std::uint32_t height,
                       bool warp = false, bool debug = false,unsigned resolution_scale=1);
     ~Renderer();
@@ -137,7 +144,8 @@ public:
     void image_quality(unsigned resolution_scale,unsigned antialiasing,unsigned anisotropy,bool unlimited_render_distance=false);
     void enhancements(unsigned antialiasing,unsigned anisotropy,bool unlimited_render_distance=false); // AA: off, FXAA low/medium/high, MSAA 2/4/8x. AF: original or 1/2/4/8/16x.
     bool supports_msaa(unsigned samples) const;
-    void attach_window(void* native_window);
+    void attach_window(SDL_Window* native_window);
+    bool wait_for_window_frame(unsigned timeout_ms);
     void publish_frame(); // Retain one complete source image, independent of subsequent guest draws.
     bool display(bool published=false,bool wait=true);
     bool present(bool vsync,bool wait=true);

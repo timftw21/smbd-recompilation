@@ -1,7 +1,7 @@
 param(
     [string]$Disc = (Join-Path $PSScriptRoot '..\Super Monkey Ball Deluxe\Super Monkey Ball Deluxe (USA).xiso.iso'),
     [switch]$AllowPartial,
-    [ValidateRange(1,3)][int]$Workers = 3,
+    [ValidateRange(1,3)][int]$Workers = 1,
     [string]$CpuProfile,
     [switch]$LiveTiming,
     [ValidateSet('All','Analysis','Game','Timing')][string]$Stage = 'All'

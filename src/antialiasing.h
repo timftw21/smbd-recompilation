@@ -1,7 +1,7 @@
 #pragma once
 #include "render.h"
 #include <d3d11.h>
-#include <wrl/client.h>
+#include "com_ptr.h"
 
 namespace smbd {
 // Spatial AA of completed game images. Game feedback uses the original targets.

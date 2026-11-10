@@ -88,7 +88,7 @@ Their original licenses remain in the verified tool archives and installations.
 
 
 SDL3: https://github.com/libsdl-org/SDL
-Pinned revision: 829a65d769d935c4852f8159e964312c0957260a.
+Pinned release: 3.4.20.
 
 Copyright (C) 1997-2026 Sam Lantinga <slouken@libsdl.org>
 
@@ -107,3 +107,12 @@ freely, subject to the following restrictions:
 2. Altered source versions must be plainly marked as such, and must not be
    misrepresented as being the original software.
 3. This notice may not be removed or altered from any source distribution.
+
+Dear ImGui 1.93.0 (MIT): https://github.com/ocornut/imgui
+DXVK Native 3.1.1 (zlib), with upstream resize fix 3dbf33cb:
+https://github.com/doitsujin/dxvk
+vkd3d-shader 2.1 (LGPL-2.1-or-later), with the local patches under cmake/:
+https://gitlab.winehq.org/wine/vkd3d
+Muon 0.7.1 (GPL-3.0-only) is used to build DXVK Native:
+https://github.com/muon-build/muon
+The verified dependency archives contain their respective license texts.

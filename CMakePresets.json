@@ -8,7 +8,8 @@
       "cacheVariables": {
         "CMAKE_C_COMPILER": "clang-cl",
         "CMAKE_CXX_COMPILER": "clang-cl",
-        "CMAKE_LINKER_TYPE": "LLD"
+        "CMAKE_LINKER_TYPE": "LLD",
+        "SMBD_BUILD_WORKERS": "1"
       }
     },
     {
@@ -16,10 +17,22 @@
       "inherits": "windows",
       "binaryDir": "${sourceDir}/build/tools",
       "cacheVariables": { "SMBD_BATCH": "", "SMBD_SHADER_BANK": "" }
+    },
+    {
+      "name": "linux",
+      "generator": "Ninja Multi-Config",
+      "binaryDir": "${sourceDir}/build/linux",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_LINKER_TYPE": "LLD",
+        "SMBD_BUILD_WORKERS": "1"
+      }
     }
   ],
   "buildPresets": [
-    { "name": "release", "configurePreset": "windows", "configuration": "Release", "jobs": 3, "targets": ["smbd-tool", "smbd"] },
-    { "name": "tools-release", "configurePreset": "tools", "configuration": "Release", "jobs": 3, "targets": ["smbd-tool"] }
+    { "name": "release", "configurePreset": "windows", "configuration": "Release", "jobs": 1, "targets": ["smbd-tool", "smbd"] },
+    { "name": "tools-release", "configurePreset": "tools", "configuration": "Release", "jobs": 1, "targets": ["smbd-tool"] },
+    { "name": "linux-release", "configurePreset": "linux", "configuration": "Release", "jobs": 1, "targets": ["smbd-tool", "smbd"] }
   ]
 }

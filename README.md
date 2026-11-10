@@ -8,9 +8,9 @@
   <em>From the creator of the <a href="https://github.com/timftw21/burnout2-recompilation">Burnout 2 recompilation</a>.</em>
 </p>
 
-An unofficial native version of the original Xbox game for Windows, built around accurate gameplay, original presentation, and enhancements. This fan project is independent of SEGA. You must provide your own US Xbox game disc image. Original game files are not distributed here.
+An unofficial native version of the original Xbox game for Windows, Linux x86-64, and Steam Deck, built around accurate gameplay, original presentation, and enhancements. This fan project is independent of SEGA. You must provide your own US Xbox game disc image. Original game files are not distributed here.
 
-**0.4.0 is the latest public development release.** Bugs, slowdowns, and stops in untested game modes are still possible. Linux and macOS are planned targets; the current game build requires Windows x64.
+**0.5.0 is the latest public development release.** Bugs, slowdowns, and stops in untested game modes are still possible. Linux and Steam Deck support needs more testing. macOS remains a planned target.
 
 ## AI disclosure
 
@@ -24,11 +24,11 @@ OpenAI Codex has assisted with development and research. Changes are checked usi
 
 ## Current status
 
-### Changes in 0.4.0
+### Changes in 0.5.0
 
-- Implemented a slew of performance optimizations. Enjoy much higher performance :3
-- Addressed more timing issues across the game. Monkey Baseball and Monkey Tennis now behave correctly at higher refresh rates.
-- Added a render distance override to Enhancements. It's recommended to use this enhancement at higher internal resolutions.
+- Added Linux and Steam Deck support. Testing is needed!
+- Added Discord Rich Presence. It's off by default :)
+- Fixed V-Sync performance issues at higher refresh rates.
 
 ### Known issues
 
@@ -53,7 +53,7 @@ OpenAI Codex has assisted with development and research. Changes are checked usi
 - Remaining original native Xbox services.
 - Wider visual, audio, and gameplay comparisons against the original Xbox release.
 - Sustained 360 Hz performance. Selecting a refresh rate does not guarantee the hardware can reach it.
-- Native Linux and macOS implementation and hardware validation.
+- Linux and Steam Deck hardware validation, and a native macOS port.
 
 ## Getting started
 
@@ -61,7 +61,7 @@ OpenAI Codex has assisted with development and research. Changes are checked usi
 
 You need a Direct3D 11-capable graphics card and an XISO image of the **US Xbox release of Super Monkey Ball Deluxe**. A full raw-disc dump must first be converted to XISO. The executable is checked against [the supported-target registry](knowledge/supported_target.json).
 
-**[Download the 0.4.0 Windows installer](https://github.com/timftw21/smbd-recompilation/releases/download/v0.4.0/smbd-0.4.0-windows-x64-setup.exe)** · [Release notes and SHA-256 checksum](https://github.com/timftw21/smbd-recompilation/releases/tag/v0.4.0)
+**[Download the 0.5.0 Windows installer](https://github.com/timftw21/smbd-recompilation/releases/download/v0.5.0/smbd-0.5.0-windows-x64-setup.exe)** · [Release notes and SHA-256 checksum](https://github.com/timftw21/smbd-recompilation/releases/tag/v0.5.0)
 
 1. Run the installer and select your US Xbox XISO image.
 2. Choose an installation folder. You can keep a copy of the image with the game and create a desktop shortcut.
@@ -92,9 +92,15 @@ Replace the example disc path with your own. The first build downloads pinned de
 
 In **Game Files**, select your disc image and the prepared `data/local/default.xbe`, validate the files, then choose **Play game**. Keep the source folder, build output, and disc image available. See [BUILDING.txt](BUILDING.txt) for the build stages and developer commands.
 
-### Linux and macOS
+### Linux and Steam Deck
 
-These remain development targets, not supported installation options. The intended graphics backends are DXVK Native/Vulkan on Linux and DXMT/Metal on macOS, without Wine. The current CMake game-batch build explicitly requires Windows x64; no native Linux or Mac gameplay result is claimed.
+Install the Linux prerequisites in [BUILDING.txt](BUILDING.txt), then run the installer from the source folder. It builds the game locally from your disc image.
+
+```sh
+bash Install.sh '/path/to/Super Monkey Ball Deluxe (USA).xiso.iso'
+```
+
+On Steam Deck, run the same command in Desktop Mode. SteamOS uses a user-installed Flatpak SDK. You can also select it with `Install.sh --steamdeck`. Setup adds Super Monkey Ball Deluxe to the application menu. In Steam, add that entry as a non-Steam game and leave the compatibility-tool override disabled. Launch from the menu or with `bash Play.sh`.
 
 ## Game settings
 
@@ -103,7 +109,7 @@ Press **F1** or **Esc**, or the gamepad **Back** button, to open settings. Prefe
 Use the bottom row to close settings, restart the running game, restore defaults, or **Exit game**.
 
 - **Game Files:** Select and validate the XISO and executable.
-- **General:** Choose a refresh limit or Unlimited, and toggle the frame-rate display. V-sync can impose an additional limit.
+- **General:** Choose a refresh limit or Unlimited, toggle the frame-rate display, and opt in to Discord Rich Presence.
 - **Audio:** Adjust master volume, mute, or mute when the window loses focus.
 - **Graphics:** Set aspect ratio, fullscreen, and V-sync.
 - **Enhancements:** Choose 1×–4× internal resolution, FXAA or supported MSAA levels, and anisotropic filtering up to 16×. The render distance override is recommended at higher internal resolutions. These settings and aspect ratio apply immediately.
@@ -111,6 +117,8 @@ Use the bottom row to close settings, restart the running game, restore defaults
 - **Diagnostics:** Capture a frame or record a slowdown.
 
 Higher rendering rates produce new scene updates. Game rules and input retain their original 60 Hz clock; audio keeps its own sample clock and movies retain their source cadence.
+
+To share your game activity, start Discord desktop and turn on **Settings → General → Discord Rich Presence**.
 
 ## Controls
 
@@ -135,7 +143,7 @@ Game saves and the local storage identity are in `data/user` inside your install
 
 For installed builds, close the game and run the newer installer using the same installation folder. Updates preserve saves and preferences. Uninstall through Windows **Installed apps**; saved games, preferences, and your original source image are kept. An image copied into the installation folder is removed during uninstall.
 
-For source builds, close the game, update the source, preserve your `data` and `build` folders, rebuild, then launch `Play.cmd` again. When moving the project or disc image, update the paths in Game Files.
+For source builds, close the game, update the source, preserve your `data` and `build` folders, and rebuild. Launch `Play.cmd` on Windows or `bash Play.sh` on Linux and Steam Deck. When moving the project or disc image, update the paths in Game Files.
 
 ## Development and credits
 
@@ -145,7 +153,7 @@ Game code is translated ahead of time into native C++23. Xbox services use nativ
 - SDL3: windows, controllers, and audio.
 - Dear ImGui: settings and diagnostic controls.
 - Zydis and Ghidra: offline instruction analysis and generation.
-- Direct3D 11 / HLSL: the current Windows renderer.
+- Direct3D 11 / HLSL: rendering on Windows and, through DXVK Native, on Linux and Steam Deck.
 - XboxDev, xemu, and Cxbx-Reloaded: documented system and graphics behavior used as research references.
 
 See [DESIGN.txt](DESIGN.txt), the [research notes](knowledge/), and [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt) for requirements, evidence, and dependency notices. Disc images, extracted game assets, generated game sources, saves, and local diagnostics are intentionally excluded from this repository.

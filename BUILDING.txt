@@ -8,9 +8,8 @@ Windows release installer:
 
   .\tools\Package.ps1
 
-This builds and packages the current release with three workers. Use -Workers
-1 or 2 to reduce build load, or -SkipBuild to package already-built game/tool
-binaries. The installer is written to build/release with a SHA-256 checksum
+This builds and packages the current release with one worker. Use -SkipBuild
+to package already-built game and tool binaries. The installer is written to build/release with a SHA-256 checksum
 and release.json. Only the Runtime component is packaged: game, diagnostics,
 application-local C++ runtime libraries, branding, target registry and notices.
 Original game files, saves, preferences, profiles and generated source are excluded.
@@ -57,8 +56,8 @@ Use -Disc 'D:\path\game.xiso.iso' to select a different image location.
 The script verifies/extracts the whole disc, reuses indexed Ghidra analysis,
 generates 512 native C++ shards, compiles shaders offline, builds the game and
 its diagnostic tool, and checks isolated original CPU routines. Compiler work
-uses three workers by default, including ThinLTO linking; Ghidra has a 3 GiB
-heap and two analysis threads. Use -Workers 1 or -Workers 2 to lower build load.
+uses one worker by default, including ThinLTO linking. Ghidra has a 3 GiB
+heap and two analysis threads.
 Windows builds use clang-cl, LLD and Ninja Multi-Config, with a shared CPU
 precompiled header and cached ThinLTO. The script loads the x64 SDK environment
 and refreshes incompatible compiler metadata while retaining extracted files,
@@ -144,7 +143,7 @@ Private outputs:
   build/generated/            CPU/shader sources and coverage report
   build/logs/                 Analysis, build and execution diagnostics
 
-Only Windows x64 execution has been exercised. Native Xbox services, D3D11 and
+On Windows, the native Xbox services, D3D11 and
 SDL3 input/audio are being brought up against the original program. The SEGA
 startup screen and full-color title artwork render, and automated Start input
 advances beyond the prompt. The Mode Select menu renders with its 3D background,
@@ -154,7 +153,78 @@ Story Mode's first level, 1-1 SIMPLE, loads and responds to controller input;
 the automated forward-input run reaches GOAL while the neutral comparison stays
 still. Opening movies and saved settings now work. Monkey Bowling's Night-Sky
 Rocket Lane is the current repeatable performance benchmark. See PLAYTEST.txt.
-Remaining calls/services, complete audio and gameplay coverage, Linux/macOS,
+Remaining calls/services, complete audio and gameplay coverage, macOS,
 visual parity and sustained 360 Hz performance require further work.
 See runtime_progress.json
 in knowledge for the current execution boundary; initial_coverage.json is historical.
+
+Linux x86-64 and Steam Deck
+
+On desktop Linux, use a glibc-based distribution with Clang 19 or newer,
+LLD, Ninja, Git, and a Vulkan 1.4 driver compatible with DXVK Native 3.1.1.
+The following command installs the prerequisites on Ubuntu 24.04.
+
+  sudo apt install build-essential clang-19 lld-19 ninja-build git curl pkg-config patch \
+    openjdk-21-jdk libssl-dev libpng-dev libjpeg-dev libasound2-dev libpulse-dev \
+    libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev \
+    libxss-dev libxtst-dev libwayland-dev libxkbcommon-dev libdrm-dev libgbm-dev \
+    libegl1-mesa-dev libgl-dev libdecor-0-dev libudev-dev libvulkan-dev \
+    glslang-tools spirv-headers flex bison libjson-perl
+
+Ensure clang, clang++ and ld.lld select the installed LLVM toolchain on PATH.
+If CMake 4.2 or newer is unavailable, setup fetches the verified CMake 4.4.5
+archive into build/deps. The build uses one compiler job.
+
+  bash Install.sh '/path/to/Super Monkey Ball Deluxe (USA).xiso.iso'
+  bash Play.sh
+
+On Steam Deck, place the source in a permanent folder in your home directory or
+on a Linux-formatted microSD card. Run the same setup command from Desktop Mode.
+SteamOS selects the Steam Deck build automatically. On other x86-64 Linux
+handhelds, pass --steamdeck to Install.sh to use that build.
+
+Steam Deck setup installs the Freedesktop 26.08 runtime and SDK, LLVM 22 and
+OpenJDK 21 through Flatpak --user. It leaves the SteamOS system partition
+read-only. Allow space for the SDK, extracted assets and native build. Add the
+Super Monkey Ball Deluxe application menu entry to Steam as a non-Steam game.
+Leave the compatibility-tool override disabled. DXVK Native uses Vulkan
+directly, and SDL3 handles Steam Input, display and audio.
+The launcher retains Steam's XWayland display and allows abstract X11 sockets,
+as required by Gaming Mode on some handhelds. The DXVK build includes upstream
+swapchain resize fix 3dbf33cb for sharp presentation after Wayland resizes.
+
+Desktop Linux keeps the game, settings, saves and logs under build/linux/Release.
+The Deck setup uses build/steamdeck/Release and launches through the Flatpak
+runtime. Rerunning Install.sh refreshes the disc path and keeps existing settings
+and saves. Keep the disc image available. Launch a specific build with
+bash Play.sh --linux or bash Play.sh --steamdeck.
+Use a Linux filesystem for the installation and saves. When testing in WSL,
+put diagnostic output and the game's --storage path on the Linux filesystem.
+
+For terminal builds without a desktop entry, use bash Build.sh DISC or
+bash Build.sh --steamdeck DISC after running bash cmake/steamdeck.sh prepare. Use
+bash Build.sh --tools-only for the Linux extraction and recompilation tool.
+The native builder verifies the disc, extracts the executable and shader
+assets, reuses verified analysis when available, and compiles CPU helpers and
+shaders ahead of time. The game reads other assets from the disc. Logs are in
+the selected build directory's logs folder. WARP, the D3D11 debug layer and hardware memory
+watches are Windows-only. For automated runs use --mute with the game.
+The settings file picker uses SDL's native dialog. Install your desktop's XDG
+portal on Wayland if the file picker is unavailable.
+
+Ubuntu 24.04 under WSL2 passed the CPU, service, input, audio, offscreen
+rendering and live presentation diagnostics with llvmpipe. The Flatpak
+launcher rendered all seven settings pages over an abstract X11 socket.
+The first-level replay timed out at an input wait. Physical Steam Deck
+Gaming Mode, visual parity and hardware performance still need verification.
+Discord Rich Presence
+
+Settings > General > Discord Rich Presence is off by default. It shares the
+game or settings state and elapsed time with Discord desktop over local IPC.
+Turning it off or closing the game clears the activity. Automated and hidden
+runs skip Discord. Start Discord before launching the game on Steam Deck so
+Flatpak can expose its socket.
+
+The build uses the project's Discord Application ID. Developers can override
+it with -DSMBD_DISCORD_APPLICATION_ID=ID when configuring CMake. Find it under
+General Information at https://discord.com/developers/applications.

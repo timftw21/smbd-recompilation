@@ -1,6 +1,6 @@
 param(
     [string]$Output,
-    [ValidateRange(1,3)][int]$Workers=3,
+    [ValidateRange(1,3)][int]$Workers=1,
     [switch]$SkipBuild,
     [string]$SigningCertificateThumbprint,
     [uri]$TimestampUrl='http://timestamp.digicert.com',

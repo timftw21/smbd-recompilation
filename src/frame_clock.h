@@ -3,6 +3,17 @@
 #include <cstdint>
 
 namespace smbd {
+struct PresentationPacing {
+    unsigned rate;
+    bool display_driven;
+};
+inline PresentationPacing presentation_pacing(unsigned limit,bool vsync,bool drawable,float refresh) {
+    if(!vsync || !(refresh>=30)) return {limit,false};
+    const auto display=static_cast<unsigned>(refresh+0.5f);
+    if(limit && limit<display) return {limit,false};
+    return {display,drawable};
+}
+
 // Independent absolute deadlines, carrying fractional nanoseconds at rates
 // such as 60/144 Hz. Fixed rule ticks keep their deadlines; native scene
 // rendering can discard overdue display slots while retaining elapsed time.

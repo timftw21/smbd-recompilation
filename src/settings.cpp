@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "discord.h"
 #include "render.h"
 #include "xbe.h"
 #include "disc.h"
@@ -9,8 +10,12 @@
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_dx11.h>
+#ifdef _WIN32
 #include <Windows.h>
 #include <commdlg.h>
+#else
+#include <mutex>
+#endif
 #include <d3d11.h>
 #include <algorithm>
 #include <charconv>
@@ -43,6 +48,7 @@ void Settings::load(const std::filesystem::path& path) {
         else if(name=="vsync") vsync=number!=0;
         else if(name=="fullscreen") fullscreen=number!=0;
         else if(name=="unlimited_render_distance") unlimited_render_distance=number!=0;
+        else if(name=="discord_presence") discord_presence=number!=0;
         else if(name=="volume") volume=std::clamp(number,0,100);
         else if(name=="aspect") aspect=std::clamp(number,0,2);
         else if(name=="resolution") resolution=std::clamp(number,1,4);
@@ -56,15 +62,19 @@ void Settings::load(const std::filesystem::path& path) {
     }
 }
 void Settings::save(const std::filesystem::path& path) const {
-    auto text=std::format("executable={}\ndisc={}\nshow_fps={}\nvolume={}\nmuted={}\nmute_on_focus_loss={}\naspect={}\nvsync={}\nfullscreen={}\nresolution={}\nrefresh_rate={}\nantialiasing={}\nanisotropy={}\nunlimited_render_distance={}\n",
-        executable.data(),disc.data(),int(show_fps),volume,int(muted),int(mute_on_focus_loss),aspect,int(vsync),int(fullscreen),resolution,refresh_rate,antialiasing,anisotropy,int(unlimited_render_distance));
+    auto text=std::format("executable={}\ndisc={}\nshow_fps={}\nvolume={}\nmuted={}\nmute_on_focus_loss={}\naspect={}\nvsync={}\nfullscreen={}\nresolution={}\nrefresh_rate={}\nantialiasing={}\nanisotropy={}\nunlimited_render_distance={}\ndiscord_presence={}\n",
+        executable.data(),disc.data(),int(show_fps),volume,int(muted),int(mute_on_focus_loss),aspect,int(vsync),int(fullscreen),resolution,refresh_rate,antialiasing,anisotropy,int(unlimited_render_distance),int(discord_presence));
     for(unsigned i=0;i<control_actions.size();++i) text+=std::format("key_{}={}\npad_{}={}\n",control_actions[i].id,bindings[i].keyboard,control_actions[i].id,bindings[i].gamepad);
     if(text.find('\r')!=std::string::npos || std::string_view(executable.data()).find('\n')!=std::string_view::npos ||
        std::string_view(disc.data()).find('\n')!=std::string_view::npos) throw std::runtime_error("Game paths cannot contain line breaks");
     if(path.has_parent_path()) std::filesystem::create_directories(path.parent_path());
     auto temporary=path;temporary+=".tmp";write_text(temporary,text,true);
+#ifdef _WIN32
     if(!MoveFileExW(temporary.c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH))
         throw std::runtime_error("Cannot save settings");
+#else
+    std::filesystem::rename(temporary,path);
+#endif
 }
 void Settings::validate() const {
     Xbe image(executable_path());
@@ -103,12 +113,16 @@ std::string check_presentation(const std::filesystem::path& directory,const std:
     invalid.load(directory/"invalid-bindings.cfg");require(invalid.bindings==default_bindings());
     if(!SDL_InitSubSystem(SDL_INIT_VIDEO)) throw std::runtime_error(SDL_GetError());
     struct Video {~Video(){SDL_QuitSubSystem(SDL_INIT_VIDEO);}} video;
-    std::unique_ptr<SDL_Window,decltype(&SDL_DestroyWindow)> window(SDL_CreateWindow("Presentation diagnostic",96,72,SDL_WINDOW_HIDDEN),SDL_DestroyWindow);
+    SDL_WindowFlags flags=SDL_WINDOW_HIDDEN;
+#ifndef _WIN32
+    flags|=SDL_WINDOW_VULKAN;
+#endif
+    std::unique_ptr<SDL_Window,decltype(&SDL_DestroyWindow)> window(SDL_CreateWindow("Presentation diagnostic",96,72,flags),SDL_DestroyWindow);
     if(!window) throw std::runtime_error(SDL_GetError());
     std::string adapter;
     for(unsigned scale:{1U,4U}) {
-        Renderer renderer(32,24,false,true,scale);adapter=renderer.adapter();
-        renderer.attach_window(SDL_GetPointerProperty(SDL_GetWindowProperties(window.get()),SDL_PROP_WINDOW_WIN32_HWND_POINTER,nullptr));
+        Renderer renderer(32,24,false,Renderer::debug_layer_available,scale);adapter=renderer.adapter();
+        renderer.attach_window(window.get());
         const auto auxiliary=renderer.create_target(32,24);
         for(int aspect=0;aspect<3;++aspect) {
             settings.aspect=aspect;renderer.aspect_ratio(settings.display_aspect());
@@ -143,24 +157,24 @@ std::string check_presentation(const std::filesystem::path& directory,const std:
             require(image.rgba[0]==std::byte(unlimited?255:0) && image.rgba[2]==std::byte(unlimited?0:255));
         }
         renderer.release_texture(texture);
-        require(SDL_SetWindowSize(window.get(),120,90));SDL_PumpEvents();
+        require(SDL_SetWindowSize(window.get(),120,90) && SDL_SyncWindow(window.get()));
         require(renderer.display(true));const auto resized=renderer.read_display();renderer.present(false);
         require(resized.width==120 && resized.height==90);
         renderer.resize(40,30);require(!renderer.display(true));
         renderer.clear(0xFF204060);renderer.publish_frame();require(renderer.display(true));renderer.present(false);
         require(renderer.errors().empty());
-        require(SDL_SetWindowSize(window.get(),5120,72));SDL_PumpEvents();
+        require(SDL_SetWindowSize(window.get(),5120,72) && SDL_SyncWindow(window.get()));
         require(renderer.display(true));const auto wide=renderer.read_display();renderer.present(false);
         require(wide.width==5120 && wide.height==72 && renderer.errors().empty());
-        require(SDL_SetWindowSize(window.get(),96,72));SDL_PumpEvents();
+        require(SDL_SetWindowSize(window.get(),96,72) && SDL_SyncWindow(window.get()));
     }
     unsigned live_changes=0;
     if(!xbe.empty()) {
         Xbe image(xbe);if(!image.supported()) throw std::runtime_error("Live presentation checks require the verified game executable");
         std::vector<std::byte> ram(64*1024*1024);
         image.load(std::span(ram).subspan(image.base,image.image_size));Memory memory(0,ram);
-        Renderer renderer(640,480,false,true);
-        renderer.attach_window(SDL_GetPointerProperty(SDL_GetWindowProperties(window.get()),SDL_PROP_WINDOW_WIN32_HWND_POINTER,nullptr));
+        Renderer renderer(640,480,false,Renderer::debug_layer_available);
+        renderer.attach_window(window.get());
         Xbox* running=nullptr;std::uint64_t frames=0;
         const std::array<std::array<unsigned,4>,7> options{{{2,1,16,2},{1,4,2,0},{2,5,4,1},{1,6,8,2},{4,0,1,0},{1,3,0,1},{1,0,0,2}}};
         const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(30);
@@ -239,12 +253,13 @@ void wooden_panel(ID3D11ShaderResourceView* wood,bool inset) {
     draw->PopClipRect();
 }
 }
-SettingsUi::SettingsUi(SDL_Window* window,Renderer& renderer,Settings& settings,std::filesystem::path path):
-    window_(window),renderer_(renderer),settings_(settings),path_(std::move(path)) {
+SettingsUi::SettingsUi(SDL_Window* window,Renderer& renderer,Settings& settings,std::filesystem::path path,DiscordPresence* presence):
+    window_(window),renderer_(renderer),settings_(settings),presence_(presence),path_(std::move(path)) {
     refresh_options();
     IMGUI_CHECKVERSION();ImGui::CreateContext();auto& io=ImGui::GetIO();
     io.ConfigFlags|=ImGuiConfigFlags_NavEnableKeyboard|ImGuiConfigFlags_NavEnableGamepad;
     io.IniFilename=nullptr;io.LogFilename=nullptr;
+#ifdef _WIN32
     std::array<wchar_t,MAX_PATH> windows{};
     const auto length=GetWindowsDirectoryW(windows.data(),static_cast<UINT>(windows.size()));
     if(length && length<windows.size()) {
@@ -254,6 +269,9 @@ SettingsUi::SettingsUi(SDL_Window* window,Renderer& renderer,Settings& settings,
         else io.Fonts->AddFontDefault();
         if(std::filesystem::exists(italic)) italic_font_=io.Fonts->AddFontFromFileTTF(path_text(italic).c_str(),18);
     }
+#else
+    io.Fonts->AddFontDefault();
+#endif
     auto& style=ImGui::GetStyle();style.FontSizeBase=18;style.WindowPadding={24,20};style.FramePadding={12,8};style.ItemSpacing={12,10};
     style.WindowRounding=12;style.ChildRounding=9;style.FrameRounding=5;style.GrabRounding=5;style.WindowBorderSize=0;
     ImGui::StyleColorsDark();auto* c=style.Colors;
@@ -267,7 +285,12 @@ SettingsUi::SettingsUi(SDL_Window* window,Renderer& renderer,Settings& settings,
     c[ImGuiCol_ScrollbarBg]={.12f,.065f,.02f,1};c[ImGuiCol_ScrollbarGrab]={.48f,.31f,.12f,1};
     c[ImGuiCol_ScrollbarGrabHovered]={.66f,.45f,.18f,1};c[ImGuiCol_ScrollbarGrabActive]={.79f,.57f,.23f,1};
     c[ImGuiCol_TableHeaderBg]={.25f,.15f,.06f,1};c[ImGuiCol_TableBorderStrong]={.50f,.33f,.13f,1};c[ImGuiCol_TableBorderLight]={.38f,.25f,.10f,1};
-    if(!ImGui_ImplSDL3_InitForD3D(window) || !ImGui_ImplDX11_Init(renderer.native_device(),renderer.native_context()))
+#ifdef _WIN32
+    const bool platform_ready=ImGui_ImplSDL3_InitForD3D(window);
+#else
+    const bool platform_ready=ImGui_ImplSDL3_InitForVulkan(window);
+#endif
+    if(!platform_ready || !ImGui_ImplDX11_Init(renderer.native_device(),renderer.native_context()))
         throw std::runtime_error("Cannot initialize the settings menu");
     wood_=ui_texture(renderer,wood_grain());
     try {
@@ -360,8 +383,16 @@ void SettingsUi::message(std::string text) {
     diagnostic_record("{\"type\":\"settings_activity\",\"message\":"+json(text)+'}');
     if(messages_.size()==24) messages_.pop_front();messages_.push_back(std::move(text));
 }
+#ifndef _WIN32
+struct SettingsUi::FileDialog {
+    std::mutex mutex;
+    std::string path,error;
+    bool disc=false,done=false;
+};
+#endif
 bool SettingsUi::browse(std::array<char,2048>& value,bool disc) {
     try {
+#ifdef _WIN32
     std::array<wchar_t,32768> path{};const auto initial=wide(value.data());
     if(initial.size()<path.size()) std::copy(initial.begin(),initial.end(),path.begin());
     OPENFILENAMEW dialog{};dialog.lStructSize=sizeof(dialog);
@@ -371,6 +402,26 @@ bool SettingsUi::browse(std::array<char,2048>& value,bool disc) {
     dialog.Flags=OFN_FILEMUSTEXIST|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;
     if(!GetOpenFileNameW(&dialog)) {if(CommDlgExtendedError()) throw std::runtime_error("Could not open the file picker");return false;}
     copy_text(value.data(),value.size(),utf8(path.data()));return true;
+#else
+    if(dialog_) return false;
+    static constexpr SDL_DialogFileFilter executable_filters[]={{"Xbox executable","xbe"},{"All files","*"}};
+    static constexpr SDL_DialogFileFilter disc_filters[]={{"Xbox disc image","iso"},{"All files","*"}};
+    const auto location=path_text(settings_.root/utf8_path(value.data()));
+    auto pending=std::make_unique<std::shared_ptr<FileDialog>>(std::make_shared<FileDialog>());
+    (*pending)->disc=disc;
+    dialog_=*pending;
+    SDL_ShowOpenFileDialog([](void* data,const char* const* files,int) {
+        const std::unique_ptr<std::shared_ptr<FileDialog>> owner(static_cast<std::shared_ptr<FileDialog>*>(data));
+        auto& result=**owner;
+        std::lock_guard lock(result.mutex);
+        try {
+            if(!files) result.error=SDL_GetError();
+            else if(*files) result.path=*files;
+        } catch(...) {}
+        result.done=true;
+    },pending.release(),window_,disc?disc_filters:executable_filters,2,location.c_str(),false);
+    return false;
+#endif
     } catch(const std::exception& error) {file_message(error.what());return false;}
 }
 void SettingsUi::draw(bool playing,bool recording,double fps,const std::function<void()>& capture,const std::function<void()>& performance) {
@@ -392,6 +443,21 @@ void SettingsUi::draw(bool playing,bool recording,double fps,const std::function
     animation_=std::clamp(animation_+(show?step:-step),0.0f,1.0f);
     ImDrawList* status_draw=nullptr;ImVec2 center{};
     bool changed=false;
+#ifndef _WIN32
+    if(auto pending=dialog_) {
+        std::lock_guard lock(pending->mutex);
+        if(pending->done) {
+            auto& destination=pending->disc?settings_.disc:settings_.executable;
+            if(!pending->error.empty()) file_message(pending->error);
+            else if(pending->path.size()>=destination.size() || pending->path.find_first_of("\r\n")!=std::string::npos)
+                file_message("The selected path is too long or contains a line break.");
+            else if(!pending->path.empty()) {
+                copy_text(destination.data(),destination.size(),pending->path);changed=true;
+            }
+            dialog_.reset();
+        }
+    }
+#endif
     const bool was_fullscreen=settings_.fullscreen;
     if(animation_>0) {
         const auto* viewport=ImGui::GetMainViewport();const auto width=std::min(1000.0f,viewport->WorkSize.x-24),height=std::min(690.0f,viewport->WorkSize.y-24);
@@ -457,7 +523,12 @@ void SettingsUi::draw(bool playing,bool recording,double fps,const std::function
                 }
                 help("Sets the rendering rate while keeping game timing unchanged. Unlimited removes the cap; V-sync follows your display.");
                 ImGui::SeparatorText("ON-SCREEN INFO");changed|=ImGui::Checkbox("Show frame rate",&settings_.show_fps);
-                help("Displays the presentation frame rate in the upper-right corner.");break;
+                help("Displays the presentation frame rate in the upper-right corner.");
+                ImGui::SeparatorText("DISCORD");
+                changed|=ImGui::Checkbox("Discord Rich Presence",&settings_.discord_presence);
+                help("Shares your game activity and elapsed time with Discord desktop. Turning this off clears the activity.");
+                if(settings_.discord_presence && presence_) ImGui::TextDisabled("%s",presence_->status().data());
+                break;
             }
             case 2:
                 ImGui::SeparatorText("OUTPUT");label("Master volume");changed|=ImGui::SliderInt("##Volume",&settings_.volume,0,100,"%d%%");
@@ -579,6 +650,7 @@ void SettingsUi::draw(bool playing,bool recording,double fps,const std::function
         settings_.fullscreen=was_fullscreen;message(SDL_GetError());
     }
     if(changed) try {settings_.save(path_);} catch(const std::exception& error) {message(error.what());}
+    if(presence_) presence_->update(settings_.discord_presence && !quit && !restart,playing,visible);
     ImGui::Render();
     if(animation_>0 && animation_<1) {
         const float ease=animation_*animation_*(3-2*animation_),scale=.65f+.35f*ease;
