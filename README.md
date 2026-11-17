@@ -52,7 +52,7 @@ OpenAI Codex and Anthropic Claude have assisted with development and research. C
 
 ### What still needs work
 
-- Testing every stage, game mode, and progression path. Party games have not been fully validated.
+- Testing every stage, game mode, and progression path.
 - Wider visual, audio, and gameplay comparisons against the original Xbox release.
 - Sustained 360 Hz performance. Selecting a refresh rate does not guarantee the hardware can reach it.
 - Linux and Steam Deck hardware validation, and a native macOS port.
