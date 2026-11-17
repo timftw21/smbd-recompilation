@@ -409,7 +409,9 @@ if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
     endif()
     target_compile_definitions(smbd-tool PRIVATE SMBD_HAS_SHADERS=1)
     # The verified HUD upscaler checkpoint, embedded into the generated shader bank.
-    target_compile_definitions(smbd-tool PRIVATE SMBD_UPSCALER_MODEL="${CMAKE_CURRENT_SOURCE_DIR}/resources/upscaler/realesr-animevideov3.pth")
+    # C++ only: the Windows resource compiler cannot preprocess the quoted path.
+    target_compile_definitions(smbd-tool PRIVATE
+        "$<$<COMPILE_LANGUAGE:CXX>:SMBD_UPSCALER_MODEL=\"${CMAKE_CURRENT_SOURCE_DIR}/resources/upscaler/realesr-animevideov3.pth\">")
 endif()
 
 if(SMBD_BATCH)
