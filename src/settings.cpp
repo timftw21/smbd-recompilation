@@ -48,6 +48,9 @@ void Settings::load(const std::filesystem::path& path) {
         else if(name=="vsync") vsync=number!=0;
         else if(name=="fullscreen") fullscreen=number!=0;
         else if(name=="unlimited_render_distance") unlimited_render_distance=number!=0;
+        else if(name=="upscaled_movies") upscaled_movies=number!=0;
+        else if(name=="upscaled_hud") upscaled_hud=number!=0;
+        else if(name=="corrected_subtitles") corrected_subtitles=number!=0;
         else if(name=="discord_presence") discord_presence=number!=0;
         else if(name=="volume") volume=std::clamp(number,0,100);
         else if(name=="aspect") aspect=std::clamp(number,0,2);
@@ -62,8 +65,8 @@ void Settings::load(const std::filesystem::path& path) {
     }
 }
 void Settings::save(const std::filesystem::path& path) const {
-    auto text=std::format("executable={}\ndisc={}\nshow_fps={}\nvolume={}\nmuted={}\nmute_on_focus_loss={}\naspect={}\nvsync={}\nfullscreen={}\nresolution={}\nrefresh_rate={}\nantialiasing={}\nanisotropy={}\nunlimited_render_distance={}\ndiscord_presence={}\n",
-        executable.data(),disc.data(),int(show_fps),volume,int(muted),int(mute_on_focus_loss),aspect,int(vsync),int(fullscreen),resolution,refresh_rate,antialiasing,anisotropy,int(unlimited_render_distance),int(discord_presence));
+    auto text=std::format("executable={}\ndisc={}\nshow_fps={}\nvolume={}\nmuted={}\nmute_on_focus_loss={}\naspect={}\nvsync={}\nfullscreen={}\nresolution={}\nrefresh_rate={}\nantialiasing={}\nanisotropy={}\nunlimited_render_distance={}\nupscaled_movies={}\nupscaled_hud={}\ncorrected_subtitles={}\ndiscord_presence={}\n",
+        executable.data(),disc.data(),int(show_fps),volume,int(muted),int(mute_on_focus_loss),aspect,int(vsync),int(fullscreen),resolution,refresh_rate,antialiasing,anisotropy,int(unlimited_render_distance),int(upscaled_movies),int(upscaled_hud),int(corrected_subtitles),int(discord_presence));
     for(unsigned i=0;i<control_actions.size();++i) text+=std::format("key_{}={}\npad_{}={}\n",control_actions[i].id,bindings[i].keyboard,control_actions[i].id,bindings[i].gamepad);
     if(text.find('\r')!=std::string::npos || std::string_view(executable.data()).find('\n')!=std::string_view::npos ||
        std::string_view(disc.data()).find('\n')!=std::string_view::npos) throw std::runtime_error("Game paths cannot contain line breaks");
@@ -91,11 +94,15 @@ std::string check_presentation(const std::filesystem::path& directory,const std:
     std::filesystem::create_directories(directory);
     unsigned checks=0;
     const auto require=[&](bool condition) {++checks;if(!condition) throw std::runtime_error(std::format("Completed-frame presentation check {} failed",checks));};
-    Settings settings;require(settings.refresh_rate==60 && !settings.unlimited_render_distance);
+    Settings settings;require(settings.refresh_rate==60 && !settings.unlimited_render_distance && !settings.upscaled_movies && !settings.upscaled_hud && settings.corrected_subtitles);
     for(bool unlimited:{true,false}) {
-        settings.unlimited_render_distance=unlimited;settings.save(directory/"settings.cfg");
-        Settings restored;restored.load(directory/"settings.cfg");require(restored.unlimited_render_distance==unlimited);
+        settings.unlimited_render_distance=unlimited;settings.upscaled_movies=!unlimited;settings.upscaled_hud=unlimited;settings.corrected_subtitles=unlimited;
+        settings.save(directory/"settings.cfg");
+        Settings restored;restored.load(directory/"settings.cfg");
+        require(restored.unlimited_render_distance==unlimited && restored.upscaled_movies==!unlimited && restored.upscaled_hud==unlimited &&
+            restored.corrected_subtitles==unlimited);
     }
+    settings.upscaled_movies=false;settings.upscaled_hud=false;settings.corrected_subtitles=true;
     for(int rate:{0,30,144,360,1000}) {
         settings.refresh_rate=rate;settings.save(directory/"settings.cfg");
         Settings restored;restored.load(directory/"settings.cfg");require(restored.refresh_rate==rate);
@@ -572,9 +579,25 @@ void SettingsUi::draw(bool playing,bool recording,double fps,const std::function
                 label("Anisotropic filtering");
                 if(ImGui::Combo("##Anisotropic filtering",&filter,filters,6)) {settings_.anisotropy=values[filter];changed=true;}
                 help("Keeps textures sharper when viewed at an angle. Original preserves the game's filtering settings. Higher values use more GPU power. Applies immediately.");
+                ImGui::Spacing();changed|=ImGui::Checkbox("Upscaled FMVs",&settings_.upscaled_movies);
+                help("Enlarges the game's 640 x 480 movies to the internal resolution in real time with edge-aware filtering and light sharpening, instead of plain stretching. Requires an internal resolution of 2x or higher. Applies from the next movie frame.");
+                const float gap=ImGui::GetFontSize()*2;
+                ImGui::SameLine(0,gap);
+                changed|=ImGui::Checkbox("Upscaled HUD",&settings_.upscaled_hud);
+                help("Enlarges HUD, menu and text artwork once per image with the Real-ESRGAN AI upscaler, or with smooth filtering for glows and very small images, in the background on your GPU. Requires an internal resolution of 2x or higher. Applies immediately; artwork sharpens within moments of first appearing.");
+                ImGui::SameLine(0,gap);
+                changed|=ImGui::Checkbox("Corrected subtitles",&settings_.corrected_subtitles);
+                help("Fixes typos, punctuation and leftover Japanese characters in the English story and ending subtitles. Character voices, timing and layout stay as in the original. Applies from the next cutscene.");
+                if((settings_.upscaled_movies || settings_.upscaled_hud) && settings_.resolution<2) {
+                    constexpr const char* hint="(upscaling needs 2x or higher)";
+                    ImGui::SameLine(0,gap);
+                    if(ImGui::GetContentRegionAvail().x<ImGui::CalcTextSize(hint).x) ImGui::NewLine();
+                    ImGui::TextDisabled("%s",hint);
+                }
                 ImGui::SeparatorText("RENDER DISTANCE");
                 changed|=ImGui::Checkbox("Render distance override",&settings_.unlimited_render_distance);
-                help("Removes the original far cutoff and keeps full-resolution textures at every distance. Recommended at higher internal resolutions. May reduce performance and increase texture shimmer. Applies immediately.");break;
+                help("Removes the original far cutoff and keeps full-resolution textures at every distance. Recommended at higher internal resolutions. May reduce performance and increase texture shimmer. Applies immediately.");
+                break;
             }
             case 5: {
                 bool controller=binding_controller_;

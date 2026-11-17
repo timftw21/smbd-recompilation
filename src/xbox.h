@@ -30,6 +30,7 @@ struct XboxHost {
     bool trace_storage=false;
     bool widescreen=false,ultrawide=false;
     bool unlimited_render_distance=false;
+    bool corrected_subtitles=true;
 };
 struct BootIo {
     std::uint32_t ordinal=0,status=0,information=0,callsite=0;
@@ -82,6 +83,7 @@ public:
     void output_gain(float);
     void aspect_ratio(unsigned mode);
     void unlimited_render_distance(bool);
+    void corrected_subtitles(bool); // Applies from the next subtitle script load.
     bool movie_sync() const;
 private:
     friend std::string check_services(Xbe&,const std::filesystem::path&,const std::filesystem::path&);

@@ -1,5 +1,7 @@
 #include "render.h"
 #include "antialiasing.h"
+#include "interface_upscaler.h"
+#include "upscaler_model.h"
 #include "shaders.h"
 #include "performance.h"
 #include <SDL3/SDL.h>
@@ -21,7 +23,9 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <format>
+#include <fstream>
 #include <map>
 #include <optional>
 #include <stdexcept>
@@ -182,6 +186,8 @@ struct alignas(16) Constants {
     std::array<std::uint32_t,4> controls;
     std::array<Float4,4> bump_matrices;
     std::array<std::uint32_t,4> gaussian_scale; // Zero disables; otherwise physical texels per guest texel.
+    std::array<Float4,4> sample_bounds;          // Frontend quads: half a texel inside their texture rectangle.
+    std::array<std::uint32_t,4> bounded_samples; // Nonzero clamps the stage's 2D coordinates to it.
 };
 struct alignas(16) ProgramSettings {
     Float4 viewport,fog;
@@ -409,6 +415,192 @@ struct Renderer::Impl {
     bool unlimited_render_distance=false;
     std::unique_ptr<FrameAntialiasing> antialiasing;
     std::unique_ptr<MultisampleCopy> multisample_copy;
+    bool upscaled_movies=false;
+    std::unique_ptr<MovieUpscaler> movie_upscaler;
+    // Live enlarged frames by texture slot, plus one released image that the
+    // game's double-buffered movie upload reuses for its next decoded frame.
+    std::map<std::uint32_t,MovieUpscaler::Image> movie_images;
+    std::optional<MovieUpscaler::Image> movie_spare;
+    std::size_t movie_bytes() const {return (movie_upscaler?movie_upscaler->bytes():0)+(movie_spare?movie_spare->bytes():0);}
+    // HUD/menu textures marked by the original immediate frontend. Enlarged
+    // images replace a slot's view until released, evicted or disabled.
+    bool upscaled_hud=false;
+    std::unique_ptr<InterfaceUpscaler> interface_upscaler;
+    // Background GPU time per published frame uses the GPU's idle share of
+    // the measured presentation interval (interval minus the scene's own GPU
+    // time), never less than 12% of the interval (0.25..2 ms).
+    std::chrono::steady_clock::time_point last_publish{};
+    double publish_interval_ms=1000.0/60,scene_gpu_ms=0;
+    double interface_budget() const {
+        const double floor=std::clamp(0.12*publish_interval_ms,0.25,2.0);
+        return std::max(floor,std::min(0.75*(publish_interval_ms-scene_gpu_ms),0.75*publish_interval_ms));
+    }
+    struct InterfaceTexture {ComPtr<ID3D11ShaderResourceView> original;InterfaceUpscaler::Result result;unsigned width=0,height=0;std::uint64_t content=0;};
+    std::map<std::uint32_t,InterfaceTexture> interface_textures;
+    // Released enlargements by content hash: menus reload the same artwork
+    // into new allocations, which then reuse the image without new work.
+    struct CachedInterface {InterfaceUpscaler::Result result;std::uint64_t used=0;};
+    std::map<std::uint64_t,CachedInterface> interface_cache;
+    std::vector<std::uint64_t> texture_used{0}; // Last frame each slot was sampled.
+    std::size_t interface_bytes=0;
+    static constexpr std::size_t interface_limit=256*1024*1024;
+    // Optional bounded disk cache of finished enlargements by content, so
+    // artwork seen in an earlier session is enlarged on its first frame.
+    // Each file holds level 0 (RGBA8); mips are regenerated on load.
+    std::filesystem::path interface_disk;
+    static constexpr std::uintmax_t interface_disk_limit=512ULL*1024*1024;
+    std::uintmax_t interface_disk_bytes=0;
+    struct InterfaceDiskHeader {
+        char magic[8];std::uint32_t version,factor,width,height,network;std::uint8_t model[32];
+    };
+    static constexpr std::uint32_t interface_disk_version=1;
+    struct InterfaceSave {ComPtr<ID3D11Texture2D> staging;std::filesystem::path path;InterfaceDiskHeader header;};
+    std::vector<InterfaceSave> interface_saves;
+    unsigned interface_factor() const {return std::min(resolution_scale,4U);}
+    bool interface_active() const {return upscaled_hud && interface_factor()>1;}
+    void restore_interface(std::uint32_t id,InterfaceTexture& entry) {
+        if(!entry.result.view) return;
+        unbind_textures();textures[id]=entry.original;interface_bytes-=entry.result.bytes;entry.result={};
+    }
+    std::filesystem::path interface_disk_path(std::uint64_t content,unsigned factor) const {
+        return interface_disk/std::format("{:016X}-{}.hud",content,factor);
+    }
+    InterfaceDiskHeader interface_disk_header(unsigned width,unsigned height,bool network) const {
+        InterfaceDiskHeader header{{'S','M','B','D','H','U','D','1'},interface_disk_version,interface_factor(),width,height,network,{}};
+        for(unsigned i=0;i<32;++i) header.model[i]=static_cast<std::uint8_t>(std::stoul(std::string(upscaler_model_sha256.substr(i*2,2)),nullptr,16));
+        return header;
+    }
+    void prune_interface_disk(std::uintmax_t target) {
+        std::vector<std::pair<std::filesystem::file_time_type,std::filesystem::path>> files;
+        std::error_code error;interface_disk_bytes=0;
+        for(const auto& item:std::filesystem::directory_iterator(interface_disk,error)) {
+            if(!item.is_regular_file(error) || item.path().extension()!=".hud") continue;
+            interface_disk_bytes+=item.file_size(error);files.emplace_back(item.last_write_time(error),item.path());
+        }
+        std::ranges::sort(files);
+        for(const auto& [time,path]:files) {
+            if(interface_disk_bytes<=target) break;
+            const auto size=std::filesystem::file_size(path,error);
+            if(!error && std::filesystem::remove(path,error)) interface_disk_bytes-=std::min(size,interface_disk_bytes);
+        }
+    }
+    // Releases room for an enlargement: cached images first, then the least
+    // recently sampled live ones. False if it still does not fit.
+    bool make_interface_room(std::size_t bytes) {
+        while(interface_bytes+bytes>interface_limit && !interface_cache.empty()) {
+            auto oldest=interface_cache.begin();
+            for(auto item=interface_cache.begin();item!=interface_cache.end();++item) if(item->second.used<oldest->second.used) oldest=item;
+            interface_bytes-=oldest->second.result.bytes;interface_cache.erase(oldest);
+        }
+        while(interface_bytes+bytes>interface_limit) {
+            std::uint32_t oldest=0;std::uint64_t used=UINT64_MAX;
+            for(const auto& [id,entry]:interface_textures) if(entry.result.view && texture_used[id]<used) {oldest=id;used=texture_used[id];}
+            if(!oldest) break;
+            restore_interface(oldest,interface_textures.at(oldest));++stats.hud_evictions;
+        }
+        return interface_bytes+bytes<=interface_limit;
+    }
+    bool load_interface(std::uint32_t id,InterfaceTexture& entry) {
+        if(interface_disk.empty() || !entry.content) return false;
+        const auto factor=interface_factor(),width=entry.width*factor,height=entry.height*factor;
+        const auto path=interface_disk_path(entry.content,factor);
+        std::ifstream file(path,std::ios::binary);
+        if(!file) return false;
+        InterfaceDiskHeader header{},expected=interface_disk_header(width,height,false);
+        if(!file.read(reinterpret_cast<char*>(&header),sizeof(header))) return false;
+        expected.network=header.network;
+        if(std::memcmp(&header,&expected,sizeof(header))) return false;
+        std::vector<std::byte> pixels(std::size_t(width)*height*4);
+        if(!file.read(reinterpret_cast<char*>(pixels.data()),static_cast<std::streamsize>(pixels.size())) ||
+           file.peek()!=std::char_traits<char>::eof()) return false;
+        std::size_t bytes=0;
+        for(unsigned w=width,h=height;;w=std::max(1U,w/2),h=std::max(1U,h/2)) {bytes+=std::size_t(w)*h*4;if(w==1 && h==1) break;}
+        if(!make_interface_room(bytes)) return false;
+        D3D11_TEXTURE2D_DESC desc{};desc.Width=width;desc.Height=height;desc.MipLevels=0;desc.ArraySize=1;
+        desc.Format=DXGI_FORMAT_R8G8B8A8_UNORM;desc.SampleDesc.Count=1;
+        desc.BindFlags=D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_RENDER_TARGET;desc.MiscFlags=D3D11_RESOURCE_MISC_GENERATE_MIPS;
+        ComPtr<ID3D11Texture2D> texture;ComPtr<ID3D11ShaderResourceView> view;
+        checked(device->CreateTexture2D(&desc,nullptr,&texture),"Cached HUD texture");
+        checked(device->CreateShaderResourceView(texture.Get(),nullptr,&view),"Cached HUD view");
+        context->UpdateSubresource(texture.Get(),0,nullptr,pixels.data(),width*4,0);
+        context->GenerateMips(view.Get());
+        unbind_textures();textures[id]=view;entry.result={view,width,height,bytes,header.network!=0};interface_bytes+=bytes;
+        ++stats.hud_disk_loads;++(header.network?stats.hud_upscales:stats.hud_filtered);
+        std::error_code error;std::filesystem::last_write_time(path,std::filesystem::file_time_type::clock::now(),error);
+        return true;
+    }
+    void save_interface(const InterfaceTexture& entry) {
+        if(interface_disk.empty() || !entry.content || interface_saves.size()>=32) return;
+        const auto path=interface_disk_path(entry.content,interface_factor());
+        std::error_code error;if(std::filesystem::exists(path,error)) return;
+        ComPtr<ID3D11Resource> resource;entry.result.view->GetResource(&resource);
+        D3D11_TEXTURE2D_DESC desc{};desc.Width=entry.result.width;desc.Height=entry.result.height;desc.MipLevels=desc.ArraySize=1;
+        desc.Format=DXGI_FORMAT_R8G8B8A8_UNORM;desc.SampleDesc.Count=1;desc.Usage=D3D11_USAGE_STAGING;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+        InterfaceSave save{nullptr,path,interface_disk_header(entry.result.width,entry.result.height,entry.result.network)};
+        if(FAILED(device->CreateTexture2D(&desc,nullptr,&save.staging))) return;
+        context->CopySubresourceRegion(save.staging.Get(),0,0,0,0,resource.Get(),0,nullptr);
+        interface_saves.push_back(std::move(save));
+    }
+    // Writes finished copies without waiting for the GPU.
+    void write_interface_saves(bool wait=false) {
+        for(auto save=interface_saves.begin();save!=interface_saves.end();) {
+            D3D11_MAPPED_SUBRESOURCE mapped{};
+            if(context->Map(save->staging.Get(),0,D3D11_MAP_READ,wait?0:D3D11_MAP_FLAG_DO_NOT_WAIT,&mapped)!=S_OK) {++save;continue;}
+            const auto& header=save->header;auto temporary=save->path;temporary+=".tmp";
+            bool written=false;
+            {
+                std::ofstream file(temporary,std::ios::binary|std::ios::trunc);
+                file.write(reinterpret_cast<const char*>(&header),sizeof(header));
+                for(unsigned y=0;y<header.height;++y)
+                    file.write(static_cast<const char*>(mapped.pData)+std::size_t(y)*mapped.RowPitch,static_cast<std::streamsize>(header.width)*4);
+                written=static_cast<bool>(file);
+            }
+            context->Unmap(save->staging.Get(),0);
+            std::error_code error;
+            if(written) std::filesystem::rename(temporary,save->path,error);
+            if(!written || error) std::filesystem::remove(temporary,error);
+            else {
+                interface_disk_bytes+=sizeof(header)+std::uintmax_t(header.width)*header.height*4;++stats.hud_disk_saves;
+                if(interface_disk_bytes>interface_disk_limit) prune_interface_disk(interface_disk_limit*3/4);
+            }
+            save=interface_saves.erase(save);
+        }
+    }
+    void request_interface(std::uint32_t id,InterfaceTexture& entry) {
+        if(!interface_active()) return;
+        if(const auto cached=interface_cache.find(entry.content);entry.content && cached!=interface_cache.end()) {
+            if(cached->second.result.width==entry.width*interface_factor() && cached->second.result.height==entry.height*interface_factor()) {
+                unbind_textures();textures[id]=cached->second.result.view;entry.result=std::move(cached->second.result);
+                interface_cache.erase(cached);++stats.hud_reused;return;
+            }
+            interface_bytes-=cached->second.result.bytes;interface_cache.erase(cached);
+        }
+        if(load_interface(id,entry)) return;
+        if(!interface_upscaler) interface_upscaler=std::make_unique<InterfaceUpscaler>(device.Get(),context.Get(),stats.shader_compilations);
+        interface_upscaler->request(id,entry.original,entry.width,entry.height,interface_factor());
+    }
+    void forget_interface_cache() {
+        for(const auto& [content,cached]:interface_cache) interface_bytes-=cached.result.bytes;
+        interface_cache.clear();
+    }
+    // Restores every original image, then requests enlargement again when
+    // enabled; a changed internal resolution changes the enlargement factor.
+    void reset_interface() {
+        for(auto& [id,entry]:interface_textures) restore_interface(id,entry);
+        forget_interface_cache();
+        if(interface_upscaler) interface_upscaler->clear();
+        if(!interface_active()) {interface_upscaler.reset();return;}
+        for(auto& [id,entry]:interface_textures) request_interface(id,entry);
+    }
+    void finish_interface(const std::vector<InterfaceUpscaler::Finished>& finished) {
+        for(const auto& done:finished) {
+            const auto found=interface_textures.find(done.id);
+            if(found==interface_textures.end() || !make_interface_room(done.result.bytes)) continue;
+            unbind_textures();textures[done.id]=done.result.view;found->second.result=done.result;interface_bytes+=done.result.bytes;
+            ++(done.result.network?stats.hud_upscales:stats.hud_filtered);
+            save_interface(found->second);
+        }
+    }
     HWND window=nullptr;
     ComPtr<IDXGISwapChain2> swapchain;
     ComPtr<ID3D11Texture2D> published;
@@ -516,14 +708,46 @@ struct Renderer::Impl {
         if(reuse && !free_textures.empty()) {id=free_textures.back();free_textures.pop_back();}
         else {
             if(textures.size()==4096) throw std::runtime_error("Texture resource limit reached");
-            id=static_cast<std::uint32_t>(textures.size());textures.emplace_back();texture_dimensions.push_back(0);texture_sizes.push_back(0);
+            id=static_cast<std::uint32_t>(textures.size());textures.emplace_back();texture_dimensions.push_back(0);texture_sizes.push_back(0);texture_used.push_back(0);
         }
         textures[id]=std::move(view);texture_dimensions[id]=dimension;texture_sizes[id]=bytes;texture_bytes+=bytes;
         return id;
     }
     void release_slot(std::uint32_t id) {
         unbind_textures();texture_bytes-=texture_sizes[id];texture_sizes[id]=0;
-        textures[id].Reset();texture_dimensions[id]=0;free_textures.push_back(id);
+        if(const auto found=interface_textures.find(id);found!=interface_textures.end()) {
+            if(interface_upscaler) interface_upscaler->cancel(id);
+            auto& entry=found->second;
+            if(entry.result.view && entry.content) {
+                auto& cached=interface_cache[entry.content];
+                if(cached.result.view) interface_bytes-=cached.result.bytes;
+                cached={std::move(entry.result),frame_id};
+            } else if(entry.result.view) interface_bytes-=entry.result.bytes;
+            interface_textures.erase(found);
+        }
+        textures[id].Reset();texture_dimensions[id]=0;texture_used[id]=0;free_textures.push_back(id);
+        if(const auto found=movie_images.find(id);found!=movie_images.end()) {
+            if(upscaled_movies) movie_spare=std::move(found->second);
+            movie_images.erase(found);
+        }
+    }
+    std::uint32_t upload_movie(const D3D11_SUBRESOURCE_DATA& pixels,const TextureData& texture,DXGI_FORMAT format,bool reuse) {
+        const auto w=texture.width*resolution_scale,h=texture.height*resolution_scale;
+        const auto bytes=std::size_t(w)*h*4;
+        if(bytes>256*1024*1024-texture_bytes) throw std::runtime_error("Texture resources exceed 256 MiB");
+        if(!movie_upscaler) movie_upscaler=std::make_unique<MovieUpscaler>(device.Get(),context.Get(),stats.shader_compilations);
+        MovieUpscaler::Image image;
+        if(movie_spare && movie_spare->width==w && movie_spare->height==h) image=std::move(*movie_spare);
+        else image=movie_upscaler->create(w,h);
+        movie_spare.reset();
+        unbind_textures();context->OMSetRenderTargets(0,nullptr,nullptr);
+        try {movie_upscaler->upscale(pixels,format,texture.width,texture.height,resolution_scale,image);}
+        catch(...) {select_target(current_target);throw;}
+        select_target(current_target);
+        ++stats.movie_upscales;++stats.texture_uploads;stats.texture_upload_bytes+=texture.bytes.size();
+        const auto id=store_texture(image.view,1,bytes,reuse);
+        movie_images.insert_or_assign(id,std::move(image));
+        return id;
     }
     static constexpr UINT max_vertices = 32768, max_indices = max_vertices * 6;
     static constexpr UINT vertex_capacity=max_vertices*sizeof(ProgramVertex);
@@ -794,16 +1018,25 @@ void Renderer::aspect_ratio(float aspect) {
     impl_->display_aspect=aspect;
 }
 bool Renderer::supports_msaa(unsigned samples) const {return samples>=2 && samples<=8 && std::has_single_bit(samples) && (impl_->msaa_supported&samples)!=0;}
-void Renderer::enhancements(unsigned quality,unsigned anisotropy,bool unlimited_render_distance) {
-    image_quality(impl_->resolution_scale,quality,anisotropy,unlimited_render_distance);
+void Renderer::enhancements(unsigned quality,unsigned anisotropy,bool unlimited_render_distance,bool upscaled_movies,bool upscaled_hud) {
+    image_quality(impl_->resolution_scale,quality,anisotropy,unlimited_render_distance,upscaled_movies,upscaled_hud);
 }
-void Renderer::image_quality(unsigned scale,unsigned quality,unsigned anisotropy,bool unlimited_render_distance) {
+void Renderer::image_quality(unsigned scale,unsigned quality,unsigned anisotropy,bool unlimited_render_distance,bool upscaled_movies,bool upscaled_hud) {
     auto& r=*impl_;
     if(r.recording) throw std::runtime_error("Change image quality between completed frames.");
     if(scale<1 || scale>4 || quality>6 || anisotropy>16 || (anisotropy && !std::has_single_bit(anisotropy)))
         throw std::runtime_error("Invalid internal resolution or image quality.");
+    // Movie frames already uploaded keep their image until the next decoded frame.
+    if(upscaled_movies!=r.upscaled_movies || scale!=r.resolution_scale) {
+        r.movie_spare.reset();if(!upscaled_movies) r.movie_upscaler.reset();
+    }
+    r.upscaled_movies=upscaled_movies;
+    // HUD enlargements follow the internal resolution, so either change
+    // restores the originals and requests fresh images.
+    const bool reset_hud=upscaled_hud!=r.upscaled_hud || (upscaled_hud && scale!=r.resolution_scale);
+    r.upscaled_hud=upscaled_hud;
     if(scale==r.resolution_scale && quality==r.antialiasing_quality && anisotropy==r.anisotropy &&
-       unlimited_render_distance==r.unlimited_render_distance) return;
+       unlimited_render_distance==r.unlimited_render_distance) {if(reset_hud) r.reset_interface();return;}
     const unsigned samples=quality>=4?1U<<(quality-3):1U;
     if(samples>1 && !supports_msaa(samples)) throw std::runtime_error("This MSAA level is unavailable on your graphics device.");
     const bool rebuild=scale!=r.resolution_scale || samples!=r.samples;
@@ -863,6 +1096,35 @@ void Renderer::image_quality(unsigned scale,unsigned quality,unsigned anisotropy
     r.pipelines.clear();
     r.pipeline_keys.clear();
     r.last_pipeline=r.pipeline_keys.end();
+    if(reset_hud) r.reset_interface();
+}
+void Renderer::interface_texture(std::uint32_t id,std::uint64_t content) {
+    auto& r=*impl_;
+    // Ordinary 2D textures only: never render targets, cube/volume maps or
+    // enlarged movie frames. Marking is idempotent and survives toggling.
+    if(!id || id>=r.textures.size() || !r.textures[id] || r.targets.contains(id) || r.texture_dimensions[id]!=1 ||
+       r.movie_images.contains(id) || r.interface_textures.contains(id)) return;
+    ComPtr<ID3D11Resource> resource;r.textures[id]->GetResource(&resource);
+    ComPtr<ID3D11Texture2D> texture;if(FAILED(resource.As(&texture))) return;
+    D3D11_TEXTURE2D_DESC desc{};texture->GetDesc(&desc);
+    if(desc.ArraySize!=1 || (desc.MiscFlags&D3D11_RESOURCE_MISC_TEXTURECUBE)) return;
+    auto& entry=r.interface_textures[id];
+    entry.original=r.textures[id];entry.width=desc.Width;entry.height=desc.Height;entry.content=content;
+    r.request_interface(id,entry);
+}
+void Renderer::finish_interface_upscales() {
+    auto& r=*impl_;
+    if(r.recording) throw std::runtime_error("Finish HUD upscaling between frames");
+    if(r.interface_upscaler) {r.unbind_textures();r.finish_interface(r.interface_upscaler->step(true));}
+    if(!r.interface_saves.empty()) r.write_interface_saves(true);
+}
+void Renderer::hud_cache(const std::filesystem::path& directory) {
+    auto& r=*impl_;
+    r.interface_saves.clear();r.interface_disk.clear();r.interface_disk_bytes=0;
+    if(directory.empty()) return;
+    std::error_code error;std::filesystem::create_directories(directory,error);
+    if(error || !std::filesystem::is_directory(directory,error)) return;
+    r.interface_disk=directory;r.prune_interface_disk(Impl::interface_disk_limit);
 }
 std::uint32_t Renderer::create_target(std::uint32_t width,std::uint32_t height,SurfaceColor color,SurfaceDepth depth,std::uint32_t shared_color,bool reuse_slot) {
     auto& r=*impl_;extent(width,height);
@@ -1164,7 +1426,17 @@ void Renderer::publish_frame() {
     auto* source=main.resolved.Get();
     if(r.antialiasing) {r.antialiasing->publish(main.texture_view.Get());source=r.antialiasing->image();}
     r.context->CopyResource(r.published.Get(),source);
-    r.published_ready=true;r.select_target(r.current_target);
+    r.published_ready=true;
+    // HUD enlargement advances in bounded steps after each published frame.
+    const auto now=std::chrono::steady_clock::now();
+    if(r.last_publish!=std::chrono::steady_clock::time_point{})
+        r.publish_interval_ms=0.9*r.publish_interval_ms+0.1*std::clamp(std::chrono::duration<double,std::milli>(now-r.last_publish).count(),1.0,100.0);
+    r.last_publish=now;
+    if(r.stats.gpu_timing_valid) r.scene_gpu_ms=r.scene_gpu_ms>0?0.8*r.scene_gpu_ms+0.2*r.stats.gpu_ms:r.stats.gpu_ms;
+    if(r.interface_upscaler && r.interface_upscaler->queued())
+        r.finish_interface(r.interface_upscaler->step(false,r.interface_budget()));
+    if(!r.interface_saves.empty()) r.write_interface_saves();
+    r.select_target(r.current_target);
 }
 bool Renderer::wait_for_window_frame(unsigned timeout_ms) {
     return impl_->window && impl_->acquire_frame(timeout_ms);
@@ -1319,6 +1591,9 @@ std::uint32_t Renderer::upload(const TextureData& texture,bool reuse_slot) {
         ComPtr<ID3D11Texture3D> resource;
         checked(r.device->CreateTexture3D(&volume,data.data(),&resource),"Volume texture upload");
         checked(r.device->CreateShaderResourceView(resource.Get(),nullptr,&view),"Volume texture view");
+    } else if(texture.movie && r.upscaled_movies && r.resolution_scale>1 && !texture.cubemap && texture.mip_levels==1 &&
+              !swizzled && !block && bpp==4) {
+        return r.upload_movie(data[0],texture,format,reuse_slot);
     } else {
         ComPtr<ID3D11Texture2D> resource;
         checked(r.device->CreateTexture2D(&desc, data.data(), &resource), "Texture upload");
@@ -1832,11 +2107,16 @@ void Renderer::Impl::draw(const RenderState& state,Bytes vertex_bytes,std::size_
         if(sampled) {
             if(auto image=r.targets.find(state.textures[i]);image!=r.targets.end()) r.resolve(image->second);
             views[i+(mode==3?4:mode==2?8:0)] = r.textures[state.textures[i]].Get();
+            r.texture_used[state.textures[i]]=r.frame_id;
         }
         constants.stages[i]={mode,state.texture_sources[i],state.texture_clip[i],std::uint32_t(state.alpha_kill[i])};
         constants.bump_matrices[i]=state.bump_matrices[i];
         if(((state.texture_filter[i]>>16)&63)==7)
             constants.gaussian_scale[i]=r.targets.contains(state.textures[i])?r.resolution_scale:1;
+        // 1x keeps the original sampling, including its edge texels.
+        if(sampled && mode==1 && r.resolution_scale>1 && ((state.bounded_samples>>i)&1)) {
+            constants.sample_bounds[i]=state.sample_bounds[i];constants.bounded_samples[i]=1;++r.stats.bounded_samples;
+        }
         samplers[i] = pipeline.samplers[i].Get();
     }
     UINT vertex_offset=0;
@@ -2036,9 +2316,18 @@ Image Renderer::read_display() {
     r.context->Unmap(staging.Get(),0);return image;
 }
 RenderStats Renderer::stats() const {
-    auto result=impl_->stats;result.texture_bytes=impl_->texture_bytes;result.target_bytes=impl_->target_bytes+impl_->presentation_bytes();
+    auto result=impl_->stats;result.texture_bytes=impl_->texture_bytes+impl_->movie_bytes();result.target_bytes=impl_->target_bytes+impl_->presentation_bytes();
     result.antialiasing=impl_->antialiasing_quality;result.anisotropy=impl_->anisotropy;
-    result.unlimited_render_distance=impl_->unlimited_render_distance;
+    result.unlimited_render_distance=impl_->unlimited_render_distance;result.upscaled_movies=impl_->upscaled_movies;
+    result.upscaled_hud=impl_->upscaled_hud;result.hud_marked=impl_->interface_textures.size();result.hud_cached=impl_->interface_cache.size();
+    result.hud_pending=impl_->interface_upscaler?impl_->interface_upscaler->queued():0;
+    result.hud_bytes=impl_->interface_bytes+(impl_->interface_upscaler?impl_->interface_upscaler->bytes():0);
+    result.hud_gpu_ms=impl_->interface_upscaler?impl_->interface_upscaler->gpu_ms():0;
+    if(impl_->interface_upscaler) {
+        const auto step=impl_->interface_upscaler->report();
+        result.hud_step_budget=step.budget;result.hud_step_work=step.work;result.hud_step_units=step.units;result.hud_rate=step.rate;
+        result.hud_waiting=step.waiting;result.hud_network=step.network;
+    }
     result.texture_slots=static_cast<std::uint32_t>(impl_->textures.size()-1);result.resolution_scale=impl_->resolution_scale;return result;
 }
 std::string Renderer::adapter() const { return impl_->adapter; }
@@ -2161,5 +2450,427 @@ std::string check_image_copy(bool warp,bool debug,unsigned antialiasing) {
     report+="],\"errors\":[";
     for(std::size_t i=0;i<errors.size();++i) {if(i) report+=',';report+=json(errors[i]);}
     return report+"]}";
+}
+std::string check_movie_upscaling(const std::filesystem::path& directory,const std::filesystem::path& frame,bool warp,bool debug) {
+    if(std::filesystem::exists(directory)) throw std::runtime_error("Use a fresh movie upscaling diagnostic directory");
+    constexpr std::uint32_t width=640,height=480;
+    // Flat colour, an aliased black/white diagonal and smooth gradients, in
+    // the movie's linear ARGB byte order.
+    std::vector<std::byte> synthetic(std::size_t(width)*height*4),captured;
+    for(std::uint32_t y=0;y<height;++y) for(std::uint32_t x=0;x<width;++x) {
+        std::array<unsigned,3> bgr{};
+        if(x<200) bgr={0xC0,0x80,0x40};
+        else if(x<440) bgr.fill((x-200)*2>y?255U:0U);
+        else bgr={128U,y*255/(height-1),(x-440)*255/199};
+        auto* p=synthetic.data()+(std::size_t(y)*width+x)*4;
+        p[0]=std::byte(bgr[0]);p[1]=std::byte(bgr[1]);p[2]=std::byte(bgr[2]);p[3]=std::byte{255};
+    }
+    // Sofdec-style 4:2:0 colour: an antialiased red/green diagonal of equal
+    // brightness, sampled per 2x2 block and repeated over each block.
+    std::vector<std::byte> colour_edge(synthetic.size());
+    const auto edge_x=[](double y) {return 160+0.37*y;};
+    for(std::uint32_t y=0;y<height;++y) for(std::uint32_t x=0;x<width;++x) {
+        const double cx=(x&~1U)+0.5,cy=(y&~1U)+0.5,red=std::clamp(0.5-(cx-edge_x(cy))/2,0.0,1.0);
+        auto* p=colour_edge.data()+(std::size_t(y)*width+x)*4;
+        p[0]=std::byte{40};p[1]=std::byte(int(std::lround(121-81*red)));p[2]=std::byte(int(std::lround(40+160*red)));p[3]=std::byte{255};
+    }
+    // RMS distance of the colour boundary from a straight line, in source pixels.
+    const auto edge_deviation=[&](const Image& image,unsigned scale) {
+        std::vector<std::pair<double,double>> points;
+        for(std::uint32_t y=16*scale;y<(height-16)*scale;++y) {
+            const double sy=(y+0.5)/scale-0.5,expected=edge_x(sy);
+            const auto first=std::uint32_t(std::max(1.0,(expected-12)*scale)),last=std::uint32_t((expected+12)*scale);
+            const auto redness=[&](std::uint32_t x) {return (int(image.rgba[(std::size_t(y)*image.width+x)*4])-40)/160.0;};
+            for(auto x=first;x<last;++x) if(redness(x)<0.5 && redness(x-1)>=0.5) {
+                const double a=redness(x-1),b=redness(x),crossing=x-1+(a-0.5)/(a-b);
+                points.emplace_back(sy,(crossing+0.5)/scale-0.5);break;
+            }
+        }
+        if(points.size()<16) return 99.0;
+        double my=0,mx=0;for(const auto& [py,px]:points) {my+=py;mx+=px;}my/=points.size();mx/=points.size();
+        double sxy=0,syy=0;for(const auto& [py,px]:points) {sxy+=(py-my)*(px-mx);syy+=(py-my)*(py-my);}
+        const double slope=sxy/syy;double residual=0;
+        for(const auto& [py,px]:points) {const double d=px-(mx+slope*(py-my));residual+=d*d;}
+        return std::sqrt(residual/points.size());
+    };
+    if(!frame.empty()) {
+        File input(frame);
+        if(input.size()!=synthetic.size()) throw std::runtime_error("A captured movie frame must be 640x480 linear ARGB");
+        captured=input.read(0,synthetic.size());
+    }
+    std::filesystem::create_directories(directory);
+    std::vector<std::pair<std::string,bool>> cases;
+    std::vector<std::string> errors;
+    std::string adapter,scales;
+    const auto luma=[](const Image& image,std::uint32_t x,std::uint32_t y) {
+        const auto* p=image.rgba.data()+(std::size_t(y)*image.width+x)*4;
+        return 0.299*int(p[0])+0.587*int(p[1])+0.114*int(p[2]);
+    };
+    for(unsigned scale=1;scale<=4;++scale) {
+        Renderer renderer(width,height,warp,debug,scale);adapter=renderer.adapter();
+        RenderState state;state.texture_modes[0]=1;state.texture_filter[0]=0x02020000;state.final_inputs={0x00000008,0x00001800};
+        std::array<Vertex,6> quad;
+        constexpr Float4 positions[]={{-1,-1,0,1},{1,-1,0,1},{1,1,0,1},{-1,-1,0,1},{1,1,0,1},{-1,1,0,1}};
+        for(unsigned i=0;i<quad.size();++i) {quad[i].position=positions[i];quad[i].uv[0]={(positions[i][0]+1)/2,(1-positions[i][1])/2,0,1};}
+        const auto upload=[&](Bytes pixels,bool movie) {return renderer.upload({width,height,TextureFormat::argb8_linear,pixels,1,width*4,false,1,movie});};
+        const auto render=[&](Bytes pixels,bool upscaled) {
+            renderer.enhancements(0,0,false,upscaled);
+            const auto id=upload(pixels,true);state.textures[0]=id;
+            renderer.set_target(0);renderer.prepare(state);renderer.begin();renderer.draw(state,quad);renderer.end();
+            auto image=renderer.readback();renderer.release_texture(id);return image;
+        };
+        const auto before=renderer.stats().movie_upscales;
+        const auto upscaled=render(synthetic,true);
+        const auto upscales=renderer.stats().movie_upscales-before;
+        const auto bilinear=render(synthetic,false);
+        const bool released=renderer.stats().texture_bytes==0;
+        if(scale==1) {
+            cases.emplace_back("1x leaves movie frames unchanged",!upscales && upscaled.rgba==bilinear.rgba);
+            for(auto& message:renderer.errors()) errors.push_back(std::move(message));
+            continue;
+        }
+        bool flat=true;double smooth=0,energy_upscaled=0,energy_bilinear=0;unsigned smooth_max=0;std::size_t smooth_count=0;
+        for(std::uint32_t y=0;y<upscaled.height;++y) for(std::uint32_t x=0;x<upscaled.width;++x) {
+            const auto sx=x/scale,sy=y/scale;
+            if(sy<8 || sy>=height-8) continue;
+            const auto* a=upscaled.rgba.data()+(std::size_t(y)*upscaled.width+x)*4;
+            const auto* b=bilinear.rgba.data()+(std::size_t(y)*bilinear.width+x)*4;
+            if(sx>=8 && sx<192) {
+                constexpr int expected[]{0x40,0x80,0xC0};
+                for(unsigned c=0;c<3;++c) flat&=std::abs(int(a[c])-expected[c])<=1;
+            } else if(sx>=448 && sx<632) for(unsigned c=0;c<3;++c) {
+                const auto delta=unsigned(std::abs(int(a[c])-int(b[c])));smooth+=delta;smooth_max=std::max(smooth_max,delta);++smooth_count;
+            } else if(sx>=216 && sx<424) {
+                // Squared gradients grow as the same edge contrast becomes narrower.
+                const auto du=luma(upscaled,x+1,y)-luma(upscaled,x,y),db=luma(bilinear,x+1,y)-luma(bilinear,x,y);
+                energy_upscaled+=du*du;energy_bilinear+=db*db;
+            }
+        }
+        smooth/=std::max<std::size_t>(smooth_count,1);
+        const auto ratio=energy_upscaled/std::max(energy_bilinear,1.0);
+        cases.emplace_back(std::format("{}x enlarges each decoded frame once",scale),upscales==1 &&
+            upscaled.width==width*scale && upscaled.height==height*scale);
+        cases.emplace_back(std::format("{}x preserves flat colour",scale),flat);
+        cases.emplace_back(std::format("{}x keeps smooth gradients",scale),smooth<=1 && smooth_max<=6);
+        cases.emplace_back(std::format("{}x sharpens edges",scale),ratio>1.05);
+        cases.emplace_back(std::format("{}x releases filtering storage when disabled",scale),released);
+        const auto colour_upscaled=render(colour_edge,true),colour_bilinear=render(colour_edge,false);
+        const auto colour_deviation=edge_deviation(colour_upscaled,scale),stepped_deviation=edge_deviation(colour_bilinear,scale);
+        cases.emplace_back(std::format("{}x smooths 2x2 colour blocks",scale),colour_deviation<0.3 && colour_deviation<0.5*stepped_deviation);
+        save_png(upscaled,directory/std::format("synthetic-{}x-upscaled.png",scale));
+        save_png(bilinear,directory/std::format("synthetic-{}x-bilinear.png",scale));
+        save_png(colour_upscaled,directory/std::format("colour-{}x-upscaled.png",scale));
+        save_png(colour_bilinear,directory/std::format("colour-{}x-bilinear.png",scale));
+        if(!captured.empty()) {
+            save_png(render(captured,true),directory/std::format("captured-{}x-upscaled.png",scale));
+            save_png(render(captured,false),directory/std::format("captured-{}x-bilinear.png",scale));
+        }
+        // Throughput per decoded frame, including the upload both paths share.
+        renderer.enhancements(0,0,false,true);
+        constexpr unsigned frames=120;
+        const auto time=[&](bool movie) {
+            renderer.readback();const auto start=std::chrono::steady_clock::now();
+            for(unsigned i=0;i<frames;++i) renderer.release_texture(upload(synthetic,movie));
+            renderer.readback();
+            return std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()/frames;
+        };
+        const auto ordinary_ms=time(false),movie_ms=time(true);
+        if(!scales.empty()) scales+=',';
+        scales+=std::format("{{\"scale\":{},\"output\":[{},{}],\"flat_colour\":{},\"smooth_mean_difference\":{:.4f},\"smooth_max_difference\":{},\"edge_energy_ratio\":{:.4f},\"colour_edge_rms_px\":{:.4f},\"stretched_colour_edge_rms_px\":{:.4f},\"ordinary_upload_ms\":{:.4f},\"upscaled_upload_ms\":{:.4f},\"upscale_overhead_ms\":{:.4f},\"frames\":{}}}",
+            scale,upscaled.width,upscaled.height,flat,smooth,smooth_max,ratio,colour_deviation,stepped_deviation,ordinary_ms,movie_ms,movie_ms-ordinary_ms,frames);
+        for(auto& message:renderer.errors()) errors.push_back(std::move(message));
+    }
+    cases.emplace_back("D3D11 validation clean",errors.empty());
+    const auto passed=std::ranges::all_of(cases,[](const auto& test){return test.second;});
+    std::string report=std::format("{{\"format\":\"smbd-movie-upscaling-v1\",\"adapter\":{},\"passed\":{},\"captured_frame\":{},\"scales\":[{}],\"cases\":[",
+        json(adapter),passed,frame.empty()?std::string("null"):json(utf8(frame.wstring())),scales);
+    for(std::size_t i=0;i<cases.size();++i) {
+        if(i) report+=',';
+        report+="{\"name\":"+json(cases[i].first)+",\"passed\":"+(cases[i].second?"true":"false")+'}';
+    }
+    report+="],\"errors\":[";
+    for(std::size_t i=0;i<errors.size();++i) {if(i) report+=',';report+=json(errors[i]);}
+    report+="]}";
+    write_text(directory/"report.json",report+'\n',false);
+    return report;
+}
+std::string check_hud_upscaling(const std::filesystem::path& directory,std::span<const std::filesystem::path> inputs,bool warp,bool debug) {
+    if(std::filesystem::exists(directory)) throw std::runtime_error("Use a fresh HUD upscaling diagnostic directory");
+    struct Texture {std::string name;unsigned width,height;std::vector<float> rgba;};
+    const auto make=[](std::string name,unsigned width,unsigned height,auto&& pixel) {
+        Texture texture{std::move(name),width,height,std::vector<float>(std::size_t(width)*height*4)};
+        for(unsigned y=0;y<height;++y) for(unsigned x=0;x<width;++x) {
+            const std::array<float,4> value=pixel(float(x),float(y));
+            std::copy(value.begin(),value.end(),texture.rgba.begin()+(std::size_t(y)*width+x)*4);
+        }
+        // Store exactly what an 8-bit texture holds.
+        for(auto& v:texture.rgba) v=std::round(std::clamp(v,0.0f,1.0f)*255)/255;
+        return texture;
+    };
+    // Outlined artwork on transparency (an amber disc with a dark rim), the
+    // same idea opaque (stripes and a square), a soft glow and a sliver.
+    const auto disc=[](float x,float y) {
+        const float d=std::hypot(x-9.5f,y-5.5f);
+        if(d>5.6f) return std::array<float,4>{0.2f,0.9f,0.3f,0};   // Arbitrary hidden colour.
+        if(d>4.4f) return std::array<float,4>{0.25f,0.1f,0.02f,1};
+        return std::array<float,4>{1,0.75f,0.1f,1};
+    };
+    std::vector<Texture> textures{
+        make("outlined",20,12,disc),
+        make("opaque",16,12,[](float x,float y) {
+            const bool box=x>=4 && x<11 && y>=3 && y<9;
+            return box?std::array<float,4>{0.95f,0.95f,0.95f,1}:int(x+y)%4<2?std::array<float,4>{0.1f,0.2f,0.7f,1}:std::array<float,4>{0.9f,0.3f,0.1f,1};
+        }),
+        make("glow",16,16,[](float x,float y) {
+            const float d=std::hypot(x-7.5f,y-7.5f);return std::array<float,4>{1,1,1,std::clamp(1-d/8,0.0f,1.0f)};
+        }),
+        make("sliver",4,16,[](float x,float y) {return std::array<float,4>{x/3,y/15,0.5f,1};})};
+    for(const auto& path:inputs) {
+        const auto image=load_image(path);
+        Texture texture{path_text(path.stem()),image.width,image.height,std::vector<float>(image.rgba.size())};
+        for(std::size_t i=0;i<image.rgba.size();++i) texture.rgba[i]=std::to_integer<unsigned>(image.rgba[i])/255.0f;
+        textures.push_back(std::move(texture));
+    }
+    std::filesystem::create_directories(directory);
+    const auto weights=upscaler_weights();
+    std::vector<float> model(weights.size()/4);std::memcpy(model.data(),weights.data(),weights.size());
+    std::vector<std::pair<std::string,bool>> cases;
+    std::vector<std::string> errors;
+    std::string adapter,results;
+    Renderer renderer(64,64,warp,debug,4);adapter=renderer.adapter();
+    auto* device=renderer.native_device();auto* context=renderer.native_context();
+    const auto source=[&](const Texture& texture) {
+        std::vector<std::uint8_t> bytes(texture.rgba.size());
+        for(std::size_t i=0;i<bytes.size();++i) bytes[i]=static_cast<std::uint8_t>(std::lround(texture.rgba[i]*255));
+        D3D11_TEXTURE2D_DESC desc{};desc.Width=texture.width;desc.Height=texture.height;desc.MipLevels=desc.ArraySize=desc.SampleDesc.Count=1;
+        desc.Format=DXGI_FORMAT_R8G8B8A8_UNORM;desc.Usage=D3D11_USAGE_IMMUTABLE;desc.BindFlags=D3D11_BIND_SHADER_RESOURCE;
+        const D3D11_SUBRESOURCE_DATA data{bytes.data(),texture.width*4,0};
+        ComPtr<ID3D11Texture2D> resource;checked(device->CreateTexture2D(&desc,&data,&resource),"HUD check texture");
+        ComPtr<ID3D11ShaderResourceView> view;checked(device->CreateShaderResourceView(resource.Get(),nullptr,&view),"HUD check view");
+        return view;
+    };
+    const auto read=[&](ID3D11ShaderResourceView* view) {
+        ComPtr<ID3D11Resource> resource;view->GetResource(&resource);
+        ComPtr<ID3D11Texture2D> texture;checked(resource.As(&texture),"HUD check result");
+        D3D11_TEXTURE2D_DESC desc{};texture->GetDesc(&desc);
+        desc.MipLevels=desc.ArraySize=1;desc.Usage=D3D11_USAGE_STAGING;desc.BindFlags=desc.MiscFlags=0;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+        ComPtr<ID3D11Texture2D> staging;checked(device->CreateTexture2D(&desc,nullptr,&staging),"HUD check readback");
+        context->CopySubresourceRegion(staging.Get(),0,0,0,0,texture.Get(),0,nullptr);
+        D3D11_MAPPED_SUBRESOURCE mapped{};checked(context->Map(staging.Get(),0,D3D11_MAP_READ,0,&mapped),"HUD check readback");
+        Image image{desc.Width,desc.Height,std::vector<std::byte>(std::size_t(desc.Width)*desc.Height*4)};
+        for(unsigned y=0;y<desc.Height;++y)
+            std::memcpy(image.rgba.data()+std::size_t(y)*desc.Width*4,static_cast<const std::byte*>(mapped.pData)+std::size_t(y)*mapped.RowPitch,desc.Width*4);
+        context->Unmap(staging.Get(),0);return image;
+    };
+    const auto upscale=[&](const Texture& texture,unsigned factor,unsigned tile,double* milliseconds=nullptr) {
+        std::uint64_t compilations=0;
+        InterfaceUpscaler upscaler(device,context,compilations,tile);
+        const auto view=source(texture);
+        upscaler.request(1,view,texture.width,texture.height,factor);
+        const auto start=std::chrono::steady_clock::now();
+        auto finished=upscaler.step(true);
+        if(finished.size()!=1) throw std::runtime_error("HUD upscaler did not finish its request");
+        auto image=read(finished[0].result.view.Get());
+        if(milliseconds) *milliseconds=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();
+        return std::pair{image,finished[0].result.network};
+    };
+    const auto compare=[](const Image& image,const std::vector<float>& reference) {
+        unsigned maximum=0;double total=0;
+        for(std::size_t i=0;i<reference.size();++i) {
+            const auto d=unsigned(std::abs(int(std::to_integer<unsigned>(image.rgba[i]))-int(std::lround(reference[i]*255))));
+            maximum=std::max(maximum,d);total+=d;
+        }
+        return std::pair{maximum,total/std::max<std::size_t>(reference.size(),1)};
+    };
+    // GPU path against the float CPU reference of the identical algorithm. The
+    // GPU keeps 64-channel activations in half precision between layers.
+    for(std::size_t index=0;index<textures.size();++index) {
+        const auto& texture=textures[index];
+        const bool synthetic=index<4;
+        for(unsigned factor:{2U,3U,4U}) {
+            if(!synthetic && factor!=4) continue;
+            InterfaceDecision decision;
+            const auto reference=synthetic?reference_interface_upscale(texture.rgba,texture.width,texture.height,factor,model,&decision):std::vector<float>{};
+            if(!synthetic) decision=std::min(texture.width,texture.height)<interface_network_minimum?InterfaceDecision{}:classify_interface(texture.rgba,texture.width,texture.height);
+            double milliseconds=0;
+            const auto [image,network]=upscale(texture,factor,interface_tile,&milliseconds);
+            const auto [maximum,mean]=synthetic?compare(image,reference):std::pair{0U,0.0};
+            if(synthetic) {
+                cases.emplace_back(std::format("{} {}x matches the reference",texture.name,factor),maximum<=4 && mean<=0.75);
+                cases.emplace_back(std::format("{} {}x chooses the reference path",texture.name,factor),network==decision.network);
+            }
+            if(factor==4) {
+                Image original{texture.width,texture.height,std::vector<std::byte>(texture.rgba.size())};
+                for(std::size_t i=0;i<texture.rgba.size();++i) original.rgba[i]=std::byte(std::lround(texture.rgba[i]*255));
+                // Nearest original, then the result, over a dark backdrop; wide
+                // textures stack vertically to respect the PNG writer's bound.
+                const bool stacked=image.width*2+4>4096;
+                const unsigned sw=stacked?image.width:image.width*2+4,sh=stacked?image.height*2+4:image.height;
+                Image sheet{sw,sh,std::vector<std::byte>(std::size_t(sw)*sh*4)};
+                for(unsigned y=0;y<sh;++y) for(unsigned x=0;x<sw;++x) {
+                    const unsigned along=stacked?y:x,size=stacked?image.height:image.width;
+                    const unsigned ox=stacked?x:along-size-4,oy=stacked?along-size-4:y;
+                    const std::byte* p=along<size?original.rgba.data()+(std::size_t(y/4)*texture.width+x/4)*4:
+                        along>=size+4?image.rgba.data()+(std::size_t(oy)*image.width+ox)*4:nullptr;
+                    auto* out=sheet.rgba.data()+(std::size_t(y)*sw+x)*4;
+                    const float a=p?std::to_integer<unsigned>(p[3])/255.0f:0;const int backdrop[3]{46,51,82};
+                    for(unsigned c=0;c<3;++c) out[c]=std::byte(int(std::lround((p?std::to_integer<unsigned>(p[c]):0)*a+backdrop[c]*(1-a))));
+                    out[3]=std::byte{255};
+                }
+                save_png(sheet,directory/(texture.name+"-4x.png"));
+            }
+            if(!results.empty()) results+=',';
+            results+=std::format("{{\"texture\":{},\"size\":[{},{}],\"factor\":{},\"network\":{},\"edge\":{:.4f},\"transparent\":{},\"max_difference\":{},\"mean_difference\":{:.4f},\"ms\":{:.3f}}}",
+                json(texture.name),texture.width,texture.height,factor,network,decision.edge,decision.transparent,maximum,mean,milliseconds);
+        }
+    }
+    // Throughput with a warmed upscaler: request, run and read back one texture.
+    std::string benchmarks;
+    for(const unsigned size:{32U,128U,256U}) {
+        const auto texture=make(std::format("bench{}",size),size,size,[&](float x,float y) {return disc(x*20/size,y*12/size);});
+        std::uint64_t compilations=0;
+        InterfaceUpscaler upscaler(device,context,compilations);
+        const auto view=source(texture);
+        double best=1e9;
+        for(unsigned run=0;run<3;++run) {
+            const auto start=std::chrono::steady_clock::now();
+            upscaler.request(1,view,size,size,4);
+            const auto finished=upscaler.step(true);
+            if(finished.size()!=1) throw std::runtime_error("HUD upscaler benchmark did not finish");
+            read(finished[0].result.view.Get());
+            best=std::min(best,std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count());
+        }
+        const auto tiles=(size+interface_tile-1)/interface_tile,extent=std::min(size,interface_tile)+2*interface_halo;
+        const double work=2.0*tiles*tiles*extent*extent*(3*64*9+16*64*64*9+64*48*9); // Colour and alpha passes.
+        if(!benchmarks.empty()) benchmarks+=',';
+        benchmarks+=std::format("{{\"size\":{},\"ms\":{:.3f},\"gmac_per_s\":{:.1f}}}",size,best,work/best/1e6);
+    }
+    {
+        // Sixteen 32x32 glyphs at once, as a menu screen requests them.
+        const auto glyph=make("glyph",32,32,[&](float x,float y) {return disc(x*20/32,y*12/32);});
+        std::uint64_t compilations=0;
+        InterfaceUpscaler upscaler(device,context,compilations);
+        const auto view=source(glyph);
+        double best=1e9;
+        for(unsigned run=0;run<3;++run) {
+            const auto start=std::chrono::steady_clock::now();
+            for(std::uint32_t id=1;id<=16;++id) upscaler.request(id,view,32,32,4);
+            const auto finished=upscaler.step(true);
+            if(finished.size()!=16) throw std::runtime_error("HUD upscaler glyph benchmark did not finish");
+            for(const auto& done:finished) read(done.result.view.Get());
+            best=std::min(best,std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count());
+        }
+        const double extent=32+2*interface_halo,work=16*2.0*extent*extent*(3*64*9+16*64*64*9+64*48*9);
+        benchmarks+=std::format(",{{\"size\":\"16 x 32\",\"ms\":{:.3f},\"gmac_per_s\":{:.1f}}}",best,work/best/1e6);
+    }
+    cases.emplace_back("outlined artwork uses the network",classify_interface(textures[0].rgba,20,12).network);
+    cases.emplace_back("soft glow uses the filter",!classify_interface(textures[2].rgba,16,16).network);
+    // Tiles of 8 texels split the outlined artwork into six tiles across one
+    // batch; the 12-texel halo keeps their seams within a few levels.
+    {
+        const auto [whole,network_whole]=upscale(textures[0],4,interface_tile);
+        const auto [tiled,network_tiled]=upscale(textures[0],4,8);
+        unsigned seam=0;
+        for(std::size_t i=0;i<whole.rgba.size();++i)
+            seam=std::max(seam,unsigned(std::abs(int(std::to_integer<unsigned>(whole.rgba[i]))-int(std::to_integer<unsigned>(tiled.rgba[i])))));
+        cases.emplace_back("tile seams stay within 3 levels",seam<=3 && network_whole && network_tiled);
+    }
+    // Renderer integration: marking, completion, toggling, scale and release.
+    {
+        const auto& texture=textures[0];
+        std::vector<std::byte> bgra(texture.rgba.size());
+        for(std::size_t i=0;i<texture.rgba.size();i+=4) for(unsigned c=0;c<4;++c)
+            bgra[i+(c<3?2-c:3)]=std::byte(std::lround(texture.rgba[i+c]*255));
+        Renderer scene(texture.width,texture.height,warp,debug,4);
+        RenderState state;state.texture_modes[0]=1;state.texture_filter[0]=0x01010000;state.final_inputs={0x00000008,0x00001800};
+        std::array<Vertex,6> quad;
+        constexpr Float4 positions[]={{-1,-1,0,1},{1,-1,0,1},{1,1,0,1},{-1,-1,0,1},{1,1,0,1},{-1,1,0,1}};
+        for(unsigned i=0;i<quad.size();++i) {quad[i].position=positions[i];quad[i].uv[0]={(positions[i][0]+1)/2,(1-positions[i][1])/2,0,1};}
+        const auto id=scene.upload({texture.width,texture.height,TextureFormat::argb8_linear,bgra,1,texture.width*4});
+        state.textures[0]=id;
+        const auto draw=[&] {scene.set_target(0);scene.prepare(state);scene.begin();scene.draw(state,quad);scene.end();return scene.readback();};
+        const auto original=draw();
+        constexpr std::uint64_t content=0x5EED;
+        scene.interface_texture(id,content);scene.finish_interface_upscales();
+        const bool idle_when_disabled=scene.stats().hud_marked==1 && scene.stats().hud_upscales==0 && draw().rgba==original.rgba;
+        scene.enhancements(0,0,false,false,true);scene.finish_interface_upscales();
+        const auto enlarged=draw();
+        const auto [expected,network]=upscale(texture,4,interface_tile);
+        bool matches=enlarged.width==expected.width && enlarged.height==expected.height;
+        // Point sampling at 4x maps every pixel onto one enlarged texel; the
+        // combiner passes colour, so compare RGB where the texel is opaque.
+        for(std::size_t i=0;matches && i<expected.rgba.size();i+=4) if(expected.rgba[i+3]==std::byte{255})
+            for(unsigned c=0;c<3;++c) matches&=std::abs(int(std::to_integer<unsigned>(enlarged.rgba[i+c]))-int(std::to_integer<unsigned>(expected.rgba[i+c])))<=1;
+        cases.emplace_back("renderer waits for the setting",idle_when_disabled);
+        cases.emplace_back("renderer samples the enlarged image",matches && scene.stats().hud_upscales==1 && network);
+        scene.enhancements(0,0,false,false,false);
+        cases.emplace_back("disabling restores the original",draw().rgba==original.rgba && scene.stats().hud_bytes==0);
+        scene.enhancements(0,0,false,false,true);scene.finish_interface_upscales();
+        cases.emplace_back("re-enabling enlarges again",draw().rgba==enlarged.rgba && scene.stats().hud_upscales==2);
+        // A reload of identical artwork into a new slot reuses the released image.
+        scene.release_texture(id);
+        const bool cached=scene.stats().hud_cached==1 && scene.stats().hud_bytes>0;
+        const auto reloaded=scene.upload({texture.width,texture.height,TextureFormat::argb8_linear,bgra,1,texture.width*4});
+        state.textures[0]=reloaded;scene.interface_texture(reloaded,content);
+        cases.emplace_back("reloaded artwork reuses its enlargement",cached && scene.stats().hud_reused==1 && scene.stats().hud_pending==0 &&
+            scene.stats().hud_cached==0 && draw().rgba==enlarged.rgba && scene.stats().hud_upscales==2);
+        scene.image_quality(1,0,0,false,false,true);scene.finish_interface_upscales();
+        cases.emplace_back("1x keeps the original",scene.stats().hud_upscales==2 && scene.stats().hud_pending==0);
+        scene.image_quality(4,0,0,false,false,true);
+        scene.release_texture(reloaded);scene.finish_interface_upscales();
+        cases.emplace_back("release cancels pending work",scene.stats().hud_marked==0 && scene.stats().hud_pending==0 &&
+            scene.stats().hud_upscales==2 && scene.stats().texture_bytes==0 && scene.stats().hud_cached==0);
+        for(auto& message:scene.errors()) errors.push_back(std::move(message));
+    }
+    // Frontend sample bounds: one 16x16 cell of a two-cell atlas whose
+    // neighbour starts with an opaque red column. At 3x the last pixels sample
+    // within half a texel of the cell edge and blend in the red; clamping half
+    // a texel inside the cell rectangle keeps them inside the cell.
+    {
+        constexpr unsigned cell=16;
+        std::vector<std::byte> atlas(cell*2*cell*4);
+        for(unsigned y=0;y<cell;++y) for(unsigned x=0;x<cell*2;++x) {
+            auto* p=atlas.data()+(std::size_t(y)*cell*2+x)*4; // BGRA
+            const bool glyph=x>=4 && x<12 && y>=4 && y<12,neighbour=x==cell;
+            p[0]=std::byte(neighbour?0:255);p[1]=std::byte(neighbour || glyph?0:255);p[2]=std::byte(glyph?0:255);p[3]=std::byte(glyph || neighbour?255:0);
+        }
+        Renderer scene(cell,cell,warp,debug,3);
+        RenderState state;state.texture_modes[0]=1;state.texture_filter[0]=0x02020000;state.final_inputs={0x00000008,0x00001800};
+        std::array<Vertex,6> quad;
+        constexpr Float4 positions[]={{-1,-1,0,1},{1,-1,0,1},{1,1,0,1},{-1,-1,0,1},{1,1,0,1},{-1,1,0,1}};
+        for(unsigned i=0;i<quad.size();++i) {quad[i].position=positions[i];quad[i].uv[0]={(positions[i][0]+1)/4,(1-positions[i][1])/2,0,1};}
+        state.textures[0]=scene.upload({cell*2,cell,TextureFormat::argb8_linear,atlas,1,cell*2*4});
+        const auto draw=[&] {scene.set_target(0);scene.prepare(state);scene.begin();scene.draw(state,quad);scene.end();return scene.readback();};
+        const auto unbounded=draw();
+        state.sample_bounds[0]={0.5f/(cell*2),0.5f/cell,(cell-0.5f)/(cell*2),(cell-0.5f)/cell};state.bounded_samples=1;
+        const auto before=scene.stats().bounded_samples;
+        const auto bounded=draw();
+        const auto pixel=[](const Image& image,unsigned x,unsigned y) {return image.rgba.data()+(std::size_t(y)*image.width+x)*4;};
+        const unsigned last=bounded.width-1;
+        bool bleeds=false,clean=bounded.width==cell*3,interior=clean;
+        for(unsigned y=0;clean && y<bounded.height;++y) {
+            bleeds|=std::to_integer<unsigned>(pixel(unbounded,last,y)[1])<240;
+            for(unsigned c=0;c<3;++c) clean&=pixel(bounded,last,y)[c]==std::byte{255};
+            for(unsigned x=3;x+3<bounded.width;++x) interior&=std::memcmp(pixel(bounded,x,y),pixel(unbounded,x,y),4)==0;
+        }
+        cases.emplace_back("unbounded 3x edge blends the neighbouring cell",bleeds);
+        cases.emplace_back("sample bounds keep the edge inside its cell",clean && scene.stats().bounded_samples>before);
+        cases.emplace_back("sample bounds leave interior pixels unchanged",interior);
+        for(auto& message:scene.errors()) errors.push_back(std::move(message));
+    }
+    for(auto& message:renderer.errors()) errors.push_back(std::move(message));
+    cases.emplace_back("D3D11 validation clean",errors.empty());
+    const auto passed=std::ranges::all_of(cases,[](const auto& test){return test.second;});
+    std::string report=std::format("{{\"format\":\"smbd-hud-upscaling-v1\",\"adapter\":{},\"passed\":{},\"model_sha256\":{},\"benchmarks\":[{}],\"results\":[{}],\"cases\":[",
+        json(adapter),passed,json(upscaler_model_sha256),benchmarks,results);
+    for(std::size_t i=0;i<cases.size();++i) {
+        if(i) report+=',';
+        report+="{\"name\":"+json(cases[i].first)+",\"passed\":"+(cases[i].second?"true":"false")+'}';
+    }
+    report+="],\"errors\":[";
+    for(std::size_t i=0;i<errors.size();++i) {if(i) report+=',';report+=json(errors[i]);}
+    report+="]}";
+    write_text(directory/"report.json",report+'\n',false);
+    return report;
 }
 }

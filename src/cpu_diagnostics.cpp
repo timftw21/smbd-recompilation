@@ -551,6 +551,50 @@ std::string check_cpu(Xbe& image) {
             require(std::abs(value-(1-std::pow(0.98,120)))<0.000001,"Damping depends on refresh rate");
         }
     });
+    check("replay ball angles follow the shorter arc between recorded frames",0x0008CAF0,[&] {
+        // A small original-layout recording: header +26 ring size, +34 write
+        // index, +36 valid frames, +38 32-byte records. Sample time t reads
+        // record 6-t; its z angle (+10) rises 1500 units per frame and wraps
+        // between t=1 and t=2.
+        struct Restore {FrameStep saved=frame_step;~Restore(){frame_step=saved;}} restore;
+        constexpr std::uint32_t header=data+0x3000,records=data+0x3100,ball=0x738DF0,output=data+0x3400;
+        const auto prepare=[&](float clock) {
+            std::memset(memory.access(header,0x40),0,0x40);
+            memory.store<std::uint16_t>(header+0x26,8);memory.store<std::uint16_t>(header+0x34,7);memory.store<std::uint16_t>(header+0x36,7);
+            memory.store<std::uint32_t>(header+0x38,records);
+            for(int k=0;k<8;++k) {
+                const auto record=records+32*static_cast<std::uint32_t>(k);
+                std::memset(memory.access(record,32),0,32);
+                memory.store<std::uint16_t>(record+0x10,static_cast<std::uint16_t>(30000+1500*(6-k)));
+                memory.store<std::uint16_t>(record+0x14,0x7FFF);
+            }
+            memory.store<std::uint32_t>(0x8AFA80,0);memory.store<std::uint32_t>(0x8AFA98,header);memory.store<std::uint32_t>(0x8AFA94,0);
+            memory.store<std::uint32_t>(0x8AFA90,std::bit_cast<std::uint32_t>(clock));memory.store<std::uint32_t>(0x739BB4,ball);
+            memory.store<std::uint8_t>(ball+3,10);memory.store<std::uint8_t>(ball+0x2E,0);
+            for(const std::uint32_t field:{0x98U,0x9CU,0x128U}) memory.store<std::uint32_t>(ball+field,0);
+        };
+        const auto angle=[&] {return static_cast<int>(std::bit_cast<std::int16_t>(memory.load<std::uint16_t>(ball+0x2C)));};
+        const auto wrapped=[](int difference) {return difference>32768?difference-65536:difference<-32768?difference+65536:difference;};
+        for(const unsigned rate:{60U,144U,360U}) {
+            prepare(5);frame_step={};reset_frame_history();
+            const auto delta=60.0f/rate;double elapsed=0;int previous=0;bool first=true;
+            for(unsigned scene=0;scene<5*rate/60;++scene) {
+                const auto before=std::floor(elapsed+1e-9);elapsed+=delta;auto whole=std::floor(elapsed+1e-9);
+                if(std::abs(elapsed-whole)<1e-9) elapsed=whole;
+                advance_frame_step(delta,static_cast<float>(std::max(0.0,elapsed-whole)),whole>before);
+                run(0x8CAF0,{ball},true);
+                const auto z=angle();
+                if(!first) require(std::abs(wrapped(z-previous)+1500*delta)<=2,"Replay ball angle left the recorded arc between frames");
+                previous=z;first=false;
+            }
+            require(angle()==30000,"Replay ball did not finish on the recorded frame");
+        }
+        // Replay camera planners call the sampler directly at fractional times
+        // at 60 Hz; they keep the original (unwrapped) interpolation.
+        prepare(0);frame_step={};reset_frame_history();
+        run(0x27A2E0,{0,std::bit_cast<std::uint32_t>(1.5f),output},true);
+        require(std::bit_cast<std::int16_t>(memory.load<std::uint16_t>(output+0x10))==-518,"Direct sampler interpolation changed");
+    });
     check("original REP MOVS across RAM aliases",0x0030D820,[&] {
         memory.map(0x80000000U+data,{static_cast<std::byte*>(memory.access(data,256)),256});
         memory.map(0xF0000000U+data,{static_cast<std::byte*>(memory.access(data,256)),256});

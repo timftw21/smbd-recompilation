@@ -66,7 +66,8 @@ try {
         '.Set MaxDiskSize=0','.Set MaxCabinetSize=0','.Set MaxErrors=1',('.Set RptFileName="'+(Join-Path $package 'payload.rpt')+'"'),
         ('.Set InfFileName="'+(Join-Path $package 'payload.inf')+'"'))
     foreach($file in $files) {
-        $relative=[IO.Path]::GetRelativePath($stage,$file.FullName)
+        # Path.GetRelativePath needs PowerShell 7; staged files are always below $stage.
+        $relative=$file.FullName.Substring($stage.TrimEnd('\').Length+1)
         if($relative -match '[^\x20-\x7e]' -or $relative -match '[\r\n\t"]' -or $relative -match '^(data|logs|captures|build)[\\/]') {throw "Unexpected release file: $relative"}
         $manifest+=($relative.Replace('\','/')+"`t"+$file.Length+"`t"+(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash)
         $directives+=('"'+$file.FullName+'" "'+$relative+'"')

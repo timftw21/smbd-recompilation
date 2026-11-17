@@ -157,8 +157,13 @@ struct Hash {
 constexpr std::size_t chunk_size = 256 * 1024;
 }
 
+std::string sha256(Bytes data) {return hash(nullptr,0,0,false,data);}
 std::string hash(File& file, std::uint64_t offset, std::uint64_t count, bool sha1, Bytes prefix) {
-    file.check(offset, count);
+    return hash(&file,offset,count,sha1,prefix);
+}
+std::string hash(File* file, std::uint64_t offset, std::uint64_t count, bool sha1, Bytes prefix) {
+    if(file) file->check(offset, count);
+    else if(count) throw std::runtime_error("A hash without a file covers only its prefix");
 #ifdef _WIN32
     Algorithm algorithm;
     crypto_check(BCryptOpenAlgorithmProvider(&algorithm.handle,
@@ -179,7 +184,7 @@ std::string hash(File& file, std::uint64_t offset, std::uint64_t count, bool sha
     std::vector<std::byte> buffer(chunk_size);
     while (count) {
         const auto size = static_cast<std::size_t>(std::min<std::uint64_t>(count, buffer.size()));
-        file.read(offset, std::span(buffer).first(size));
+        file->read(offset, std::span(buffer).first(size));
 #ifdef _WIN32
         crypto_check(BCryptHashData(hash.handle, reinterpret_cast<PUCHAR>(buffer.data()),
                                     static_cast<ULONG>(size), 0));

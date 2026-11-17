@@ -56,7 +56,7 @@ add_custom_command(OUTPUT ${smbd_dxvk_libraries}
         "-DSMBD_MUON_SOURCE=${smbd_muon_SOURCE_DIR}"
         "-DSMBD_WORK=${smbd_dxvk_work}"
         "-DSMBD_CC=${CMAKE_C_COMPILER}" "-DSMBD_CXX=${CMAKE_CXX_COMPILER}"
-        "-DSMBD_NINJA=${smbd_dxvk_ninja}" "-DSMBD_STRIP=${CMAKE_STRIP}"
+        "-DSMBD_NINJA=${smbd_dxvk_ninja}" "-DSMBD_STRIP=${CMAKE_STRIP}" "-DSMBD_JOBS=${SMBD_BUILD_WORKERS}"
         "-DSMBD_SDL_INCLUDE=${sdl3_SOURCE_DIR}/include"
         "-DSMBD_SDL_LIB=$<TARGET_FILE_DIR:SDL3-shared>"
         -P "${CMAKE_CURRENT_LIST_DIR}/build-dxvk.cmake"

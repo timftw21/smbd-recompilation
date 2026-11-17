@@ -1,0 +1,61 @@
+FMV subtitle audit and corrections, 2026-11-16
+
+Executable SHA-256:
+9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2
+
+Scope. Story and ending cutscenes draw subtitles from media/dlg/*_e.bin,
+loaded by path beside scnplay/scndat_*.bin. The executable names 23 English
+scripts: scn1a, scn1b, scn2..scn10, scnlast, scnend1..4 and scnend1u..6u
+(433 entries). scn0a_e.bin has no reference. scnall appears only in the name
+table at 38EE24 beside the DIALOG/SCENE PLAY TEST strings and is not loaded
+by path. The attract/opening movies have no subtitle scripts.
+
+Format. Loader 6B26F opens the file, sizes it (16A70), allocates
+(size+1F)&~1F plus 20h and reads it whole (16A00). Header: u32 entry count,
+u32 table offset (8), one offset per 64-byte entry. 6B2E5..6B2F6 relocate the
+table, entry +00 (cue label string, e.g. "214") and +2C (text) by the buffer
+base. Labels are stored directly after each text's terminator. Text codes:
+\tTIME reveal/pause marks (10000+TIME closes the card), \pN styles, \l page
+breaks, LF line breaks. Renderer 6B900 treats a byte with its high bit set as
+the lead of a two-byte character (6B994) and passes both bytes on (74810).
+
+Glyph lookup 73D70, ASCII mode, maps A-Z/a-z/0-9 arithmetically and anything
+else through table 39E6D8 indexed by the signed byte. Byte 84 reads 39E4E8
+(bytes 53 41 4E 4E, part of an unrelated string) and D6 reads 39E630
+(FF 12 FF FF); "!" (21) reads glyph 133h. Six English lines still end in the
+Japanese heart code 84 D6, used throughout the Japanese scripts; the
+parallel English lines end in "!".
+
+Corrections (Enhancements / Corrected subtitles, setting corrected_subtitles,
+default on). src/subtitles.cpp holds 32 splice edits and 10 label-pointer
+updates for 15 scripts, keyed by each script's size and SHA-256. They apply
+only to a complete read at offset 0 of an unmodified original, on the
+synchronous, uncached asynchronous and cached asynchronous read paths; the
+read cache keeps original bytes. A text that grows moves the label after it
+into its own zero padding and updates the entry's +00 pointer; file size,
+entry count, labels and all timing/style codes stay identical.
+  - 84 D6 -> "!" (scnend1u 23, scnend2u 3/23, scnend3u 27, scnend5u 6,
+    scnend6u 1).
+  - "hapiness" -> "happiness" in the shared closing chant (scnend4, 4u, 5u, 6u).
+  - "I know it's a bery hard" -> "I know it's bery hard" in all ten endings
+    (Baby's "bery" kept; the stray article is not part of the speech pattern).
+  - "a long way to become an / Ultimate player." -> "a long way to go /
+    to become an Ultimate player." (scnend1u, scnend2u; same line count).
+  - scnend3u 22 begins with a duplicated "pwayer! " from the previous card.
+  - scnend3u 7 gains its final period.
+  - scn1b "any more" -> "anymore"; scn3 "So long, everyone!" and
+    "Hang on, everyone!"; scn4 "high-speed" -> "high speed"; scn5
+    "Aaaah..., Oh" -> "Aaaah... Oh"; scn9 "forget, AIAI!", "onto the planet",
+    "That means you'll".
+
+Left as intended: Baby's and GonGon's speech (da, dis, bery, pway, tink,
+weally, blowed, Wroagh), chants, double spaces after sentences, padded short
+cards such as "  Gasp!  ", cards that continue a sentence, "Here, I go!" and
+"strange ..." (their punctuation sits on timed pauses), colloquial "You
+better" and spoken comma splices.
+
+Validation: smbd-tool check-subtitles ISO passes 840 checks (34 changed and
+326 unchanged entries; labels, codes and English-only bytes verified; partial,
+modified and non-dlg reads are left unchanged). check-services passes 232
+checks, including scn9 reads on all three delivery paths with the option on
+and off. Captured cutscenes were not replayed in-game for these scenes.

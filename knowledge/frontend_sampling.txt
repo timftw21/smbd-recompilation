@@ -1,0 +1,78 @@
+Frontend texture edges at higher resolutions (2026-11-17)
+XBE SHA-256: 9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2
+
+Symptom
+Thin dark vertical/horizontal lines beside HUD and menu text at internal
+resolutions above 1x, with or without Upscaled HUD and antialiasing.
+User capture frame-1794875095213-113965613400 (3x, 16:9, MSAA 4x, 1-14
+SLOPES goal): lines at the edges of "1-14", "66mph", "STAGE SCORE",
+"TIME BONUS" and "REPLAY" glyph quads, through their drop shadows.
+
+Cause (executable and capture evidence)
+- Every frontend sprite and glyph is one quad from 31200..31462, completed
+  at 313B0 (knowledge/ultrawide_hud.txt). Font digits share atlases: draw
+  372 ("1") samples texture 50 (128x64 DXT3) at u 0.125..0.25, v 1/64..1/4,
+  one 16-texel cell. The neighbouring "2" cell's outline starts at column
+  32, the very first texel past this cell (decoded alpha 6..F).
+- The SDK screen offset k59=(320.53125,240.53125), 1/16-pixel truncation
+  and 1/32 bias place pixel centres so that, in these draws, the original
+  640x480 raster never samples the neighbouring cell's first texel. In 16:9 the HUD is squeezed by
+  0.75 (k96 x scale 0.00234375): 12 pixels cover 16 texels and the last
+  centre samples texel 15.33 of the cell.
+- At 3x, host pixel centres lie up to 1/3 pixel beyond the last original
+  centre: the last samples texel 15.78, giving the neighbour's black
+  outline 28% weight. Higher resolution, not the HUD upscaler or MSAA,
+  adds these samples; replays with Upscaled HUD 0/1 and AA off/MSAA 4x
+  all show the lines.
+
+Fix
+- complete_screen_primitives (src/cpu.cpp) reports, for every frontend quad
+  whose UVs form a texture-space rectangle (any screen rotation), that
+  rectangle per UV set. The report is keyed by the quad's vertex bytes
+  (interface_quad_identity); 313B0 submits those bytes unchanged as the
+  NV097 inline array, so Gpu::draw matches each quad of an inline QUADS draw.
+  Draws hold one quad or one cell repeated at sub-pixel offsets (outline and
+  shadow passes); all quads must report the same rectangle. Across 18
+  captures, all 2,513 frontend draws were one quad or four copies of one UV
+  rectangle. Unmatched draws keep ordinary sampling.
+- Gpu::draw insets the rectangle by half a texel of the stage's level-0 size
+  (from the NV097 format word) and clamps only plain 2D lookups of swizzled
+  textures. Bilinear sampling of the full-resolution level then reads only
+  the quad's own texels; samples farther inside are unchanged. Linear
+  textures and surface copies use texel coordinates and are never clamped.
+- The combiner and modulate2d pixel shaders apply the clamp above 1x only;
+  1x keeps the original sampling.
+- Captures record "bounded_samples"/"sample_bounds" per draw; replay-frame
+  restores them, and --sample-bounds 0 replays without the clamp.
+
+Rejected first attempt (same day)
+Clamping to the coordinates of the first and last 640x480 pixel centres
+removed the lines but moved edge samples up to a full texel inward on
+minified glyphs (STAGE SCORE letters: 24 texels over 12.6 pixels in 16:9),
+smearing outlines into heavier black borders. It also mapped normalized
+bounds onto Mode Select's scene-copy quad (draw 182, linear texture 74 with
+texel coordinates), pinning the 3D background to one sky-blue texel.
+Capture frame-1794877053413-92750787300 shows that regression.
+
+Validation (Windows, Ryzen 5 5600X / RTX 5060 Ti; build/checks/text-bleed)
+- check-hud-upscaling: a two-cell atlas at 3x whose neighbour starts with a
+  red column. Unbounded, the last column blends in the red; bounded, it
+  keeps the cell colour; pixels away from the edges are identical.
+- Both user captures predate the rule; their bounds were derived offline
+  from the captured vertices and texture records (user-capture-rect,
+  mode-capture-rect). Slopes goal (127 draws): the lines beside STAGE
+  SCORE, TIME BONUS, 66mph, 1-14 SLOPES and REPLAY are gone with normal
+  outline weight; 18,256 pixels change, the darker ones being 1-pixel light
+  seams at quad edges filled in (before-after-user2.png). Mode Select (205
+  draws): the 3D background renders as without the clamp; 8,690 pixels
+  change at sprite edges (before-after-mode.png). No D3D11 errors.
+- A live hidden 3x 16:9 MSAA 4x run to the 1-1 goal with the final build
+  passed (live2-capture); its replay was not compared. The Mode Select live
+  run was stopped before completion.
+- Regression (build/checks/text-bleed/regression2): check-hud-upscaling,
+  check-cpu, check-texture-cache, check-movie-upscaling, check-services,
+  check-presentation, check-image-blit --scale 3, check-subtitles,
+  check-bump-mapping and check-timing pass.
+- Not validated: Linux/macOS builds; mip levels coarser than level 0 can
+  still blend neighbouring cells when a quad is minified at the host
+  resolution, as at 1x.

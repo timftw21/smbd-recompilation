@@ -2,6 +2,7 @@
 #include <climits>
 #include "shaders.h"
 #include <cstring>
+#include <initializer_list>
 #include <format>
 #include <stdexcept>
 
@@ -57,6 +58,70 @@ Image FrameAntialiasing::readback() {
     Image result{width_,height_,std::vector<std::byte>(bytes())};
     for(unsigned row=0;row<height_;++row) std::memcpy(result.rgba.data()+std::size_t(row)*width_*4,static_cast<const std::byte*>(mapped.pData)+std::size_t(row)*mapped.RowPitch,width_*4);
     context_->Unmap(staging.Get(),0);return result;
+}
+MovieUpscaler::MovieUpscaler(ID3D11Device* device,ID3D11DeviceContext* context,std::uint64_t& compilations):device_(device),context_(context) {
+    const auto vertex=shader_binary(ShaderKind::display_vertex),chroma=shader_binary(ShaderKind::movie_chroma);
+    const auto upscale=shader_binary(ShaderKind::movie_upscale),sharpen=shader_binary(ShaderKind::movie_sharpen);
+    compilations+=unsigned(vertex.compiled)+unsigned(chroma.compiled)+unsigned(upscale.compiled)+unsigned(sharpen.compiled);
+    checked_aa(device->CreatePixelShader(chroma.bytes.data(),chroma.bytes.size(),nullptr,&chroma_pass_),"Movie colour plane shader");
+    checked_aa(device->CreateVertexShader(vertex.bytes.data(),vertex.bytes.size(),nullptr,&vertex_),"Movie vertex shader");
+    checked_aa(device->CreatePixelShader(upscale.bytes.data(),upscale.bytes.size(),nullptr,&upscale_),"Movie upscaling shader");
+    checked_aa(device->CreatePixelShader(sharpen.bytes.data(),sharpen.bytes.size(),nullptr,&sharpen_),"Movie sharpening shader");
+    D3D11_BUFFER_DESC buffer{};buffer.ByteWidth=32;buffer.Usage=D3D11_USAGE_DYNAMIC;
+    buffer.BindFlags=D3D11_BIND_CONSTANT_BUFFER;buffer.CPUAccessFlags=D3D11_CPU_ACCESS_WRITE;
+    checked_aa(device->CreateBuffer(&buffer,nullptr,&constants_),"Movie upscaling parameters");
+    D3D11_RASTERIZER_DESC raster{};raster.FillMode=D3D11_FILL_SOLID;raster.CullMode=D3D11_CULL_NONE;raster.DepthClipEnable=TRUE;
+    checked_aa(device->CreateRasterizerState(&raster,&raster_),"Movie upscaling rasterizer");
+    D3D11_DEPTH_STENCIL_DESC depth{};depth.DepthFunc=D3D11_COMPARISON_ALWAYS;
+    depth.FrontFace=depth.BackFace={D3D11_STENCIL_OP_KEEP,D3D11_STENCIL_OP_KEEP,D3D11_STENCIL_OP_KEEP,D3D11_COMPARISON_ALWAYS};
+    checked_aa(device->CreateDepthStencilState(&depth,&depth_),"Movie upscaling depth state");
+}
+MovieUpscaler::Image MovieUpscaler::create(unsigned width,unsigned height,DXGI_FORMAT format) const {
+    Image image{{},{},{},width,height,format==DXGI_FORMAT_R16G16B16A16_FLOAT?8U:4U};
+    D3D11_TEXTURE2D_DESC texture{};texture.Width=width;texture.Height=height;texture.MipLevels=texture.ArraySize=texture.SampleDesc.Count=1;
+    texture.Format=format;texture.BindFlags=D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_RENDER_TARGET;
+    checked_aa(device_->CreateTexture2D(&texture,nullptr,&image.texture),"Upscaled movie image");
+    checked_aa(device_->CreateShaderResourceView(image.texture.Get(),nullptr,&image.view),"Upscaled movie view");
+    checked_aa(device_->CreateRenderTargetView(image.texture.Get(),nullptr,&image.target),"Upscaled movie target");
+    return image;
+}
+void MovieUpscaler::upscale(const D3D11_SUBRESOURCE_DATA& pixels,DXGI_FORMAT format,unsigned width,unsigned height,unsigned scale,const Image& output) {
+    if(!width || !height || scale<2 || scale>4 || output.width!=width*scale || output.height!=height*scale)
+        throw std::runtime_error("Invalid movie upscaling dimensions.");
+    // Decoded frames replace one persistent source image; only the internal
+    // resolution or movie size reallocates the transient filtering storage.
+    if(!source_ || source_width_!=width || source_height_!=height || source_format_!=format) {
+        source_view_.Reset();source_.Reset();source_width_=source_height_=scale_=0;
+        D3D11_TEXTURE2D_DESC texture{};texture.Width=width;texture.Height=height;texture.MipLevels=texture.ArraySize=texture.SampleDesc.Count=1;
+        texture.Format=format;texture.Usage=D3D11_USAGE_DEFAULT;texture.BindFlags=D3D11_BIND_SHADER_RESOURCE;
+        checked_aa(device_->CreateTexture2D(&texture,nullptr,&source_),"Movie source image");
+        checked_aa(device_->CreateShaderResourceView(source_.Get(),nullptr,&source_view_),"Movie source view");
+        chroma_={};chroma_=create((width+1)/2,(height+1)/2,DXGI_FORMAT_R16G16B16A16_FLOAT);
+        source_width_=width;source_height_=height;source_format_=format;
+    }
+    if(intermediate_.width!=output.width || intermediate_.height!=output.height) {intermediate_={};intermediate_=create(output.width,output.height);}
+    if(scale!=scale_) {
+        struct Parameters {float ratio[2];int last[2];float sharpness,padding[3];};
+        // Half a stop below RCAS's maximum strength suits compressed video.
+        const Parameters parameters{{1.0f/scale,1.0f/scale},{int(width)-1,int(height)-1},0.70710678f,{}};
+        D3D11_MAPPED_SUBRESOURCE mapped{};checked_aa(context_->Map(constants_.Get(),0,D3D11_MAP_WRITE_DISCARD,0,&mapped),"Movie upscaling parameters");
+        std::memcpy(mapped.pData,&parameters,sizeof(parameters));context_->Unmap(constants_.Get(),0);scale_=scale;
+    }
+    context_->UpdateSubresource(source_.Get(),0,nullptr,pixels.pSysMem,pixels.SysMemPitch,0);
+    context_->RSSetState(raster_.Get());context_->OMSetDepthStencilState(depth_.Get(),0);context_->OMSetBlendState(nullptr,nullptr,UINT_MAX);
+    context_->IASetInputLayout(nullptr);context_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    context_->VSSetShader(vertex_.Get(),nullptr,0);
+    auto constants=constants_.Get();context_->PSSetConstantBuffers(0,1,&constants);
+    ID3D11ShaderResourceView* const empty[2]{};
+    const auto pass=[&](ID3D11PixelShader* shader,std::initializer_list<ID3D11ShaderResourceView*> inputs,const Image& target) {
+        context_->PSSetShaderResources(0,2,empty);auto view=target.target.Get();context_->OMSetRenderTargets(1,&view,nullptr);
+        const D3D11_VIEWPORT viewport{0,0,float(target.width),float(target.height),0,1};context_->RSSetViewports(1,&viewport);
+        context_->PSSetShader(shader,nullptr,0);context_->PSSetShaderResources(0,UINT(inputs.size()),inputs.begin());context_->Draw(3,0);
+    };
+    pass(chroma_pass_.Get(),{source_view_.Get()},chroma_);
+    pass(upscale_.Get(),{source_view_.Get(),chroma_.view.Get()},intermediate_);
+    pass(sharpen_.Get(),{intermediate_.view.Get()},output);
+    context_->PSSetShaderResources(0,2,empty);context_->OMSetRenderTargets(0,nullptr,nullptr);
 }
 MultisampleCopy::MultisampleCopy(ID3D11Device* device,ID3D11DeviceContext* context,std::uint64_t& compilations):context_(context) {
     const auto vertex=shader_binary(ShaderKind::display_vertex),pixel=shader_binary(ShaderKind::copy_multisample),stencil=shader_binary(ShaderKind::copy_multisample_stencil);

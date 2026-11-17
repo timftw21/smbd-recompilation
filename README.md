@@ -10,11 +10,11 @@
 
 An unofficial native version of the original Xbox game for Windows, Linux x86-64, and Steam Deck, built around accurate gameplay, original presentation, and enhancements. This fan project is independent of SEGA. You must provide your own US Xbox game disc image. Original game files are not distributed here.
 
-**0.5.0 is the latest public development release.** Bugs, slowdowns, and stops in untested game modes are still possible. Linux and Steam Deck support needs more testing. macOS remains a planned target.
+**0.6.0 is the latest public development release.** Bugs, slowdowns, and stops in untested game modes are still possible. Linux and Steam Deck support needs more testing. macOS remains a planned target.
 
 ## AI disclosure
 
-OpenAI Codex has assisted with development and research. Changes are checked using native diagnostics, scripted gameplay, and rendering comparisons. Those checks establish specific results, rather than complete game compatibility.
+OpenAI Codex and Anthropic Claude have assisted with development and research. Changes are checked using native diagnostics, scripted gameplay, and rendering comparisons. Those checks establish specific results, rather than complete game compatibility.
 
 ## Screenshots
 
@@ -24,15 +24,18 @@ OpenAI Codex has assisted with development and research. Changes are checked usi
 
 ## Current status
 
-### Changes in 0.5.0
+### Changes in 0.6.0
 
-- Added Linux and Steam Deck support. Testing is needed!
-- Added Discord Rich Presence. It's off by default :)
-- Fixed V-Sync performance issues at higher refresh rates.
+- Added "Upscaled FMVs" option to Enhancements. It's not AI upscaling, but it's cleaner than the original.
+- Added "Upscaled HUD" option to Enhancements. This is AI upscaling via Real-ESRGAN.
+- Added "Corrected subtitles" option to Enhancements. Fixes some issues that the localization team overlooked :)
+- Fixed subtle text artifacts at higher internal resolutions.
+- Fixed lingering replay timing issues.
+- Raised worker count for Linux and Steam Deck builds. Completely overlooked this. Building should be much faster.
 
 ### Known issues
 
-- Timing issues in replays.
+- Minor timing issues at higher refresh rates.
 - Your antivirus software may flag the setup executable as a virus. It's a false positive.
 - Other issues that I'm sure I'll find.
 
@@ -61,7 +64,7 @@ OpenAI Codex has assisted with development and research. Changes are checked usi
 
 You need a Direct3D 11-capable graphics card and an XISO image of the **US Xbox release of Super Monkey Ball Deluxe**. A full raw-disc dump must first be converted to XISO. The executable is checked against [the supported-target registry](knowledge/supported_target.json).
 
-**[Download the 0.5.0 Windows installer](https://github.com/timftw21/smbd-recompilation/releases/download/v0.5.0/smbd-0.5.0-windows-x64-setup.exe)** · [Release notes and SHA-256 checksum](https://github.com/timftw21/smbd-recompilation/releases/tag/v0.5.0)
+**[Download the 0.6.0 Windows installer](https://github.com/timftw21/smbd-recompilation/releases/download/v0.6.0/smbd-0.6.0-windows-x64-setup.exe)** · [Release notes and SHA-256 checksum](https://github.com/timftw21/smbd-recompilation/releases/tag/v0.6.0)
 
 1. Run the installer and select your US Xbox XISO image.
 2. Choose an installation folder. You can keep a copy of the image with the game and create a desktop shortcut.
@@ -84,7 +87,7 @@ Clone the repository, then run from its folder in PowerShell:
 ```powershell
 git clone https://github.com/timftw21/smbd-recompilation.git
 cd smbd-recompilation
-.\tools\Build.ps1 -Disc 'C:\Games\Super Monkey Ball Deluxe (USA).xiso.iso' -AllowPartial -Workers 3
+.\tools\Build.ps1 -Disc 'C:\Games\Super Monkey Ball Deluxe (USA).xiso.iso' -AllowPartial
 .\Play.cmd
 ```
 
@@ -112,7 +115,7 @@ Use the bottom row to close settings, restart the running game, restore defaults
 - **General:** Choose a refresh limit or Unlimited, toggle the frame-rate display, and opt in to Discord Rich Presence.
 - **Audio:** Adjust master volume, mute, or mute when the window loses focus.
 - **Graphics:** Set aspect ratio, fullscreen, and V-sync.
-- **Enhancements:** Choose 1×–4× internal resolution, FXAA or supported MSAA levels, and anisotropic filtering up to 16×. The render distance override is recommended at higher internal resolutions. These settings and aspect ratio apply immediately.
+- **Enhancements:** Choose 1×–4× internal resolution, FXAA or supported MSAA levels, and anisotropic filtering up to 16×. Upscaled FMVs sharpens the game's movies, and Upscaled HUD enlarges HUD, menu and text artwork with the Real-ESRGAN AI upscaler; both need 2× or higher. Corrected subtitles fixes typos in the story and ending subtitles. The render distance override is recommended at higher internal resolutions. These settings and aspect ratio apply immediately.
 - **Controls:** Rebind keyboard keys, controller buttons, and stick directions, clear bindings, or restore the defaults.
 - **Diagnostics:** Capture a frame or record a slowdown.
 

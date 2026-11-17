@@ -7,6 +7,7 @@
 #include "performance.h"
 #ifdef SMBD_HAS_SHADERS
 #include "shaders.h"
+#include "subtitles.h"
 #endif
 #include <charconv>
 #include <chrono>
@@ -93,6 +94,7 @@ constexpr auto usage =
     "Super Monkey Ball Deluxe native tools (C++23)\n"
     "  smbd-tool prepare ISO OUTPUT_DIRECTORY [--extract-shaders|--extract-all]\n"
     "  smbd-tool verify-disc ISO\n"
+    "  smbd-tool check-subtitles ISO\n"
     "  smbd-tool install-files ISO OUTPUT_DIRECTORY [--copy-disc]\n"
     "  smbd-tool list ISO [DIRECTORY]\n"
     "  smbd-tool extract ISO DISC_PATH OUTPUT\n"
@@ -118,11 +120,13 @@ constexpr auto usage =
     "  smbd-tool check-input\n"
     "  smbd-tool check-audio\n"
     "  smbd-tool check-image-copy [--warp] [--msaa 2|4|8]\n"
+    "  smbd-tool check-movie-upscaling NEW_OUTPUT_DIRECTORY [MOVIE_TEXTURE_BIN] [--warp]\n"
+    "  smbd-tool check-hud-upscaling NEW_OUTPUT_DIRECTORY [HUD_TEXTURE.png ...] [--warp]\n"
     "  smbd-tool check-image-blit NEW_OUTPUT_DIRECTORY [--warp] [--msaa 2|4|8] [--scale 1..4]\n"
     "  smbd-tool check-texture-cache\n"
     "  smbd-tool check-bump-mapping\n"
     "  smbd-tool check-presentation NEW_OUTPUT_DIRECTORY [XBE ISO]\n"
-    "  smbd-tool replay-frame XBE CAPTURE_DIRECTORY NEW_OUTPUT_DIRECTORY [--through DRAW] [--draw DRAW] [--join-arrays] [--antialiasing 0..6] [--anisotropy 0|1|2|4|8|16] [--unlimited-render-distance 0|1]\n"
+    "  smbd-tool replay-frame XBE CAPTURE_DIRECTORY NEW_OUTPUT_DIRECTORY [--through DRAW] [--draw DRAW] [--join-arrays] [--antialiasing 0..6] [--anisotropy 0|1|2|4|8|16] [--unlimited-render-distance 0|1] [--upscaled-movies 0|1] [--upscaled-hud 0|1] [--sample-bounds 0|1]\n"
     "  smbd-tool boot XBE ISO CHECKPOINT_BUDGET OUTPUT.json [FRAME.png]\n"
 #endif
     "Addresses accept decimal or hexadecimal. Decode/data: 64 KiB; analysis: 8192 instructions.\n"
@@ -159,6 +163,8 @@ int tool_main(int argc, char** argv) {
             output=smbd::check_memory_watch(argc==3);
         } else if(command=="verify-disc" && argc==3) {
             output=smbd::verify_install_disc(paths[2]);
+        } else if(command=="check-subtitles" && argc==3) {
+            output=smbd::check_subtitles(paths[2]);
         } else if(command=="install-files" && (argc==4 || (argc==5 && std::string_view(argv[4])=="--copy-disc"))) {
             output=smbd::install_game_files(paths[2],paths[3],argc==5,[](unsigned percent,std::string_view phase) {
                 std::cout<<"SMBD_PROGRESS "<<percent<<' '<<phase<<'\n'<<std::flush;
@@ -178,12 +184,15 @@ int tool_main(int argc, char** argv) {
         } else if(command=="replay-frame" && argc>=5) {
             std::uint32_t through=UINT32_MAX,only=UINT32_MAX;
             unsigned antialiasing=UINT32_MAX,anisotropy=UINT32_MAX;
-            unsigned unlimited_render_distance=UINT32_MAX;
+            unsigned unlimited_render_distance=UINT32_MAX,upscaled_movies=UINT32_MAX,upscaled_hud=UINT32_MAX,sample_bounds=UINT32_MAX;
             bool join_arrays=false;
             for(int i=5;i<argc;++i) {
                 const auto option=std::string_view(argv[i]);
                 if(option=="--join-arrays") {join_arrays=true;continue;}
                 if(option=="--unlimited-render-distance" && i+1<argc) {unlimited_render_distance=number(argv[++i]);continue;}
+                if(option=="--upscaled-movies" && i+1<argc) {upscaled_movies=number(argv[++i]);continue;}
+                if(option=="--upscaled-hud" && i+1<argc) {upscaled_hud=number(argv[++i]);continue;}
+                if(option=="--sample-bounds" && i+1<argc) {sample_bounds=number(argv[++i]);continue;}
                 if((option=="--antialiasing" || option=="--anisotropy") && i+1<argc) {
                     (option=="--antialiasing"?antialiasing:anisotropy)=number(argv[++i]);continue;
                 }
@@ -191,7 +200,7 @@ int tool_main(int argc, char** argv) {
                 (option=="--through"?through:only)=number(argv[++i]);
             }
             smbd::Xbe image(paths[2]);if(!image.supported()) throw std::runtime_error("Replay requires the verified executable");
-            output=smbd::replay_frame(paths[3],paths[4],image.sha256,through,only,join_arrays,antialiasing,anisotropy,unlimited_render_distance);
+            output=smbd::replay_frame(paths[3],paths[4],image.sha256,through,only,join_arrays,antialiasing,anisotropy,unlimited_render_distance,upscaled_movies,upscaled_hud,sample_bounds);
             if(output.find("\"passed\":false")!=std::string::npos) result=3;
         } else if(command=="check-presentation" && (argc==3 || argc==5)) {
             output=argc==3?smbd::check_presentation(paths[2]):smbd::check_presentation(paths[2],paths[3],paths[4]);
@@ -200,6 +209,23 @@ int tool_main(int argc, char** argv) {
             if(output.find("\"passed\":false")!=std::string::npos) result=3;
         } else if(command=="check-texture-cache" && argc==2) {
             output=smbd::Gpu::check_texture_cache();
+            if(output.find("\"passed\":false")!=std::string::npos) result=3;
+        } else if(command=="check-movie-upscaling" && argc>=3 && argc<=5) {
+            bool warp=false;std::filesystem::path frame;
+            for(int i=3;i<argc;++i) {
+                if(std::string_view(argv[i])=="--warp") warp=true;
+                else if(frame.empty()) frame=paths[i];
+                else throw std::runtime_error(usage);
+            }
+            output=smbd::check_movie_upscaling(paths[2],frame,warp,smbd::Renderer::debug_layer_available);
+            if(output.find("\"passed\":false")!=std::string::npos) result=3;
+        } else if(command=="check-hud-upscaling" && argc>=3) {
+            bool warp=false;std::vector<std::filesystem::path> textures;
+            for(int i=3;i<argc;++i) {
+                if(std::string_view(argv[i])=="--warp") warp=true;
+                else textures.push_back(paths[i]);
+            }
+            output=smbd::check_hud_upscaling(paths[2],textures,warp,smbd::Renderer::debug_layer_available);
             if(output.find("\"passed\":false")!=std::string::npos) result=3;
         } else if(command=="check-image-copy" || command=="check-image-blit") {
             const bool blit=command=="check-image-blit";

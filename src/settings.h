@@ -19,7 +19,7 @@ std::string check_presentation(const std::filesystem::path&,const std::filesyste
 struct Settings {
     std::array<char,2048> executable{},disc{};
     bool show_fps=false,muted=false,mute_on_focus_loss=true,vsync=false,fullscreen=false;
-    bool unlimited_render_distance=false;
+    bool unlimited_render_distance=false,upscaled_movies=false,upscaled_hud=false,corrected_subtitles=true;
     bool discord_presence=false;
     int volume=100,aspect=1,resolution=1,refresh_rate=60,antialiasing=0,anisotropy=0;
     ControlBindings bindings=default_bindings();

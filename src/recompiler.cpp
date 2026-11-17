@@ -484,7 +484,11 @@ public:
             {0x79652,0x775E0},
             {0x1E129F,0xEBD40},{0x1E12A4,0x23F590},{0x1E12A9,0x23ECC0},{0x1E12AE,0x1EF4D0},
             {0x1E12B3,0x1EB370},{0x1E12B8,0x16E30},{0x1E1355,0x1EDD80},{0x1E1385,0x23EEC0},{0x1E139A,0xFB4D0},
-            {0x233DFE,0xEBD40},{0x233E03,0x23F590},{0x233E08,0x23ECC0},{0x233E1C,0x232BF0},{0x233E35,0x23EEC0}};
+            {0x233DFE,0xEBD40},{0x233E03,0x23F590},{0x233E08,0x23ECC0},{0x233E1C,0x232BF0},{0x233E35,0x23EEC0},
+            // Baseball's UI-effect controller (master 7700A4) steps 59 effect
+            // timers by 300/[6C7EA8] and animates their rows' scale/position.
+            // Its caller 23C520 is reached from rendering at 232C10.
+            {0x23C535,0xF4A30}};
         for(const auto& [site,target]:rule_calls) if(instruction.address==site) {
             if(ins.mnemonic!=ZYDIS_MNEMONIC_CALL || ins.length!=5 || instruction.target()!=target)
                 throw std::runtime_error("Original rule-tick call signature differs");
@@ -781,6 +785,31 @@ public:
             if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="50") throw std::runtime_error("Original ape recovery rotation differs");
             used.insert(0);dirty.insert(0);
             body << "    eax=static_cast<std::uint32_t>(smbd::frame_integer_increment(std::bit_cast<std::int32_t>(eax)));\n";
+        }
+        // Replay samplers 27A2E0 and saved-replay 24A6C0 interpolate recorded
+        // Euler angles as plain signed 16-bit values. The replay ball (8CAF0)
+        // originally samples whole recorded frames only; scenes between rule
+        // ticks sample fractions, where an angle that wrapped between frames
+        // passed through the opposite orientation for a scene. Only during the
+        // replay ball's own sample, take the next frame's angle along the
+        // shorter arc. Replay camera planners (B2xxx/B5xxx) sample fractional
+        // times at 60 Hz too and keep the original interpolation.
+        if(instruction.address==0x8CB4B) {
+            if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="E890D71E00" || instruction.target()!=0x27A2E0)
+                throw std::runtime_error("Original replay ball sample call differs");
+            native_declarations["FrameReplayBallSample"]="struct FrameReplayBallSample {FrameReplayBallSample();~FrameReplayBallSample();};\n";
+            body << "    FrameReplayBallSample replay_ball_sample;\n";
+        }
+        constexpr std::tuple<std::uint32_t,std::string_view,unsigned,std::uint32_t> replay_angles[]={
+            {0x27A4A4,"F30F2AD8",0,0x2C},{0x27A4C6,"F30F2AD8",0,0x2E},{0x27A4ED,"F30F2AD8",0,0x30},
+            {0x24A7ED,"F30F2ADA",2,0x30},{0x24A80F,"F30F2ADA",2,0x32},{0x24A836,"F30F2ADA",2,0x34}};
+        for(const auto& [site,bytes,reg,previous]:replay_angles) if(instruction.address==site) {
+            if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!=bytes) throw std::runtime_error("Original replay angle interpolation differs");
+            const auto name=reg==0?"eax":"edx";
+            native_declarations["frame_nearest_angle"]="std::int32_t frame_nearest_angle(std::int32_t,std::int32_t);\n";
+            used.insert(reg);used.insert(4);dirty.insert(reg);
+            body << "    " << name << "=static_cast<std::uint32_t>(frame_nearest_angle(std::bit_cast<std::int32_t>(" << name
+                 << "),static_cast<std::int16_t>(memory.load<std::uint16_t>(esp+" << hex32(previous) << "U))));\n";
         }
         if(instruction.address==0x893C0) {
             if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="E8EB04FAFF") throw std::runtime_error("Original reaction spin differs");
@@ -1111,6 +1140,13 @@ public:
                 if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!=bytes) throw std::runtime_error("Original minimap fade step differs");
                 value="smbd::frame_increment("+value+')';
             }
+            if(instruction.address==0x8AD49) {
+                // 8AAC0's airborne goal drag (ball flag 400) scales velocity and
+                // the rotation quaternion's axis by .95 once per original tick.
+                if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="F30F100570563900") throw std::runtime_error("Original goal drag differs");
+                native_declarations["frame_decay"]="__m128 frame_decay(FloatingState&,__m128);\n";
+                value="smbd::frame_decay(cpu.floating,"+value+')';
+            }
             if(instruction.address==0xAFF50 || instruction.address==0xB0400) {
                 const auto bytes=instruction.address==0xAFF50?"F30F101D081A3A00":"F30F101D4C6F3900";
                 if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!=bytes) throw std::runtime_error("Original replay camera damping differs");
@@ -1200,6 +1236,12 @@ public:
                 native_declarations["frame_damped_increment"]="__m128 frame_damped_increment(FloatingState&,__m128,float);\n";
                 const auto retention=site==0xAFFBB?0x402458U:site<0xB0000?0x3A1A08U:0x396F4CU;
                 value="_mm_add_ss("+vector(operands[0])+",smbd::frame_damped_increment(cpu.floating,"+vector(operands[1],true)+",std::bit_cast<float>(memory.load<std::uint32_t>("+constant(retention)+"))))";
+            }
+            if(instruction.address==0x8ADC1) {
+                // The same drag raises the quaternion's w by 1/.95 per tick.
+                if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="F30F590DD8F03900") throw std::runtime_error("Original goal spin drag differs");
+                native_declarations["frame_power"]="__m128 frame_power(FloatingState&,__m128);\n";
+                value="_mm_mul_ss("+vector(operands[0])+",smbd::frame_power(cpu.floating,"+vector(operands[1],true)+"))";
             }
             if(instruction.address==0xAFF81) {
                 if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="F30F590D58244000") throw std::runtime_error("Original fallout camera vertical damping differs");
@@ -1342,6 +1384,13 @@ public:
             for(const auto& [site,bytes]:hud_turns) if(instruction.address==site) {
                 if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!=bytes)
                     throw std::runtime_error("Original character HUD spin differs");
+                increment="static_cast<std::uint32_t>(smbd::frame_integer_increment("+increment+"))";
+            }
+            if(instruction.address==0x235051) {
+                // 235040, reached from Baseball rendering, turns the UI angle
+                // 87944E by 400 each original tick.
+                if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="6681C10004")
+                    throw std::runtime_error("Original Baseball UI turn differs");
                 increment="static_cast<std::uint32_t>(smbd::frame_integer_increment("+increment+"))";
             }
             constexpr std::pair<std::uint32_t,std::string_view> item_angles[]={{0x258FB9,"6603D8"},{0x258FC4,"6603C1"},{0x258FF3,"6603CA"}};

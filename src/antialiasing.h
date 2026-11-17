@@ -30,6 +30,39 @@ private:
     Ptr<ID3D11DepthStencilState> depth_;
 };
 
+// Real-time FMV enlargement to the internal resolution. Each decoded movie frame
+// is filtered once when uploaded, never per draw; the result keeps the source's
+// normalized texture coordinates, so original draws sample it unchanged.
+class MovieUpscaler {
+public:
+    template<class T> using Ptr=Microsoft::WRL::ComPtr<T>;
+    struct Image {
+        Ptr<ID3D11Texture2D> texture;
+        Ptr<ID3D11ShaderResourceView> view;
+        Ptr<ID3D11RenderTargetView> target;
+        unsigned width=0,height=0,pixel_bytes=4;
+        std::size_t bytes() const {return std::size_t(width)*height*pixel_bytes;}
+    };
+    MovieUpscaler(ID3D11Device*,ID3D11DeviceContext*,std::uint64_t& compilations);
+    Image create(unsigned width,unsigned height,DXGI_FORMAT=DXGI_FORMAT_R8G8B8A8_UNORM) const;
+    // Leaves no shader resources or render targets bound.
+    void upscale(const D3D11_SUBRESOURCE_DATA& pixels,DXGI_FORMAT,unsigned width,unsigned height,unsigned scale,const Image& output);
+    std::size_t bytes() const {return intermediate_.bytes()+chroma_.bytes()+std::size_t(source_width_)*source_height_*4;}
+private:
+    ID3D11Device* device_;
+    ID3D11DeviceContext* context_;
+    Image intermediate_,chroma_; // Enlarged colour; half-resolution colour difference plane.
+    Ptr<ID3D11Texture2D> source_;
+    Ptr<ID3D11ShaderResourceView> source_view_;
+    unsigned source_width_=0,source_height_=0,scale_=0;
+    DXGI_FORMAT source_format_=DXGI_FORMAT_UNKNOWN;
+    Ptr<ID3D11VertexShader> vertex_;
+    Ptr<ID3D11PixelShader> chroma_pass_,upscale_,sharpen_;
+    Ptr<ID3D11Buffer> constants_;
+    Ptr<ID3D11RasterizerState> raster_;
+    Ptr<ID3D11DepthStencilState> depth_;
+};
+
 // Grow multisample colour/depth/stencil without discarding individual samples.
 // D3D11 forbids ordinary partial copies of multisampled resources.
 class MultisampleCopy {

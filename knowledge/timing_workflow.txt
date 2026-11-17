@@ -650,3 +650,91 @@ the common quantized elapsed-time increment. Both curve directions passed
 The original 60 Hz path is unchanged. The new cases in timing_issues.json
 use the supplied frame-1794022328055-72578712200 model and the original
 422658 character speed table; they stop at actual sprite submission 75400.
+
+Goal drag and replay angle wrap, 2026-11-16
+
+Target SHA-256: 9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2.
+Evidence: build/checks/goal-replay-timing/ (silent isolated story routes,
+probe recipes and reports).
+
+Goal stop. Ball state 6 dispatches 8D8F0 every scene (frame_continuous_ball).
+Its 8AAC0 call has an airborne branch for goal flag 400 (8AD33..8AE11): velocity
++1C..24 and the spin quaternion axis +A0..A8 are multiplied by .95 (395670,
+loaded at 8AD49); w at +AC by 1/.95 (39F0D8, 8ADC1) unless it already exceeds
+.99972 (3FAE64), which snaps the spin to identity. These per-tick factors ran
+on every scene, so at 144 Hz speed fell to .049 by tick 16 instead of tick 38.
+Both factors now use their fractional power of the scene interval; 60 Hz
+arithmetic is unchanged. The in-contact path 8A8A0 (.92 at 8A8F8) scales the
+per-scene displacement, so it already follows the interval and is unchanged.
+The goal-entry handler 8E120 (state 5) is a one-shot transition that tail-calls
+8D8F0; it stays on rule ticks. goal-airborne-drag in timing_issues.json checks
+every sample with the response rule; probe endpoints agree within 5e-6 from 60
+to 1000 Hz and irregular schedules. Live routes: post-goal speed divided by
+entry speed is .408/.407 at tick 16 for 60/144 Hz (was .15 at 144 before).
+
+Replay pose jitter. 8CAF0 samples the recording through 27A2E0 (saved replays:
+24A6C0), which interpolates recorded Euler angle shorts (+0C/+0E/+10) as plain
+signed values at 27A497..27A4ED (24A7E0..24A836). Original playback uses whole
+clock values (speed codes 1,0,-1,2,-2), but scenes between rule ticks sample
+fractions, and an angle that wrapped between recorded frames passed through
+the opposite orientation for that scene. The 144 Hz replay had 41 of 422 such
+scenes (e.g. z 22712 -> -1879 -> -26469). The replay ape measures the ball's
+rotation between successive transforms, so it snapped between standing and
+tilted. During 8CAF0's own call (8CB4B) only, the later frame's angle is taken
+along the shorter arc before conversion (27A4A4/27A4C6/27A4ED, 24A7ED/24A80F/
+24A836). Replay camera planners in B2xxx/B5xxx call the same sampler at
+fractional times at 60 Hz (camera 17 placement depends on it); a first,
+unscoped version changed that placement, so those callers keep the original
+interpolation. check-cpu's replay case runs compiled 8CAF0 at 60/144/360 Hz on
+an original-layout recording crossing the wrap (per-scene change 1500*delta,
+original final frame) and confirms a direct 27A2E0 sample at t=1.5 still
+returns -518. Live 144 Hz replay: maximum per-scene angle change 4445, no flips.
+
+Validation: 60 Hz routes are byte-identical to the previous build through the
+goal and complete replay (ball, velocity, flags, camera, replay clock); the
+following stage-intro camera differs between repeated runs of the same build.
+check-cpu 25 cases and check-timing 38 checks pass. Audit-Timing.ps1 needs
+PowerShell 7 and was not run; its new case was exercised with the same recipe.
+
+Separate observation, not changed: high-refresh story routes drift laterally
+about 1.5x faster than 60 Hz on the approach (x -0.345 vs -0.232 at z=-110),
+then clip the goal's left edge (flags 40004025, v.x +.17 to +.22) at 144 and
+360 Hz in every run. The goal-stop fix does not address that approach path.
+The motion report now reads ape/animation objects in any mapped page (they
+live above 64 MiB) and records ball 0's Euler angles.
+
+Monkey Baseball UI effects, 2026-11-17
+
+Target SHA-256: 9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2.
+Evidence: build/checks/baseball-timing/ (routes, captures, motion reports).
+
+Baseball's loop 233DD0 runs its rule dispatch 232BF0 on rule ticks and its
+rendering 232C10 every scene. Rendering reaches 23C520, which calls the UI
+effect controller F4A30 with the Baseball UI master [879C18] (also stored at
+7700A4). F4A30 steps 59 effect timers (master+24C..+338) by 300/[6C7EA8]
+(6C7EA8=60, so 5 per original tick) and dispatches the per-effect animators
+F0CD0/F46A0/F0FA0/F10C0/F1300/F1CB0/... that set UI-row scale (+40/+44) and
+position (+04). At 144 Hz these pop-ups, slides and zooms ran ~2.4x fast.
+Separately, 235040 (via 235090 in rendering) turns UI angle 87944E by 400
+per call (235051 ADD CX,400) and derives 879450 from it.
+
+Detection used the motion report's new --motion-watch ADDRESS[:BYTES]: one
+dword, raw bytes (<=256) or a hash per sampled scene, so a single run shows
+state that changes on scenes without a rule tick. Cross-run comparisons at
+equal ticks were confounded by menu input timing (scripted presses landing
+at different menu phases), so they were not used as evidence.
+Before (144 Hz, 320 rule / 447 intermediate scenes): UI row 6 scale and
+bounds changed on 9 intermediate scenes, row 53 position on 5, the UI pool
+on 24; the 87944E angle advanced 400 per scene.
+
+Fix: rule_calls gains {23C535, F4A30}; intermediate scenes skip the call
+(its two pushed arguments are released by the original ADD ESP,8 at
+23C53A) and the rule call receives whole-tick units. 235051's immediate
+uses frame_integer_increment, so the angle advances 400 per original tick
+in fractional, quantized steps. 60 Hz code paths are unchanged.
+After (same route, 144 Hz): rows 6/53 and the whole UI pool change only on
+rule scenes (row 6's zoom spans 16 ticks); the angle advances ~426.7 per
+scene (400*60/144). Not covered: other Baseball modes beyond the
+exhibition at-bat route; the earlier observed outfield-board phase
+differences came from input timing, and the board records (879154+k*54,
+index table 8793F4) did not change on intermediate scenes.

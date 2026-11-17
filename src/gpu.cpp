@@ -13,6 +13,7 @@
 #include <sstream>
 #include <thread>
 #include <tuple>
+#include <unordered_map>
 
 namespace smbd {
 using Microsoft::WRL::ComPtr;
@@ -132,9 +133,64 @@ struct Gpu::Impl {
     struct Surface {std::uint32_t identifier,width,height;};
     std::map<std::array<std::uint32_t,4>,Surface> targets;
     decltype(targets)::iterator last_target=targets.end();
-    struct Texture {std::uint32_t identifier,size;};
+    struct Texture {std::uint32_t identifier,size;bool movie=false,hud=false;};
     using TextureKey=std::array<std::uint32_t,5>;
     std::map<TextureKey,Texture> textures;
+    std::set<std::uint32_t> interface_addresses; // Retired with their allocation.
+    // Frontend quads awaiting their inline draw, by vertex-byte identity. The
+    // oldest retire first; an unmatched draw keeps unclamped sampling.
+    static constexpr std::size_t sample_bound_limit=4096;
+    std::unordered_map<std::uint64_t,InterfaceSampleBounds> sample_bounds;
+    std::deque<std::uint64_t> sample_bound_order;
+    void bound_samples(Draw& draw,unsigned stride) {
+        // Frontend draws hold one quad, or one cell repeated at sub-pixel
+        // offsets for outlines and shadows; every quad must report the same
+        // texture rectangle.
+        const auto bytes=std::as_bytes(std::span(draw.packed));
+        const std::size_t size=std::size_t(stride)*4,quads=size?bytes.size()/size:0;
+        if(!quads || quads>16 || bytes.size()%size) return;
+        InterfaceSampleBounds common;
+        for(std::size_t quad=0;quad<quads;++quad) {
+            const auto found=sample_bounds.find(interface_quad_identity(bytes.subspan(quad*size,size)));
+            if(found==sample_bounds.end()) return;
+            if(!quad) common=found->second;
+            else if(found->second.mask!=common.mask || found->second.sets!=common.sets) return;
+        }
+        for(unsigned set=0;set<2;++set) {
+            // UV set N feeds stage N. Only plain 2D lookups of swizzled
+            // textures take the clamp: their coordinates are normalized, as
+            // the quad's UVs are. Linear textures and surface copies use
+            // texel coordinates and keep ordinary sampling.
+            const auto format=reg(0x1B04+set*0x40),code=(format>>8)&255;
+            if(!(common.mask&(1U<<set)) || draw.state.texture_modes[set]!=1 || (format&4) ||
+               code==0x11 || code==0x12 || code==0x1E) continue;
+            const float width=float(1U<<((format>>20)&15)),height=float(1U<<((format>>24)&15));
+            auto b=common.sets[set];
+            // Half a texel inside the rectangle, bilinear filtering of the
+            // full-resolution level reads only the quad's own texels.
+            const std::array<float,2> inset{0.5f/width,0.5f/height};
+            for(unsigned c=0;c<2;++c) {
+                if(b[c+2]-b[c]>2*inset[c]) {b[c]+=inset[c];b[c+2]-=inset[c];}
+                else b[c]=b[c+2]=(b[c]+b[c+2])/2;
+            }
+            draw.state.sample_bounds[set]={b[0],b[1],b[2],b[3]};
+            draw.state.bounded_samples|=1U<<set;
+        }
+    }
+    void mark_interface(const TextureKey& key,Texture& texture) {
+        if(texture.movie || texture.hud) return;
+        // Content identity for the renderer's reuse of released enlargements:
+        // the guest bytes plus the format/size words, never the address.
+        std::uint64_t content=0x9E3779B97F4A7C15ULL^texture.size;
+        const auto mix=[&](std::uint64_t value) {content=(content^value)*0xFF51AFD7ED558CCDULL;content^=content>>31;};
+        for(unsigned i=1;i<key.size();++i) mix(key[i]);
+        const auto* bytes=static_cast<const std::byte*>(memory.access(key[0],texture.size));
+        std::size_t i=0;
+        for(;i+8<=texture.size;i+=8) {std::uint64_t value;std::memcpy(&value,bytes+i,8);mix(value);}
+        for(;i<texture.size;++i) mix(std::to_integer<std::uint64_t>(bytes[i])|0x100);
+        texture.hud=true;renderer.interface_texture(texture.identifier,content|1);
+        if(capture_active) capture_try([&] {capture_record(std::format("{{\"type\":\"interface\",\"resource\":{}}}",texture.identifier));});
+    }
     struct TextureBinding {TextureKey key;Float4 scale;std::uint32_t id;};
     std::array<TextureBinding,4> texture_bindings{};
     struct Fence {ComPtr<ID3D11Query> query;std::uint32_t address=0,value=0;bool callback=false;};
@@ -206,7 +262,9 @@ struct Gpu::Impl {
         }
         record<<"],\"attributes\":[";
         for(unsigned i=0;i<layout.size();++i) {if(i) record<<',';const auto& a=layout[i];record<<std::format("[{},{},{}]",a.stream,a.offset,a.format);}
-        record<<std::format("],\"indices\":{{\"count\":{},\"element_bytes\":4,\"data\":{}}}}}",elements.size(),
+        if(draw.state.bounded_samples) record<<std::format("],\"bounded_samples\":{},\"sample_bounds\":{}",draw.state.bounded_samples,
+            json(hex_bytes(std::as_bytes(std::span(draw.state.sample_bounds)))));
+        record<<std::format("{}\"indices\":{{\"count\":{},\"element_bytes\":4,\"data\":{}}}}}",draw.state.bounded_samples?",":"],",elements.size(),
             elements.empty()?"null":capture_data(std::format("indices-{:04}.bin",number),std::as_bytes(elements)));
         capture_record(record.view());
     }
@@ -240,8 +298,8 @@ struct Gpu::Impl {
                 capture_first_frame=statistics.flips+1;capture_active=true;
                 capture_trace.clear();capture_trace.open(capture.directory/"draws.jsonl",std::ios::binary|std::ios::trunc);
                 capture_trace.exceptions(std::ios::failbit|std::ios::badbit);
-                capture_record(std::format("{{\"type\":\"header\",\"format\":\"smbd-gpu-frame-v1\",\"source_sha256\":{},\"adapter\":{},\"frame\":{},\"resolution_scale\":{},\"antialiasing\":{},\"anisotropy\":{},\"unlimited_render_distance\":{},\"byte_order\":\"little\",\"draw_limit\":2048,\"binary_limit\":{},\"trace_limit\":{},\"image_rgba_limit\":{}}}",
-                    json(capture_source),json(renderer.adapter()),capture_first_frame,renderer.stats().resolution_scale,renderer.stats().antialiasing,renderer.stats().anisotropy,renderer.stats().unlimited_render_distance,binary_limit,text_limit,image_limit));
+                capture_record(std::format("{{\"type\":\"header\",\"format\":\"smbd-gpu-frame-v1\",\"source_sha256\":{},\"adapter\":{},\"frame\":{},\"resolution_scale\":{},\"antialiasing\":{},\"anisotropy\":{},\"unlimited_render_distance\":{},\"upscaled_movies\":{},\"upscaled_hud\":{},\"byte_order\":\"little\",\"draw_limit\":2048,\"binary_limit\":{},\"trace_limit\":{},\"image_rgba_limit\":{}}}",
+                    json(capture_source),json(renderer.adapter()),capture_first_frame,renderer.stats().resolution_scale,renderer.stats().antialiasing,renderer.stats().anisotropy,renderer.stats().unlimited_render_distance,renderer.stats().upscaled_movies,renderer.stats().upscaled_hud,binary_limit,text_limit,image_limit));
                 capture_record("{\"type\":\"initial_registers\",\"data\":"+json(hex_bytes(std::as_bytes(std::span(registers))))+'}');
                 for(unsigned i=0;i<unsigned(ShaderKind::count);++i) {
                     const auto kind=ShaderKind(i);
@@ -419,18 +477,20 @@ struct Gpu::Impl {
         if(!size || size>64*1024*1024) throw std::runtime_error("NV097 texture payload exceeds its bound");
         auto found=textures.find(key);
         if(found==textures.end()) {
+            const bool movie=linear && owner.movie_texture && owner.movie_texture(address);
             const auto id=renderer.upload({width,height,static_cast<TextureFormat>(code),
                 Bytes(static_cast<const std::byte*>(memory.access(address,static_cast<std::size_t>(size))),static_cast<std::size_t>(size)),
-                mips,linear?pitch:0,cube,depth},!capture.pending);
-            found=textures.emplace(key,Texture{id,static_cast<std::uint32_t>(size)}).first;++statistics.texture_uploads;
+                mips,linear?pitch:0,cube,depth,movie},!capture.pending);
+            found=textures.emplace(key,Texture{id,static_cast<std::uint32_t>(size),movie}).first;++statistics.texture_uploads;
+            if(interface_addresses.contains(address)) mark_interface(key,found->second);
         }
-        const auto id=found->second.identifier;
+        const auto id=found->second.identifier;const bool movie=found->second.movie;
         if(capture_active && !capture_textures.contains(id)) capture_try([&] {
             capture_textures.insert(id);
             const auto data=capture_data(std::format("texture-{}.bin",id),
                 Bytes(static_cast<const std::byte*>(memory.access(address,static_cast<std::size_t>(size))),static_cast<std::size_t>(size)));
-            capture_record(std::format("{{\"type\":\"texture\",\"resource\":{},\"address\":{},\"width\":{},\"height\":{},\"depth\":{},\"format\":{},\"mips\":{},\"pitch\":{},\"cubemap\":{},\"size\":{},\"guest_data\":{}}}",
-                id,json(hex32(address)),width,height,depth,code,mips,linear?pitch:0,cube,size,data));
+            capture_record(std::format("{{\"type\":\"texture\",\"resource\":{},\"address\":{},\"width\":{},\"height\":{},\"depth\":{},\"format\":{},\"mips\":{},\"pitch\":{},\"cubemap\":{},\"size\":{},\"movie\":{},\"interface\":{},\"guest_data\":{}}}",
+                id,json(hex32(address)),width,height,depth,code,mips,linear?pitch:0,cube,size,movie,found->second.hud,data));
         });
         return remember(id);
     }
@@ -477,6 +537,7 @@ struct Gpu::Impl {
             // End consumes this payload. The queued draw owns it until upload.
             draw.packed.swap(inline_words);draw.stream_count=1;
             draw.streams[0]={std::as_bytes(std::span(draw.packed)),inline_stride};
+            if(draw.state.primitive==8 && !sample_bounds.empty()) bound_samples(draw,inline_stride);
         }
         for(unsigned stream=0;!inlined && stream<draw.stream_count;++stream) {
             unsigned final_bytes=0;
@@ -725,11 +786,25 @@ struct Gpu::Impl {
 };
 Gpu::Gpu(Renderer& renderer,Memory& memory,std::uint32_t semaphore_base,std::span<const GraphicsObject> profile):impl_(std::make_unique<Impl>(renderer,memory,*this,semaphore_base,profile)) {}
 Gpu::~Gpu() {if(impl_->capture.pending) impl_->capture_abort("Game ended before the captured frame completed");}
+void Gpu::interface_texture(std::uint32_t address) {
+    auto& g=*impl_;address&=0x0FFFFFFF;
+    if(!address || !g.interface_addresses.insert(address).second) return;
+    for(auto item=g.textures.lower_bound(Impl::TextureKey{address,0,0,0,0});item!=g.textures.end() && item->first[0]==address;++item)
+        g.mark_interface(item->first,item->second);
+}
+void Gpu::interface_bounds(std::uint64_t quad,const InterfaceSampleBounds& bounds) {
+    auto& g=*impl_;
+    const auto [item,added]=g.sample_bounds.insert_or_assign(quad,bounds);
+    if(!added) return;
+    g.sample_bound_order.push_back(quad);
+    if(g.sample_bound_order.size()>Impl::sample_bound_limit) {g.sample_bounds.erase(g.sample_bound_order.front());g.sample_bound_order.pop_front();}
+}
 void Gpu::invalidate_memory(std::uint32_t address,std::uint32_t size) {
     if(!size) return;
     auto& g=*impl_;address&=0x0FFFFFFF;
     const auto end=std::uint64_t(address)+size;
     if(end>0x10000000) throw std::runtime_error("Graphics invalidation wraps guest physical memory");
+    g.interface_addresses.erase(g.interface_addresses.lower_bound(address),g.interface_addresses.lower_bound(static_cast<std::uint32_t>(end)));
     const auto overlaps=[&](std::uint32_t start,std::uint64_t bytes) {return bytes && start<end && address<std::uint64_t(start)+bytes;};
     const auto affected=[&](const auto& item) {
         const auto& [key,surface]=item;const auto format=key[2],pitch=key[3];

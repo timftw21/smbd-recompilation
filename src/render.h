@@ -34,6 +34,7 @@ struct TextureData {
     std::uint32_t mip_levels = 1, pitch = 0;
     bool cubemap = false;
     std::uint32_t depth = 1;
+    bool movie = false; // A decoded FMV frame, identified from original game state.
 };
 // Xbox cubemap mip chains start each face on a 128-byte boundary.
 inline constexpr std::uint64_t cubemap_face_size(std::uint64_t bytes) {return (bytes+127)&~std::uint64_t(127);}
@@ -74,6 +75,11 @@ struct RenderState {
     bool fog_enable = false;
     std::uint32_t fog_mode = 0x2601;
     std::array<float,2> fog_parameters{};
+    // Frontend quads: per stage {minimum u, minimum v, maximum u, maximum v},
+    // half a texel inside the quad's texture rectangle. Higher internal
+    // resolutions clamp 2D coordinates to it; bit N enables stage N.
+    std::array<Float4,4> sample_bounds{};
+    std::uint32_t bounded_samples=0;
 };
 
 struct ProgramView {
@@ -106,7 +112,16 @@ struct RenderStats {
     std::uint32_t texture_slots=0;
     std::uint32_t resolution_scale=1;
     std::uint32_t antialiasing=0,anisotropy=0;
-    bool unlimited_render_distance=false;
+    bool unlimited_render_distance=false,upscaled_movies=false,upscaled_hud=false;
+    std::uint64_t movie_upscales=0;
+    // Texture stages clamped inside their frontend quad's texture rectangle.
+    std::uint64_t bounded_samples=0;
+    // HUD textures: marked, waiting, enlarged by the network or the filter,
+    // evicted for the budget; bytes include working storage.
+    std::uint64_t hud_marked=0,hud_pending=0,hud_upscales=0,hud_filtered=0,hud_evictions=0,hud_bytes=0,hud_cached=0,hud_reused=0;
+    std::uint64_t hud_disk_loads=0,hud_disk_saves=0; // Enlargements read from / written to the disk cache.
+    double hud_gpu_ms=0;
+    std::uint64_t hud_step_budget=0,hud_step_work=0,hud_step_units=0,hud_waiting=0,hud_network=0;double hud_rate=0;
     std::uint64_t total_vertex_bytes=0,texture_uploads=0,texture_upload_bytes=0,target_creations=0,target_copies=0;
     std::uint64_t buffer_maps=0,state_misses=0,layout_misses=0,sampler_misses=0,program_creations=0;
 };
@@ -141,8 +156,18 @@ public:
     void copy_to_main();
     void resize(std::uint32_t width, std::uint32_t height);
     void aspect_ratio(float);
-    void image_quality(unsigned resolution_scale,unsigned antialiasing,unsigned anisotropy,bool unlimited_render_distance=false);
-    void enhancements(unsigned antialiasing,unsigned anisotropy,bool unlimited_render_distance=false); // AA: off, FXAA low/medium/high, MSAA 2/4/8x. AF: original or 1/2/4/8/16x.
+    void image_quality(unsigned resolution_scale,unsigned antialiasing,unsigned anisotropy,bool unlimited_render_distance=false,bool upscaled_movies=false,bool upscaled_hud=false);
+    // AA: off, FXAA low/medium/high, MSAA 2/4/8x. AF: original or 1/2/4/8/16x.
+    // Upscaled movies enlarge each decoded FMV frame to the internal resolution once.
+    // Upscaled HUD enlarges marked HUD/menu textures once each, at 2x or higher.
+    void enhancements(unsigned antialiasing,unsigned anisotropy,bool unlimited_render_distance=false,bool upscaled_movies=false,bool upscaled_hud=false);
+    // The original immediate frontend samples this texture as HUD/menu artwork.
+    // A nonzero content hash lets a reloaded copy reuse a released enlargement.
+    void interface_texture(std::uint32_t id,std::uint64_t content=0);
+    void finish_interface_upscales(); // Diagnostics: complete queued HUD enlargement now.
+    // Keeps finished HUD enlargements in this directory (bounded, by image
+    // content) for reuse in later sessions; an empty path disables it.
+    void hud_cache(const std::filesystem::path& directory);
     bool supports_msaa(unsigned samples) const;
     void attach_window(SDL_Window* native_window);
     bool wait_for_window_frame(unsigned timeout_ms);
@@ -188,6 +213,10 @@ private:
 
 std::string check_render(const std::filesystem::path& directory, bool warp, bool debug);
 std::string check_image_copy(bool warp,bool debug,unsigned antialiasing=0);
+// Optional FRAME is a captured 640x480 linear ARGB movie texture (texture-N.bin).
+std::string check_movie_upscaling(const std::filesystem::path& directory,const std::filesystem::path& frame,bool warp,bool debug);
+// Optional TEXTURES are captured HUD textures (PNG) to enlarge alongside synthetic cases.
+std::string check_hud_upscaling(const std::filesystem::path& directory,std::span<const std::filesystem::path> textures,bool warp,bool debug);
 std::string render_texture(const std::filesystem::path& input, TextureFormat format,
                            std::uint32_t width, std::uint32_t height,
                            const std::filesystem::path& output, bool warp);

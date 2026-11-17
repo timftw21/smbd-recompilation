@@ -7,6 +7,9 @@ set(ENV{CXX} "${SMBD_CXX}")
 set(ENV{GIT_CEILING_DIRECTORIES} "${SMBD_DXVK_SOURCE}:${SMBD_MUON_SOURCE}")
 set(ENV{PATH} "${SMBD_WORK}/muon:$ENV{PATH}")
 set(muon "${SMBD_WORK}/muon/muon")
+if(NOT SMBD_JOBS MATCHES "^[123]$")
+    set(SMBD_JOBS 1)
+endif()
 if(NOT EXISTS "${muon}")
     smbd_run("${SMBD_MUON_SOURCE}" "${CMAKE_COMMAND}" -E env CFLAGS=-O2
         sh bootstrap.sh "${SMBD_WORK}/muon")
@@ -14,7 +17,7 @@ if(NOT EXISTS "${muon}")
         -Dbuildtype=release -Dlibcurl=disabled -Dlibarchive=disabled -Dlibpkgconf=disabled
         -Dnative_backtrace=disabled -Ddocs=disabled -Dmeson-docs=disabled -Dmeson-tests=disabled
         "${SMBD_WORK}/muon")
-    smbd_run("${SMBD_MUON_SOURCE}" "${SMBD_NINJA}" -C "${SMBD_WORK}/muon" -j1 muon)
+    smbd_run("${SMBD_MUON_SOURCE}" "${SMBD_NINJA}" -C "${SMBD_WORK}/muon" -j${SMBD_JOBS} muon)
 endif()
 file(MAKE_DIRECTORY "${SMBD_WORK}/pkgconfig" "${SMBD_WORK}/lib")
 file(WRITE "${SMBD_WORK}/pkgconfig/sdl3.pc"
@@ -24,7 +27,7 @@ smbd_run("${SMBD_DXVK_SOURCE}" "${muon}" setup -W -Dbuildtype=release -Ddebug=fa
     "-Dcpp_link_args=['-Wl,-rpath,$ORIGIN']"
     -Denable_d3d8=false -Denable_d3d9=false -Denable_d3d10=false
     -Dnative_sdl3=enabled -Dnative_sdl2=disabled -Dnative_glfw=disabled "${SMBD_WORK}/dxvk")
-smbd_run("${SMBD_DXVK_SOURCE}" "${SMBD_NINJA}" -C "${SMBD_WORK}/dxvk" -j1
+smbd_run("${SMBD_DXVK_SOURCE}" "${SMBD_NINJA}" -C "${SMBD_WORK}/dxvk" -j${SMBD_JOBS}
     src/d3d11/libdxvk_d3d11.so.0.30101 src/dxgi/libdxvk_dxgi.so.0.30101)
 foreach(component IN ITEMS d3d11 dxgi)
     set(name "libdxvk_${component}.so.0.30101")

@@ -1,0 +1,149 @@
+Upscaled HUD (2026-11-16)
+XBE SHA-256: 9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2
+
+Goal: sharper HUD, menu and text artwork at internal resolutions of 2x and
+higher without distributing game assets. Enlargement runs on the player's GPU
+from the textures the game loads; nothing is written to disk.
+
+Assets
+- media/bmp/*.tpl: 26 XTPL files, 1,109 textures (844 DXT3, 265 DXT1), 18.9
+  Mtexels; mostly 16..256 texel sprite sheets (digits, TIME, SCORE, banana
+  counter, button prompts, menu panels). Texture data in these files is
+  compressed (resource +14 unpacked size, +18 stored size), so offline
+  inspection used decoded texture-N.bin payloads from frame captures.
+- Menu text uses one 32x32 A4R4G4B4 texture per glyph; the HUD digits are a
+  128x128 DXT3 sheet. The art is outlined and flat-shaded; at 2x and above the
+  original renderer magnifies it bilinearly (visible softness in the 2x
+  capture frame-1794069524678-650436941100).
+
+Identifying HUD/menu draws (executable evidence)
+- The original immediate frontend 31200..31462 completes every sprite, font,
+  outlined-text and overlay quad batch at 313B0; complete_screen_primitives in
+  src/cpu.cpp already runs there (knowledge/ultrawide_hud.txt). Its vertex
+  format word at 6DE3E0 selects the stride; 0x2000/0x4000 are texture
+  coordinate sets 0/1 (0x2200: 20 bytes, 0x2A00: 24, 0x6200: 28).
+- SDK SetTexture 31E4A0 (pattern-derived name) stores the stage's texture at
+  [32B6A8]+F88+stage*4 (instruction 31E4E9) and emits the object's +4 data
+  address as the NV097 texture offset (31E54F..31E55E).
+- complete_screen_primitives therefore reports [[32B6A8]+F88+stage*4]+4 for
+  each coordinate set in the batch. Gpu::interface_texture marks texture-cache
+  entries at that address (masked to 0x0FFFFFFF like NV097 offsets); marks are
+  retired with their allocation in Gpu::invalidate_memory. FMV textures are
+  never marked. Captures record "interface" per texture and as separate
+  records; replay-frame --upscaled-hud reproduces the enlargement.
+
+Model
+- Real-ESRGAN realesr-animevideov3 (release v0.2.5.0; v0.3.0 is code-only and
+  attaches no models), BSD-3-Clause. Checkpoint 2,504,012 bytes, SHA-256
+  B8A8376811077954D82CA3FCF476F1AC3DA3E8A68A4F4D71363008000A18B75D, stored
+  unmodified in resources/upscaler and embedded by compile-shaders.
+- It is a PyTorch zip (stored entries, data descriptors). data.pkl was read once
+  with a whitelist-only unpickler (OrderedDict, _rebuild_tensor_v2,
+  FloatStorage); no code was executed. Tensor order and storage keys are in
+  src/upscaler_model.cpp; the C++ reader uses only the central directory.
+- SRVGGNetCompact: conv 3->64, PReLU, 16 x (conv 64->64, PReLU), conv 64->48,
+  pixel shuffle x4 (channel c*16+i*4+j -> colour c, row i, column j), plus the
+  nearest-upsampled input, clamped to [0,1]. 621,424 float32 parameters.
+
+GPU implementation (src/interface_upscaler.cpp, cs_5_0 shaders in shaders.cpp)
+- classify: largest premultiplied RGBA step between neighbours and whether
+  any alpha is below 1. Steps >= 0.4 use the network; glows and gradients
+  (<= 0.34 in captured textures) and textures under 8 texels use a clamped
+  premultiplied Catmull-Rom filter. Captured outlined art measured 0.58..1.0.
+- Transparent textures: six passes spread visible colour into alpha-0 texels;
+  the network runs once on colour and once on alpha (replicated to RGB,
+  output averaged), matching Real-ESRGAN's RGBA handling.
+- Tiles of 64 texels plus a 12-texel halo; halo texels beyond the texture
+  repeat its edge and each layer zero-pads at the halo boundary. Offline, halo
+  12 changed tile interiors by at most 2/255 versus the full 18-texel
+  receptive radius (halo 8: up to 11/255, visible seams).
+- Batches of up to 8 tile passes (a transparent tile's colour and alpha passes
+  side by side, from any queued textures) share each convolution dispatch;
+  Z selects the slot's 16 RGBA16F array slices. Splitting layers into row
+  bands had left dispatches of ~2,600 threads and the GPU mostly idle.
+- Weights: one 37 KB constant buffer per layer and 16-output group (71);
+  fxc unrolls every multiply-add with an immediate constant operand.
+- Output RGBA8 at factor F = min(internal resolution, 4) with a full mip
+  chain; F < 4 area-averages the x4 samples with premultiplied weights. The
+  result replaces the texture slot's view; normalized coordinates and the
+  game's samplers are unchanged.
+- Work runs after each published frame: 12% of the measured presentation
+  interval (0.25..2 ms), converted to multiply-adds with the throughput
+  learned from timestamp queries, at least one dispatch per frame.
+- Enlargements are capped at 256 MiB. Released ones stay cached by content
+  (64-bit hash of the guest bytes plus format/size words, not the address),
+  so menus that reload artwork into new allocations reuse them at once.
+  Cached images are evicted first, then the least recently sampled live ones.
+  Disabling or changing the internal resolution restores every original.
+
+Offline evaluation (numpy reference, before implementation)
+- 182 captured textures of 8..128 texels: downsampled-result consistency RMS
+  median 0.021, maximum 0.054; no structural failures. Digits, TIME, SCORE,
+  button glyphs and menu letters gain clean outlines without distortion; the
+  soft white glow became harder-edged, which motivated the filter route.
+- Large photographic panel wood (1024x128 DXT1) becomes smoother and slightly
+  painterly; text and outlines on the same panels sharpen. Not filtered.
+
+Validation (Windows, Ryzen 5 5600X / RTX 5060 Ti; evidence in
+build/checks/hud-upscaling)
+- smbd-tool check-hud-upscaling: 35 cases. GPU vs float CPU reference at
+  2x/3x/4x: at most 3/255, mean <= 0.19/255. Glow and 4x16 sliver take the
+  filter. Tile-8 vs tile-64 seams within 3 levels. Renderer: idle while
+  disabled, samples the enlargement, restores on disable, re-enlarges,
+  reuses a reloaded copy, keeps originals at 1x, cancels on release, clean
+  D3D11 validation. Throughput: 128x128 transparent 11.2 ms (3.4 TMAC/s),
+  256x256 43.7 ms, one 32x32 glyph 8.0 ms, sixteen batched 30.2 ms.
+- Regression: check-cpu 26, check-texture-cache 23, check-movie-upscaling
+  21, check-services, check-presentation and check-timing pass.
+- Live hidden 3x run, Story Mode route (live-on-final): every marked texture
+  is HUD/menu art (44 of 82 at Stage Select: glyphs, digits, WORLD, banana
+  icons, prompts, panels; none of the trees, water, sky or monkey parts).
+  Busy spans: title 6..188 frames (19 textures), first menus 305..539
+  (18), later screens 1..60 frames each; 11 reused from the cache; queue
+  drained; 143 MB. Stage Select capture replays with the option on with 0
+  changed pixels. In-game capture on 1-1 SIMPLE (live-game): 24 of 74
+  textures marked (score, timer, bananas, speed, stage name, GOAL/REPLAY);
+  replay on reproduces the live frame exactly.
+- Frame cost at unlimited frame rate across 36 s of menus (perf-menu-on/off):
+  median 1.24/1.15 ms, p95 4.97/4.93 ms, p99 7.96/7.07 ms, frames over 20 ms
+  8/9, 4.8% fewer frames rendered while enlargement was active.
+- Not validated: Linux (vkd3d-shader compilation, DXVK) and macOS (DXMT)
+  builds of the new compute shaders; 4x memory use near the 256 MiB cap.
+
+Linux / Steam Deck portability (2026-11-17)
+- vkd3d-shader 2.1 (the POSIX offline compiler) rejects the method form
+  RWByteAddressBuffer.InterlockedMax (E5005). The classifier now writes a
+  typed R32_UINT RWBuffer<uint> with the InterlockedMax intrinsic on an
+  element, which fxc and vkd3d both accept; groupshared atomics were
+  already accepted. All 44 built-in shaders compile with vkd3d in ~9.5 min.
+- The POSIX ComPtr (src/com_ptr.h) overloads operator& to release and
+  return T**, unlike WRL's ComPtrRef. Taking a ComPtr's address for storage
+  uses std::addressof.
+- Desktop Linux (WSL2 Ubuntu 24.04, clang 19, DXVK Native, Mesa llvmpipe):
+  check-hud-upscaling passes (91 s in software), as do the CPU, texture
+  cache, services, presentation, input, audio, timing, subtitles, bump,
+  image-blit (3x) and movie-upscaling checks. Replays of the text-edge and
+  Mode Select captures match Windows within rasterizer differences (mean
+  0.6 and 0.4 levels at MSAA 4x); text edges are clean and the Mode Select
+  background renders. Settings capture shows the one-line enhancement row.
+  Live gameplay under llvmpipe was skipped as too slow.
+
+Pop-in reduction (2026-11-17)
+- Budget: background work per published frame now uses the GPU's idle share
+  of the presentation interval: 0.75 x (interval - smoothed scene GPU time
+  from the existing timestamp queries), capped at 0.75 x interval and never
+  below the previous 12% floor (0.25..2 ms). GPU-bound frames keep the old
+  floor; capped or CPU-bound frames finish enlargement far sooner.
+- Disk cache: finished enlargements are kept beside the settings file in
+  hud-cache/ (data/local/hud-cache for normal installs), one file per
+  content hash and factor: a 60-byte header (magic SMBDHUD1, version, factor,
+  size, network flag, model SHA-256) and level-0 RGBA8; mips are regenerated
+  on load. Writes copy to a staging texture and complete without waiting
+  (temporary file, then rename). Loads happen when the frontend marks the
+  texture, so the first frame already samples the enlargement. Bounded to
+  512 MiB, pruned oldest-first by write time; loads refresh that time. The
+  run report's "hud" object gives disk_loads/disk_saves.
+- Validation (Windows, 3x, first-level route, 1500 frames at 60 Hz, hidden):
+  cold cache: title enlargement finished by frame 67 (previously 188) and a
+  13-texture menu burst in 4 frames; 102 enlargements saved (92 MB).
+  Warm cache: all 102 loaded from disk, none computed, no busy spans.

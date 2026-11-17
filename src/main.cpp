@@ -58,11 +58,11 @@ std::string window_diagnostic(SDL_Window* window,const smbd::Renderer& renderer,
     if(!SDL_GetWindowSize(window,&width,&height) || !SDL_GetWindowSizeInPixels(window,&pixel_width,&pixel_height))
         throw std::runtime_error(SDL_GetError());
     const auto utc=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-    return std::format("{{\"format\":\"smbd-window-state-v1\",\"phase\":\"capture_request\",\"utc_ms\":{},\"source_sha256\":{},\"build\":{},\"platform\":{},\"sdl_version\":{},\"video_driver\":{},\"adapter\":{},\"logical_size\":[{},{}],\"pixel_size\":[{},{}],\"pixel_density\":{},\"display_scale\":{},\"fullscreen\":{},\"vsync\":{},\"resolution_scale\":{},\"widescreen\":{},\"aspect_mode\":{},\"requested_aspect_mode\":{},\"audio_muted\":{},\"inputs_automated\":{},\"playing\":{},\"frame\":{},\"session_log\":{},\"refresh_rate\":{},\"logic_hz\":60,\"native_scene_steps\":true,\"interpolation\":false,\"antialiasing\":{},\"anisotropy\":{},\"window_title\":{}}}\n",
+    return std::format("{{\"format\":\"smbd-window-state-v1\",\"phase\":\"capture_request\",\"utc_ms\":{},\"source_sha256\":{},\"build\":{},\"platform\":{},\"sdl_version\":{},\"video_driver\":{},\"adapter\":{},\"logical_size\":[{},{}],\"pixel_size\":[{},{}],\"pixel_density\":{},\"display_scale\":{},\"fullscreen\":{},\"vsync\":{},\"resolution_scale\":{},\"widescreen\":{},\"aspect_mode\":{},\"requested_aspect_mode\":{},\"audio_muted\":{},\"inputs_automated\":{},\"playing\":{},\"frame\":{},\"session_log\":{},\"refresh_rate\":{},\"logic_hz\":60,\"native_scene_steps\":true,\"interpolation\":false,\"antialiasing\":{},\"anisotropy\":{},\"upscaled_movies\":{},\"upscaled_hud\":{},\"window_title\":{}}}\n",
         utc,smbd::json(sha),smbd::json(__DATE__ " " __TIME__),smbd::json(SDL_GetPlatform()),SDL_GetVersion(),smbd::json(SDL_GetCurrentVideoDriver()),smbd::json(renderer.adapter()),
         width,height,pixel_width,pixel_height,SDL_GetWindowPixelDensity(window),SDL_GetWindowDisplayScale(window),
         (SDL_GetWindowFlags(window)&SDL_WINDOW_FULLSCREEN)!=0,settings.vsync,renderer.stats().resolution_scale,aspect!=0,aspect,settings.aspect,muted,automated,playing,frames,smbd::json(smbd::path_text(smbd::diagnostic_log())),settings.refresh_rate,
-        renderer.stats().antialiasing,renderer.stats().anisotropy,smbd::json(SDL_GetWindowTitle(window)));
+        renderer.stats().antialiasing,renderer.stats().anisotropy,renderer.stats().upscaled_movies,renderer.stats().upscaled_hud,smbd::json(SDL_GetWindowTitle(window)));
 }
 struct WriteWatches {
     unsigned count=0;
@@ -81,6 +81,11 @@ int run(int argc,char** argv,bool restarting=false) {
     std::filesystem::path settings_path=root/"data/local/settings.cfg",settings_capture,executable_override,disc_override;
     bool hidden=false,stop_after_input=false,muted=false,capture_at_set=false,performance_limits_set=false,trace_storage=false;
     std::vector<std::uint32_t> watches;
+    // Motion-report state probes: one dword, raw bytes (up to 256) or a 64-bit
+    // hash of a larger range, per sampled scene. A change on a non-rule scene
+    // shows a per-scene update.
+    struct MotionWatch {std::uint32_t address,bytes;};
+    std::vector<MotionWatch> motion_watches;
     for(int i=1;i<argc;++i) {
         const auto option=std::string_view(argv[i]);
         if(option=="--hidden") hidden=true;
@@ -99,6 +104,19 @@ int run(int argc,char** argv,bool restarting=false) {
         else if(option=="--xbe" && i+1<argc) executable_override=smbd::utf8_path(argv[++i]);
         else if(option=="--disc" && i+1<argc) disc_override=smbd::utf8_path(argv[++i]);
         else if(option=="--trace-calls" && i+1<argc) call_trace=smbd::utf8_path(argv[++i]);
+        else if(option=="--motion-watch" && i+1<argc) {
+            const auto value=std::string_view(argv[++i]);const auto colon=value.find(':');
+            const auto number=[](std::string_view text,std::uint32_t& out) {
+                const bool hex=text.starts_with("0x") || text.starts_with("0X");
+                const auto parsed=std::from_chars(text.data()+(hex?2:0),text.data()+text.size(),out,hex?16:10);
+                return parsed.ec==std::errc{} && parsed.ptr==text.data()+text.size();
+            };
+            MotionWatch watch{0,4};
+            if(!number(value.substr(0,colon),watch.address) || (colon!=value.npos && !number(value.substr(colon+1),watch.bytes)) ||
+               !watch.bytes || watch.bytes>0x10000 || motion_watches.size()==16)
+                throw std::runtime_error("Motion watches require ADDRESS[:BYTES] (at most 64 KiB) and at most sixteen entries");
+            motion_watches.push_back(watch);
+        }
         else if(option=="--watch-write" && i+1<argc) {
             const auto value=std::string_view(argv[++i]);
             const bool hex=value.starts_with("0x") || value.starts_with("0X");
@@ -116,7 +134,7 @@ int run(int argc,char** argv,bool restarting=false) {
             const auto parsed=std::from_chars(value.data(),value.data()+value.size(),limit);
             if(parsed.ec!=std::errc{} || parsed.ptr!=value.data()+value.size() || (!limit && option!="--performance-at") || (option=="--seconds" && limit>3600))
                 throw std::runtime_error("Limits must be positive (performance-at may be zero); seconds must not exceed 3600");
-        } else throw std::runtime_error("Usage: smbd [--hidden] [--mute] [--frames COUNT] [--seconds COUNT] [--input TIMELINE.txt] [--stop-after-input] [--capture FRAME.png] [--capture-frame NEW_DIRECTORY] [--capture-at TICK] [--report OUTPUT.json] [--restart-at FRAME] [--trace-calls OUTPUT.json] [--performance NEW_DIRECTORY] [--performance-at TICK] [--performance-frames COUNT] [--benchmark-ticks COUNT] [--motion-report NEW.json] [--motion-at TICK] [--motion-frames COUNT] [--settings PATH] [--settings-capture NEW_DIRECTORY] [--storage DIRECTORY] [--xbe FILE] [--disc ISO] [--watch-write ADDRESS (up to 4)]");
+        } else throw std::runtime_error("Usage: smbd [--hidden] [--mute] [--frames COUNT] [--seconds COUNT] [--input TIMELINE.txt] [--stop-after-input] [--capture FRAME.png] [--capture-frame NEW_DIRECTORY] [--capture-at TICK] [--report OUTPUT.json] [--restart-at FRAME] [--trace-calls OUTPUT.json] [--performance NEW_DIRECTORY] [--performance-at TICK] [--performance-frames COUNT] [--benchmark-ticks COUNT] [--motion-report NEW.json] [--motion-at TICK] [--motion-frames COUNT] [--settings PATH] [--settings-capture NEW_DIRECTORY] [--storage DIRECTORY] [--xbe FILE] [--disc ISO] [--watch-write ADDRESS (up to 4)] [--motion-watch ADDRESS[:BYTES] (up to 16)]");
     }
     if(motion_frames>4096) throw std::runtime_error("Motion reports are limited to 4096 scene frames");
     if(!motion_report.empty() && std::filesystem::exists(motion_report)) throw std::runtime_error("Motion reports require a new file");
@@ -152,10 +170,12 @@ int run(int argc,char** argv,bool restarting=false) {
     SDL_SetWindowMinimumSize(window.get(),760,520);
     if(settings.fullscreen && !hidden && !SDL_SetWindowFullscreen(window.get(),true)) throw std::runtime_error(SDL_GetError());
     smbd::Renderer renderer(640,480,false,false,static_cast<unsigned>(settings.resolution));
+    // Finished HUD enlargements persist beside the settings file.
+    renderer.hud_cache(settings_path.parent_path()/"hud-cache");
     startup_phase("renderer ready");
-    try {renderer.enhancements(settings.antialiasing,settings.anisotropy,settings.unlimited_render_distance);}
+    try {renderer.enhancements(settings.antialiasing,settings.anisotropy,settings.unlimited_render_distance,settings.upscaled_movies,settings.upscaled_hud);}
     catch(const std::exception& error) {
-        settings.antialiasing=0;renderer.enhancements(0,settings.anisotropy,settings.unlimited_render_distance);
+        settings.antialiasing=0;renderer.enhancements(0,settings.anisotropy,settings.unlimited_render_distance,settings.upscaled_movies,settings.upscaled_hud);
         settings_error=std::string(error.what())+" Antialiasing has been set to Off.";
         try {settings.save(settings_path);} catch(const std::exception& save_error) {settings_error+=' ';settings_error+=save_error.what();}
     }
@@ -173,19 +193,21 @@ int run(int argc,char** argv,bool restarting=false) {
         return unsigned(settings.resolution)!=current.resolution_scale || unsigned(settings.antialiasing)!=current.antialiasing ||
             unsigned(settings.anisotropy)!=current.anisotropy || settings.aspect!=active_aspect ||
             settings.unlimited_render_distance!=active_unlimited_render_distance ||
-            settings.unlimited_render_distance!=current.unlimited_render_distance;
+            settings.unlimited_render_distance!=current.unlimited_render_distance ||
+            settings.upscaled_movies!=current.upscaled_movies || settings.upscaled_hud!=current.upscaled_hud;
     };
     const auto applied_settings=[&] {
         auto applied=settings;const auto current=renderer.stats();
         applied.resolution=int(current.resolution_scale);applied.antialiasing=int(current.antialiasing);
         applied.anisotropy=int(current.anisotropy);applied.aspect=active_aspect;
-        applied.unlimited_render_distance=active_unlimited_render_distance;
+        applied.unlimited_render_distance=active_unlimited_render_distance;applied.upscaled_movies=current.upscaled_movies;
+        applied.upscaled_hud=current.upscaled_hud;
         return applied;
     };
     const auto apply_graphics=[&] {
         if(!graphics_changed()) return;
         try {
-            renderer.image_quality(settings.resolution,settings.antialiasing,settings.anisotropy,settings.unlimited_render_distance);
+            renderer.image_quality(settings.resolution,settings.antialiasing,settings.anisotropy,settings.unlimited_render_distance,settings.upscaled_movies,settings.upscaled_hud);
             if(settings.aspect!=active_aspect) {
                 if(running) running->aspect_ratio(settings.aspect);
                 renderer.aspect_ratio(settings.display_aspect());active_aspect=settings.aspect;
@@ -194,8 +216,8 @@ int run(int argc,char** argv,bool restarting=false) {
                 if(running) running->unlimited_render_distance(settings.unlimited_render_distance);
                 active_unlimited_render_distance=settings.unlimited_render_distance;
             }
-            smbd::diagnostic_record(std::format("{{\"type\":\"graphics_settings\",\"resolution_scale\":{},\"antialiasing\":{},\"anisotropy\":{},\"aspect_mode\":{},\"unlimited_render_distance\":{},\"playing\":{}}}",
-                settings.resolution,settings.antialiasing,settings.anisotropy,active_aspect,active_unlimited_render_distance,running!=nullptr));
+            smbd::diagnostic_record(std::format("{{\"type\":\"graphics_settings\",\"resolution_scale\":{},\"antialiasing\":{},\"anisotropy\":{},\"aspect_mode\":{},\"unlimited_render_distance\":{},\"upscaled_movies\":{},\"upscaled_hud\":{},\"playing\":{}}}",
+                settings.resolution,settings.antialiasing,settings.anisotropy,active_aspect,active_unlimited_render_distance,settings.upscaled_movies,settings.upscaled_hud,running!=nullptr));
         } catch(const std::exception& error) {
             settings=applied_settings();
             ui.message("Could not apply graphics settings: "+std::string(error.what()));
@@ -426,6 +448,7 @@ int run(int argc,char** argv,bool restarting=false) {
     host.widescreen=active_widescreen;
     host.ultrawide=active_aspect==2;
     host.unlimited_render_distance=active_unlimited_render_distance;
+    host.corrected_subtitles=settings.corrected_subtitles;
     host.refresh_rate=[&] {return pacing().rate;};
     host.display_paced=[&] {
         const bool paced=std::exchange(display_paced_frame,false) && pacing().display_driven;
@@ -451,6 +474,7 @@ int run(int argc,char** argv,bool restarting=false) {
         input.capture(ui.active());
         const auto gain=settings.output_gain((SDL_GetWindowFlags(window.get())&SDL_WINDOW_INPUT_FOCUS)!=0);
         if(gain!=output_gain) {running->output_gain(gain);output_gain=gain;}
+        running->corrected_subtitles(settings.corrected_subtitles);
         if(capture_was_pending && !running->capture_status().pending) {
             capture_was_pending=false;
             const auto& status=running->capture_status();
@@ -473,15 +497,29 @@ int run(int argc,char** argv,bool restarting=false) {
         wake=std::min(wake,now+std::chrono::milliseconds(8));
         if(wake>now) SDL_DelayPrecise(static_cast<Uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(wake-now).count()));
     };
+    std::uint64_t hud_busy_frame=0,hud_busy_upscaled=0;
     host.flip=[&] {
         {smbd::PerfScope scope(&performance,smbd::PerfPhase::publish);renderer.publish_frame();}
         last_source=smbd::FrameClock::Clock::now();if(!frames) first_source=last_source;
         ++frames;
+        // Upscaled HUD: log each span of background enlargement work.
+        if(const auto hud=renderer.stats();hud.upscaled_hud) {
+            if(hud.hud_pending && !hud_busy_frame) {hud_busy_frame=frames;hud_busy_upscaled=hud.hud_upscales+hud.hud_filtered;}
+            if(hud.hud_pending && hud_busy_frame && (frames-hud_busy_frame)%60==59)
+                smbd::diagnostic_record(std::format("{{\"type\":\"hud_upscaling_progress\",\"frame\":{},\"pending\":{},\"finished\":{},\"step_gpu_ms\":{:.3f},\"budget\":{},\"work\":{},\"units\":{},\"rate\":{:.3f},\"waiting\":{},\"network\":{}}}",
+                    frames,hud.hud_pending,hud.hud_upscales+hud.hud_filtered,hud.hud_gpu_ms,hud.hud_step_budget,hud.hud_step_work,hud.hud_step_units,hud.hud_rate,hud.hud_waiting,hud.hud_network));
+            else if(!hud.hud_pending && hud_busy_frame) {
+                smbd::diagnostic_record(std::format("{{\"type\":\"hud_upscaling\",\"first_frame\":{},\"last_frame\":{},\"textures\":{},\"reused_total\":{},\"bytes\":{}}}",
+                    hud_busy_frame,frames,hud.hud_upscales+hud.hud_filtered-hud_busy_upscaled,hud.hud_reused,hud.hud_bytes));
+                hud_busy_frame=0;
+            }
+        }
         if(frames==1) startup_phase("first game frame");
         if(restart_at && !restarting && frames>=restart_at) ui.restart=true;
         if(!motion_report.empty() && logic_ticks>=motion_at && motion_samples.size()<motion_frames) {
             const auto value=[&](std::uint32_t address) {return std::bit_cast<float>(memory.load<std::uint32_t>(address));};
-            const auto ordinary=[](std::uint32_t address) {return address>=0x10000 && address<=0x03FFF000;};
+            // Guest objects may live in any mapped page, including above 64 MiB.
+            const auto ordinary=[&](std::uint32_t address) {return address>=0x10000 && memory.try_access(address,0x300)!=nullptr;};
             const auto ape=memory.load<std::uint32_t>(0x738EF4)&0x7FFFFFFFU;
             const auto animation=ordinary(ape)?memory.load<std::uint32_t>(ape+0x0C)&0x7FFFFFFFU:0;
             const auto sample_frame=ordinary(animation)?value(animation+0x4C):-1.0f;
@@ -491,14 +529,27 @@ int run(int argc,char** argv,bool restarting=false) {
             const auto caption=memory.load<std::uint32_t>(0x567A98);
             const int caption_ticks=movie && ordinary(caption) && memory.load<std::uint32_t>(0x6C9364)==0 && memory.load<std::uint32_t>(0x6C9354)==8?
                 23*memory.load<std::uint8_t>(caption+0x0C)+memory.load<std::uint8_t>(caption+0x0E):-1;
-            motion_samples.push_back(std::format("{{\"frame\":{},\"ticks\":{},\"seconds\":{:.9f},\"delta\":{:.9g},\"scene\":{},\"ball_state\":{},\"ball\":[{:.9g},{:.9g},{:.9g}],\"matrix\":[{:.9g},{:.9g},{:.9g}],\"camera\":[{:.9g},{:.9g},{:.9g}],\"camera_matrix\":[{:.9g},{:.9g},{:.9g},{:.9g},{:.9g},{:.9g},{:.9g},{:.9g},{:.9g},{:.9g},{:.9g},{:.9g}],\"stage_time\":{:.9g},\"animation_frame\":{:.9g},\"animation_speed\":{:.9g},\"draws\":{},\"rule_tick\":{},\"mode\":{},\"mode_timer\":{},\"course_flags\":{},\"ball_flags\":{},\"ape_flags\":{},\"replay_time\":{:.9g},\"camera_state\":{},\"velocity\":[{:.9g},{:.9g},{:.9g}],\"requested_animation\":{},\"current_animation\":{},\"animation_end\":{:.9g},\"animation_loops\":{},\"movie_frames\":{},\"movie_frames_skipped\":{},\"movie_sync\":{},\"caption_ticks\":{}}}",
+            std::string watched;
+            for(const auto& watch:motion_watches) {
+                if(!watched.empty()) watched+=',';
+                const auto* bytes=reinterpret_cast<const std::uint8_t*>(memory.try_access(watch.address,watch.bytes));
+                if(!bytes) {watched+="null";continue;}
+                if(watch.bytes==4) {std::uint32_t word;std::memcpy(&word,bytes,4);watched+=std::to_string(word);continue;}
+                if(watch.bytes<=256) {watched+='"';for(std::uint32_t i=0;i<watch.bytes;++i) watched+=std::format("{:02X}",bytes[i]);watched+='"';continue;}
+                std::uint64_t hash=0xCBF29CE484222325ULL;
+                for(std::uint32_t i=0;i<watch.bytes;++i) hash=(hash^bytes[i])*0x100000001B3ULL;
+                watched+=std::format("\"{:016X}\"",hash);
+            }
+            motion_samples.push_back(std::format("{{\"watch\":[{}],",watched)+std::format("\"frame\":{},\"ticks\":{},\"seconds\":{:.9f},\"delta\":{:.9g},\"scene\":{},\"ball_state\":{},\"ball\":[{:.9g},{:.9g},{:.9g}],\"matrix\":[{:.9g},{:.9g},{:.9g}],\"camera\":[{:.9g},{:.9g},{:.9g}],\"camera_matrix\":[{:.9g},{:.9g},{:.9g},{:.9g},{:.9g},{:.9g},{:.9g},{:.9g},{:.9g},{:.9g},{:.9g},{:.9g}],\"stage_time\":{:.9g},\"animation_frame\":{:.9g},\"animation_speed\":{:.9g},\"draws\":{},\"rule_tick\":{},\"mode\":{},\"mode_timer\":{},\"course_flags\":{},\"ball_flags\":{},\"ape_flags\":{},\"replay_time\":{:.9g},\"camera_state\":{},\"velocity\":[{:.9g},{:.9g},{:.9g}],\"requested_animation\":{},\"current_animation\":{},\"animation_end\":{:.9g},\"animation_loops\":{},\"movie_frames\":{},\"movie_frames_skipped\":{},\"movie_sync\":{},\"caption_ticks\":{},\"ball_angles\":[{},{},{}]}}",
                 frames,logic_ticks,std::chrono::duration<double>(last_source-first_source).count(),smbd::frame_step.delta,memory.load<std::uint16_t>(0x6C9288),memory.load<std::uint8_t>(0x738DF3),
                 value(0x738DF4),value(0x738DF8),value(0x738DFC),value(0x738E2C),value(0x738E3C),value(0x738E4C),
                 value(0x73F1A0),value(0x73F1A4),value(0x73F1A8),value(0x73F2EC),value(0x73F2F0),value(0x73F2F4),value(0x73F2F8),value(0x73F2FC),value(0x73F300),value(0x73F304),value(0x73F308),value(0x73F30C),value(0x73F310),value(0x73F314),value(0x73F318),value(0x72FF84),std::isfinite(sample_frame)?sample_frame:-1,std::isfinite(sample_speed)?sample_speed:-1,counters[0],
                 smbd::frame_step.logic,memory.load<std::uint32_t>(0x6C9354),std::bit_cast<std::int32_t>(memory.load<std::uint32_t>(0x6C92F0)),memory.load<std::uint32_t>(0x6C92F8),
                 memory.load<std::uint32_t>(0x738E88),ordinary(ape)?memory.load<std::uint32_t>(ape+0x248):0,value(0x8AFA90),memory.load<std::uint8_t>(0x73F1BE),
                 value(0x738E0C),value(0x738E10),value(0x738E14),ordinary(ape)?memory.load<std::uint32_t>(ape+0x70):0,ordinary(ape)?memory.load<std::uint32_t>(ape+0x7C):0,ordinary(animation)?value(animation+0x50):0,ordinary(animation)?memory.load<std::uint32_t>(animation+0x54):0,
-                ordinary(movie)?std::bit_cast<std::int32_t>(memory.load<std::uint32_t>(movie+0x80)):-1,ordinary(movie)?memory.load<std::uint32_t>(movie+0x88):0,memory.load<std::uint8_t>(0x756088)!=0,caption_ticks));
+                ordinary(movie)?std::bit_cast<std::int32_t>(memory.load<std::uint32_t>(movie+0x80)):-1,ordinary(movie)?memory.load<std::uint32_t>(movie+0x88):0,memory.load<std::uint8_t>(0x756088)!=0,caption_ticks,
+                std::bit_cast<std::int16_t>(memory.load<std::uint16_t>(0x738E18)),std::bit_cast<std::int16_t>(memory.load<std::uint16_t>(0x738E1A)),
+                std::bit_cast<std::int16_t>(memory.load<std::uint16_t>(0x738E1C))));
         }
         const auto [rate,display_driven]=pacing();
         const bool synchronized=rate>=60 && display_driven && !running->movie_sync();
@@ -594,6 +645,9 @@ int run(int argc,char** argv,bool restarting=false) {
               << ",\"controller_complete\":" << (!automation || automation->finished()?"true":"false")
               << ",\"controller_state\":" << (automation?benchmark_state():"null")
               << ",\"audio_muted\":" << (muted?"true":"false")
+              << std::format(",\"hud\":{{\"enabled\":{},\"marked\":{},\"upscaled\":{},\"filtered\":{},\"reused\":{},\"pending\":{},\"evicted\":{},\"bytes\":{},\"disk_loads\":{},\"disk_saves\":{},\"step_gpu_ms\":{:.3f}}}",
+                  renderer.stats().upscaled_hud,renderer.stats().hud_marked,renderer.stats().hud_upscales,renderer.stats().hud_filtered,renderer.stats().hud_reused,
+                  renderer.stats().hud_pending,renderer.stats().hud_evictions,renderer.stats().hud_bytes,renderer.stats().hud_disk_loads,renderer.stats().hud_disk_saves,renderer.stats().hud_gpu_ms)
               << ",\"capture_written\":" << (result.capture_written?"true":"false") << ",\"capture_error\":" << smbd::json(result.capture_error)
               << ",\"frame_capture\":{\"directory\":" << smbd::json(smbd::path_text(xbox.capture_status().directory))
               << ",\"complete\":" << (xbox.capture_status().complete?"true":"false") << ",\"truncated\":" << (xbox.capture_status().truncated?"true":"false")

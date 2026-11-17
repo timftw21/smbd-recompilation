@@ -1,5 +1,6 @@
 #include "cpu.h"
 #include "call_trace.h"
+#include "interface_marks.h"
 #include "file.h"
 #include <algorithm>
 #include <cmath>
@@ -717,6 +718,25 @@ __m128 frame_decay(FloatingState& state,__m128 retention) {
     if(!std::isfinite(r) || r<0 || r>1) throw std::runtime_error("Invalid continuous damping coefficient");
     return _mm_move_ss(retention,_mm_set_ss(std::pow(r,frame_step.delta)));
 }
+struct FrameReplayBallSample {FrameReplayBallSample();~FrameReplayBallSample();};
+namespace {thread_local unsigned replay_ball_samples=0;}
+FrameReplayBallSample::FrameReplayBallSample() {++replay_ball_samples;}
+FrameReplayBallSample::~FrameReplayBallSample() {--replay_ball_samples;}
+std::int32_t frame_nearest_angle(std::int32_t next,std::int32_t previous) {
+    // Within the replay ball's sample, use the representation of a 16-bit
+    // angle nearest the previous frame, so interpolation follows the shorter
+    // arc across the wrap. Other callers keep the original interpolation.
+    if(!replay_ball_samples) return next;
+    const auto difference=next-previous;
+    return difference>32768?next-65536:difference<-32768?next+65536:next;
+}
+__m128 frame_power(FloatingState& state,__m128 factor) {
+    if(frame_step.delta==1) return factor;
+    HostFloatingScope floating(state);
+    const auto f=_mm_cvtss_f32(factor);
+    if(!std::isfinite(f) || f<=0) throw std::runtime_error("Invalid continuous scaling factor");
+    return _mm_move_ss(factor,_mm_set_ss(std::pow(f,frame_step.delta)));
+}
 __m128 frame_rotation_threshold(FloatingState& state,__m128 cosine,float interval) {
     if(interval==1) return cosine;
     HostFloatingScope floating(state);
@@ -846,6 +866,10 @@ void frame_ball_step(FloatingState& state,Memory& memory,std::uint32_t ball,std:
         if(grounded) memory.store<std::uint32_t>(ball+0x1C+axis*4,std::bit_cast<std::uint32_t>(static_cast<float>(velocity[axis]+an*dt+at*velocity_force)));
     }
 }
+namespace {
+InterfaceHooks interface_hooks;
+}
+void set_interface_hooks(const InterfaceHooks& hooks) {interface_hooks=hooks;}
 // The original immediate frontend (31200..31462) supplies plain XYZ quads,
 // sometimes with packed colour and UVs. Complete their shared visibility and
 // screen-edge contracts before 313B0 submits them, including font batches.
@@ -860,6 +884,18 @@ void complete_screen_primitives(Memory& memory,bool ultrawide) {
     case 0x2A00:stride=24;break;
     case 0x6200:stride=28;break;
     default:return; // Normal/skinning layouts are scene geometry.
+    }
+    // Texture coordinate sets 0x2000/0x4000 sample stages 0/1. SDK SetTexture
+    // (31E4A0) keeps each stage's texture at device+F88+stage*4; the D3D
+    // object holds its data address at +4, as the NV097 texture offset uses.
+    if(interface_hooks.texture) for(unsigned stage=0;stage<2;++stage) if(format&(0x2000U<<stage)) {
+        const auto read=[&](std::uint32_t address) {
+            std::uint32_t value=0;
+            if(const auto* bytes=memory.try_access(address,sizeof(value))) std::memcpy(&value,bytes,sizeof(value));
+            return value;
+        };
+        const auto device=read(0x32B6A8U),object=device?read(device+0xF88+stage*4):0U,data=object?read(object+4):0U;
+        if(data) interface_hooks.texture(interface_hooks.context,data);
     }
     // Four vertices occupy stride DWORDs. Process each quad in a batch with
     // fixed scratch storage; there is no packet scan or deferred state.
@@ -888,39 +924,63 @@ void complete_screen_primitives(Memory& memory,bool ultrawide) {
         }
         return maximum>=0 && minimum<=native_width;
     };
-    const auto complete=[&](std::uint32_t begin) {
+    // One quad's vertices and vertex-space bounds: a flat, finite candidate
+    // rectangle, or false.
+    struct Quad {
         std::array<std::array<std::uint32_t,7>,4> vertices{};
-        for(unsigned i=0;i<4;++i) std::memcpy(vertices[i].data(),memory.access(begin+i*stride,stride),stride);
-        const auto value=[&](unsigned i,unsigned component) {return std::bit_cast<float>(vertices[i][component]);};
-        const float z=value(0,2);
-        std::array<float,2> minimum{value(0,0),value(0,1)},maximum=minimum;
+        std::array<float,2> minimum{},maximum{};
+        float value(unsigned i,unsigned component) const {return std::bit_cast<float>(vertices[i][component]);}
+    };
+    const auto read_quad=[&](std::uint32_t begin,Quad& quad) {
+        for(unsigned i=0;i<4;++i) std::memcpy(quad.vertices[i].data(),memory.access(begin+i*stride,stride),stride);
+        const float z=quad.value(0,2);
+        quad.minimum={quad.value(0,0),quad.value(0,1)};quad.maximum=quad.minimum;
         for(unsigned i=0;i<4;++i) {
-            if(value(i,2)!=z || !std::isfinite(z)) return;
+            if(quad.value(i,2)!=z || !std::isfinite(z)) return false;
             for(unsigned axis=0;axis<2;++axis) {
-                const float v=value(i,axis);if(!std::isfinite(v)) return;
-                minimum[axis]=std::min(minimum[axis],v);maximum[axis]=std::max(maximum[axis],v);
+                const float v=quad.value(i,axis);if(!std::isfinite(v)) return false;
+                quad.minimum[axis]=std::min(quad.minimum[axis],v);quad.maximum[axis]=std::max(quad.maximum[axis],v);
             }
         }
-        if(minimum[0]==maximum[0] || minimum[1]==maximum[1]) return;
-        // 2F790 uploads projection * the current 3x4 model/view to k96..99.
-        // Use that same matrix and the SDK viewport; never infer camera dimensions
-        // from a particular menu, sprite number or render-target allocation.
+        return quad.minimum[0]!=quad.maximum[0] && quad.minimum[1]!=quad.maximum[1];
+    };
+    // 2F790 uploads projection * the current 3x4 model/view to k96..99.
+    // Use that same matrix and the SDK viewport; never infer camera dimensions
+    // from a particular menu, sprite number or render-target allocation.
+    struct Screen {bool identity=true;std::array<std::uint32_t,4> viewport{};std::array<float,2> scale{},offset{};};
+    const auto screen_transform=[&](float z,Screen& view) {
         std::array<std::array<float,4>,4> projection{},matrix{};
         std::array<std::array<float,4>,3> model{};
         std::memcpy(projection.data(),memory.access(0x6DDF28U,sizeof(projection)),sizeof(projection));
         std::memcpy(model.data(),memory.access(memory.load<std::uint32_t>(0x6DDEC4U),sizeof(model)),sizeof(model));
-        bool identity=true;
-        for(unsigned row=0;row<3;++row) for(unsigned col=0;col<4;++col) identity&=model[row][col]==float(row==col);
+        for(unsigned row=0;row<3;++row) for(unsigned col=0;col<4;++col) view.identity&=model[row][col]==float(row==col);
         for(unsigned row=0;row<4;++row) for(unsigned col=0;col<4;++col) {
             matrix[row][col]=projection[row][0]*model[0][col]+projection[row][1]*model[1][col]+projection[row][2]*model[2][col];
             if(col==3) matrix[row][col]+=projection[row][3];
         }
-        if(matrix[0][1]!=0 || matrix[1][0]!=0 || matrix[2][0]!=0 || matrix[2][1]!=0 || matrix[3][0]!=0 || matrix[3][1]!=0) return;
-        const float w=matrix[3][2]*z+matrix[3][3];if(!std::isfinite(w) || w<=0) return;
+        if(matrix[0][1]!=0 || matrix[1][0]!=0 || matrix[2][0]!=0 || matrix[2][1]!=0 || matrix[3][0]!=0 || matrix[3][1]!=0) return false;
+        const float w=matrix[3][2]*z+matrix[3][3];if(!std::isfinite(w) || w<=0) return false;
         const auto device=memory.load<std::uint32_t>(0x32B6A8U);
-        std::array<std::uint32_t,4> viewport{};
-        std::memcpy(viewport.data(),memory.access(device+0xEE0,sizeof(viewport)),sizeof(viewport));
-        if(!viewport[2] || !viewport[3]) return;
+        std::memcpy(view.viewport.data(),memory.access(device+0xEE0,sizeof(view.viewport)),sizeof(view.viewport));
+        if(!view.viewport[2] || !view.viewport[3]) return false;
+        for(unsigned axis=0;axis<2;++axis) {
+            const float half=float(view.viewport[axis+2])/2,sign=axis?-1.0f:1.0f;
+            view.scale[axis]=sign*half*matrix[axis][axis]/w;
+            view.offset[axis]=float(view.viewport[axis])+half+sign*half*(matrix[axis][2]*z+matrix[axis][3])/w;
+            if(!std::isfinite(view.scale[axis]) || !std::isfinite(view.offset[axis]) || view.scale[axis]==0) return false;
+        }
+        return true;
+    };
+    // NV2A rasterizes the viewport position plus the SDK's 0.53125 screen
+    // offset, truncated to 1/16 pixel, less a 1/32 bias. Pixel centres lie
+    // at k+0.5 in this space.
+    const auto rasterize=[](float p) {return std::trunc((p+0.53125f)*16)/16-0.03125f;};
+    const auto complete=[&](std::uint32_t begin) {
+        Quad quad;Screen view;
+        if(!read_quad(begin,quad) || !screen_transform(quad.value(0,2),view)) return;
+        auto& vertices=quad.vertices;const auto& minimum=quad.minimum;const auto& maximum=quad.maximum;
+        const auto value=[&](unsigned i,unsigned component) {return quad.value(i,component);};
+        const auto& viewport=view.viewport;const bool identity=view.identity;
         const auto screen=memory.load<std::uint32_t>(0x6DD520U);
         const float width=memory.load<std::uint16_t>(screen+4),height=memory.load<std::uint16_t>(screen+6);
         // SDK render-state mirrors: ZERO + destination ONE with ADD preserves
@@ -937,16 +997,13 @@ void complete_screen_primitives(Memory& memory,bool ultrawide) {
         std::array<Axis,2> axes{};
         bool changed=false;
         for(unsigned axis=0;axis<2;++axis) {
-            auto& a=axes[axis];const float half=float(viewport[axis+2])/2,sign=axis?-1.0f:1.0f;
-            a.scale=sign*half*matrix[axis][axis]/w;
-            a.offset=float(viewport[axis])+half+sign*half*(matrix[axis][2]*z+matrix[axis][3])/w;
-            if(!std::isfinite(a.scale) || !std::isfinite(a.offset) || a.scale==0) return;
+            auto& a=axes[axis];a.scale=view.scale[axis];a.offset=view.offset[axis];
             const auto p0=a.scale*minimum[axis]+a.offset,p1=a.scale*maximum[axis]+a.offset;
             const float first=float(viewport[axis]),last=first+float(viewport[axis+2]);
             const auto low=std::min(p0,p1),high=std::max(p0,p1);
             if(!canvas && !depth_only && (std::round(low)>first || std::round(high)<last)) return;
             const auto edge=[&](float p,float boundary,bool upper) {
-                const auto raster=std::trunc((p+0.53125f)*16)/16-0.03125f;
+                const auto raster=rasterize(p);
                 const auto snapped=std::round(boundary*16)/16+(upper?0.0625f:0);
                 const auto aligned=snapped-0.03125f;
                 const bool fit=depth_only || std::round(p)==boundary || raster==aligned || (canvas && (upper?p<boundary:p>boundary));
@@ -1000,11 +1057,37 @@ void complete_screen_primitives(Memory& memory,bool ultrawide) {
         }
         for(unsigned i=0;i<4;++i) std::memcpy(memory.access(begin+i*stride,stride),vertices[i].data(),stride);
     };
+    // Report the texture rectangle each UV set of a frontend quad spans.
+    // Font and sprite atlases pack cells edge to edge. Above 1x, samples near
+    // a quad's edge blend in the neighbouring cell (thin dark lines beside
+    // HUD and menu text); the GPU keeps them half a texel inside this
+    // rectangle. Any screen rotation qualifies; the UVs must form a rectangle.
+    const unsigned sets=((format>>13)&1)+((format>>14)&1),first_uv=(format&0x800)?4:3;
+    const auto report=[&](std::uint32_t begin) {
+        Quad quad;
+        if(!read_quad(begin,quad)) return;
+        InterfaceSampleBounds bounds;
+        for(unsigned set=0;set<sets;++set) {
+            auto& range=bounds.sets[set];
+            for(unsigned c=0;c<2;++c) {
+                const auto at=[&](unsigned i) {return quad.value(i,first_uv+set*2+c);};
+                float low=at(0),high=low;
+                for(unsigned i=0;i<4;++i) {if(!std::isfinite(at(i))) return;low=std::min(low,at(i));high=std::max(high,at(i));}
+                if(!(high>low)) return;
+                for(unsigned i=0;i<4;++i) if(at(i)!=low && at(i)!=high) return;
+                range[c]=low;range[c+2]=high;
+            }
+            bounds.mask|=1U<<set;
+        }
+        if(bounds.mask) interface_hooks.bounds(interface_hooks.context,
+            interface_quad_identity({static_cast<const std::byte*>(memory.access(begin,stride*4)),stride*4}),bounds);
+    };
     unsigned kept=0;
     for(unsigned quad=0;quad<words/stride;++quad) {
         const auto source=begin+quad*stride*4;
         if(clip && !visible(source)) continue;
         complete(source);
+        if(sets && interface_hooks.bounds) report(source);
         if(kept!=quad) std::memcpy(memory.access(begin+kept*stride*4,stride*4),memory.access(source,stride*4),stride*4);
         ++kept;
     }

@@ -17,6 +17,8 @@
 #include "input.h"
 #include "audio.h"
 #include "gpu.h"
+#include "interface_marks.h"
+#include "subtitles.h"
 #include <algorithm>
 #include <bit>
 #include <chrono>
@@ -407,6 +409,7 @@ struct Xbox::State {
         initialize_save_identity();
     }
     ~State() {
+        if(gpu) set_interface_hooks({});
         for(auto& request:pending_io) if(request.active) {
             CancelIoEx(request.native,&request.overlap);
             DWORD transferred=0;GetOverlappedResult(request.native,&request.overlap,&transferred,TRUE);
@@ -1423,6 +1426,15 @@ struct Xbox::State {
             {0x13,0x57},{0x14,0x43},{0x15,0x12},{0x16,0x72},{0x18,0x19},{0x19,0x30}}};
         gpu=std::make_unique<Gpu>(*graphics,memory,notification,graphics_objects);
         gpu->flip=host.flip;
+        set_interface_hooks({[](void* context,std::uint32_t data) {static_cast<Gpu*>(context)->interface_texture(data);},
+            [](void* context,std::uint64_t quad,const InterfaceSampleBounds& bounds) {static_cast<Gpu*>(context)->interface_bounds(quad,bounds);},gpu.get()});
+        gpu->movie_texture=[this](std::uint32_t address) {
+            return movie_frame_texture([this](std::uint32_t at) {
+                std::uint32_t value=0;
+                if(const auto* bytes=memory.try_access(at,sizeof(value))) std::memcpy(&value,bytes,sizeof(value));
+                return value;
+            },address);
+        };
         gpu->completion=[this](std::uint32_t routine,std::uint32_t context) {
             if(!current) throw NativeBoundary(routine,"graphics completion has no active guest thread");
             const auto irql_address=current->tib+0x24;
@@ -1857,6 +1869,7 @@ struct Xbox::State {
         const auto disc_offset=offset+(file.device?0:std::uint64_t(file.entry.sector)*2048);
         if(!write && file.native==INVALID_HANDLE_VALUE &&
             read_cache.read(disc_offset,std::span(static_cast<std::byte*>(buffer),count))) {
+            correct_read(file,offset,std::span(static_cast<std::byte*>(buffer),count));
             io_complete(cpu,success,count);
             memory.store<std::uint32_t>(object.address+0x38+4,1);
             trace_io(cpu,219,success,count,file.path,file.options,length,offset,output);
@@ -1897,6 +1910,10 @@ struct Xbox::State {
         trace_io(cpu,request->ordinal,0x103,0,file.path,file.options,length,offset,output);
         return 0x103;
     }
+    // Optional subtitle corrections replace only complete, verified original scripts.
+    void correct_read(const OpenFile& file,std::uint64_t offset,std::span<std::byte> data) {
+        if(host.corrected_subtitles && !file.device && file.native==INVALID_HANDLE_VALUE) correct_subtitles(file.path,offset,data);
+    }
     void dispatch_io() {
         if(!pending_io_count) return;
         for(auto& request:pending_io) if(request.active) {
@@ -1908,6 +1925,8 @@ struct Xbox::State {
             if(completed && request.ordinal==219 && request.file->native==INVALID_HANDLE_VALUE) {
                 const auto offset=request.offset+(request.file->device?0:std::uint64_t(request.file->entry.sector)*2048);
                 read_cache.insert(offset,Bytes(static_cast<const std::byte*>(memory.access(request.buffer,transferred)),transferred));
+                // The cache keeps original bytes; corrections apply to each delivery.
+                correct_read(*request.file,request.offset,std::span(static_cast<std::byte*>(memory.access(request.buffer,transferred)),transferred));
             }
             io_status(request.status,result,transferred);
             memory.store<std::uint32_t>(request.file_object+0x38+4,1);
@@ -2122,7 +2141,8 @@ struct Xbox::State {
                     else {
                         written=static_cast<std::uint32_t>(std::min<std::uint64_t>(length,size-offset));
                         const std::span destination(static_cast<std::byte*>(memory.access(output,written)),written);
-                        if(file.device) disc->read(offset,destination);else disc->read(file.entry,offset,destination);
+                        if(file.device) disc->read(offset,destination);
+                        else {disc->read(file.entry,offset,destination);correct_read(file,offset,destination);}
                         file.position=offset+written;memory.store<std::uint64_t>(found->second.address+0x14,file.position);
                     }
                 }
@@ -3008,6 +3028,40 @@ std::string check_services(Xbe& image,const std::filesystem::path& disc,const st
         }
         require(call(187,{handle})==success,"close transfer diagnostic file");
     }
+    {
+        // Subtitle corrections reach guest memory through synchronous reads,
+        // uncached and cached asynchronous reads; the cache keeps original bytes.
+        constexpr std::string_view script="\\Device\\CdRom0\\media\\dlg\\scn9_e.bin";
+        constexpr std::uint32_t script_size=1856;
+        const auto buffer=s.allocate(page,page,true,PAGE_READWRITE);
+        require(buffer!=0,"allocate subtitle read buffer");
+        std::memcpy(memory.access(scratch+0x100,script.size()),script.data(),script.size());
+        memory.store<std::uint16_t>(scratch+0x80,static_cast<std::uint16_t>(script.size()));
+        memory.store<std::uint16_t>(scratch+0x82,static_cast<std::uint16_t>(script.size()));
+        const auto read_script=[&](std::uint32_t options,bool corrected) {
+            s.host.corrected_subtitles=corrected;
+            require(call(202,{scratch,GENERIC_READ|SYNCHRONIZE,scratch+0x40,scratch+0x20,1,options})==success,"open subtitle script");
+            const auto handle=memory.load<std::uint32_t>(scratch);
+            memory.store<std::uint64_t>(scratch+0x30,0);
+            const auto status=call(219,{handle,0,0,0,scratch+0x20,buffer,script_size,scratch+0x30});
+            const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+            while(status==0x103 && s.pending_io_count && std::chrono::steady_clock::now()<deadline) {s.dispatch_io();if(s.pending_io_count) Sleep(1);}
+            require((status==success || status==0x103) && memory.load<std::uint32_t>(scratch+0x20)==success &&
+                memory.load<std::uint32_t>(scratch+0x24)==script_size,"subtitle script reads completely");
+            require(call(187,{handle})==success,"close subtitle script");
+            return std::string(static_cast<const char*>(memory.access(buffer,script_size)),script_size);
+        };
+        const auto corrected=[](const std::string& data) {
+            return data.find("forget, AIAI!")!=std::string::npos && data.find("beam onto the planet")!=std::string::npos;
+        };
+        require(corrected(read_script(0x20,true)),"synchronous script read delivers corrections");
+        require(corrected(read_script(0,true)),"uncached asynchronous script read delivers corrections");
+        require(corrected(read_script(0,true)),"cached asynchronous script read delivers corrections");
+        const auto original=read_script(0,false);
+        require(!corrected(original) && original.find("forget AIAI!")!=std::string::npos,"disabled corrections deliver the cached original");
+        require(read_script(0x20,false)==original,"disabled synchronous read matches the original");
+        s.host.corrected_subtitles=true;
+    }
     constexpr std::string_view writable="\\Device\\Harddisk0\\Partition1\\alignment.bin";
     std::memcpy(memory.access(scratch+0x100,writable.size()),writable.data(),writable.size());
     memory.store<std::uint16_t>(scratch+0x80,static_cast<std::uint16_t>(writable.size()));
@@ -3183,6 +3237,7 @@ void Xbox::aspect_ratio(unsigned mode) {
 }
 void Xbox::performance_recording(bool enabled) {if(state_->audio) state_->audio->recording(enabled);}
 bool Xbox::movie_sync() const {return state_->movie_sync();}
+void Xbox::corrected_subtitles(bool enabled) {state_->host.corrected_subtitles=enabled;}
 void Xbox::unlimited_render_distance(bool enabled) {
     state_->host.unlimited_render_distance=enabled;
     for(auto& thread:state_->threads) thread->cpu.unlimited_render_distance=enabled;

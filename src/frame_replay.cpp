@@ -114,8 +114,12 @@ std::vector<std::byte> payload(const std::filesystem::path& root,Json name,std::
 }
 }
 std::string replay_frame(const std::filesystem::path& capture,const std::filesystem::path& output,
-                         std::string_view sha,std::uint32_t through,std::uint32_t only,bool join_arrays,unsigned antialiasing,unsigned anisotropy,unsigned unlimited_render_distance) {
+                         std::string_view sha,std::uint32_t through,std::uint32_t only,bool join_arrays,unsigned antialiasing,unsigned anisotropy,unsigned unlimited_render_distance,
+                         unsigned upscaled_movies,unsigned upscaled_hud,unsigned sample_bounds) {
     if(unlimited_render_distance!=UINT32_MAX && unlimited_render_distance>1) throw std::runtime_error("Unlimited render distance must be 0 or 1");
+    if(upscaled_movies!=UINT32_MAX && upscaled_movies>1) throw std::runtime_error("Upscaled movies must be 0 or 1");
+    if(upscaled_hud!=UINT32_MAX && upscaled_hud>1) throw std::runtime_error("Upscaled HUD must be 0 or 1");
+    if(sample_bounds!=UINT32_MAX && sample_bounds>1) throw std::runtime_error("Sample bounds must be 0 or 1");
     const auto started=std::chrono::steady_clock::now();
     const auto original=load_image(capture/"frame.png");
     unsigned scale=1;
@@ -141,10 +145,12 @@ std::string replay_frame(const std::filesystem::path& capture,const std::filesys
             if(record.at("format").string()!="smbd-gpu-frame-v1" || record.at("source_sha256").string()!=sha)
                 throw std::runtime_error("Frame capture does not match the verified executable");
             const auto aa=record.at("antialiasing",true),af=record.at("anisotropy",true);
-            const auto distance=record.at("unlimited_render_distance",true);
+            const auto distance=record.at("unlimited_render_distance",true),movies=record.at("upscaled_movies",true),hud=record.at("upscaled_hud",true);
             renderer.enhancements(antialiasing==UINT32_MAX?(aa.text.empty()?0:aa.number()):antialiasing,
                 anisotropy==UINT32_MAX?(af.text.empty()?0:af.number()):anisotropy,
-                unlimited_render_distance==UINT32_MAX?distance.text=="true":unlimited_render_distance!=0);
+                unlimited_render_distance==UINT32_MAX?distance.text=="true":unlimited_render_distance!=0,
+                upscaled_movies==UINT32_MAX?movies.text=="true":upscaled_movies!=0,
+                upscaled_hud==UINT32_MAX?hud.text=="true":upscaled_hud!=0);
             verified=true;
         } else if(type=="release") retired.insert(record.at("resource").number());
         else if(type=="surface") {
@@ -172,7 +178,22 @@ std::string replay_frame(const std::filesystem::path& capture,const std::filesys
         bool arrays=true;
     };
     std::optional<Draw> pending;
-    std::uint32_t draws=0,selected=0,last_target=0;
+    std::uint32_t draws=0,selected=0,last_target=0,movies=0,interface_textures=0;
+    // Older captures lack the movie flag; apply the same original-state rule to
+    // their guest RAM snapshot with bounded reads.
+    std::optional<File> guest;
+    const auto captured_movie=[&](Json record) {
+        if(const auto flag=record.at("movie",true);!flag.text.empty()) return flag.text=="true";
+        if(!guest) {
+            if(!std::filesystem::exists(capture/"guest-memory.bin")) return false;
+            guest.emplace(capture/"guest-memory.bin");
+        }
+        return movie_frame_texture([&](std::uint32_t at) {
+            std::array<std::byte,4> word{};
+            if(std::uint64_t(at)+word.size()<=guest->size()) guest->read(at,word);
+            return u32(word,0);
+        },record.at("address").hex());
+    };
     const auto emit=[&] {
         if(!pending) return;
         const auto& d=*pending;last_target=d.target;renderer.set_target(last_target);
@@ -185,12 +206,18 @@ std::string replay_frame(const std::filesystem::path& capture,const std::filesys
     };
     records(capture/"draws.jsonl",[&](Json record) {
         const auto type=record.at("type").string();
-        if(type=="clear" || type=="blit" || type=="surface_write" || type=="release") emit();
+        if(type=="clear" || type=="blit" || type=="surface_write" || type=="release" || type=="interface") emit();
+        // HUD marks complete synchronously here; live play enlarges between frames.
+        const auto mark_hud=[&](std::uint32_t id) {renderer.interface_texture(id);renderer.finish_interface_upscales();++interface_textures;};
         if(type=="texture") {
             auto bytes=read_payload(record.at("guest_data"),record.at("size").number());
+            const bool movie=captured_movie(record);movies+=movie;
             const auto texture=renderer.upload({record.at("width").number(),record.at("height").number(),TextureFormat(record.at("format").number()),bytes,
-                record.at("mips").number(),record.at("pitch").number(),record.at("cubemap").text=="true",record.at("depth").number()});
+                record.at("mips").number(),record.at("pitch").number(),record.at("cubemap").text=="true",record.at("depth").number(),movie});
             if(!resources.emplace(record.at("resource").number(),texture).second) throw std::runtime_error("Duplicate captured resource");
+            if(record.at("interface",true).text=="true") mark_hud(texture);
+        } else if(type=="interface") {
+            mark_hud(resources.at(record.at("resource").number()));
         } else if(type=="clear" && only==UINT32_MAX) {
             last_target=resources.at(record.at("target").number());renderer.set_target(last_target);
             const auto value=record.at("depth_stencil").hex(),format=record.at("format").hex();
@@ -220,6 +247,10 @@ std::string replay_frame(const std::filesystem::path& capture,const std::filesys
             auto state=gpu_render_state(registers,record.at("primitive").number());
             const auto textures=record.at("textures").array(4);if(textures.size()!=4) throw std::runtime_error("Invalid captured textures");
             for(unsigned i=0;i<4;++i) if(const auto id=textures[i].number()) state.textures[i]=resources.at(id);
+            // Frontend quads' original sampled ranges; 0 replays without the clamp.
+            if(const auto bounded=record.at("bounded_samples",true);!bounded.text.empty() && sample_bounds!=0) {
+                state.bounded_samples=bounded.number();restore(state.sample_bounds,record.at("sample_bounds"));
+            }
             const auto attributes=record.at("attributes").array(16);if(attributes.size()!=16) throw std::runtime_error("Invalid captured vertex layout");
             auto& layout=next.layout;
             for(unsigned i=0;i<16;++i) {const auto a=attributes[i].array(3);if(a.size()!=3) throw std::runtime_error("Invalid captured attribute");layout[i]={a[0].number(),a[1].number(),a[2].number()};}
@@ -271,8 +302,10 @@ std::string replay_frame(const std::filesystem::path& capture,const std::filesys
     save_png(actual,output/"frame.png");save_png(difference,output/"difference.png");
     const auto errors=renderer.errors();std::string messages;
     for(const auto& message:errors) {if(!messages.empty()) messages+=',';messages+=json(message);}
-    const auto result=std::format("{{\"format\":\"smbd-frame-replay-v1\",\"source_sha256\":{},\"adapter\":{},\"passed\":{},\"draws\":{},\"captured_draws_selected\":{},\"join_arrays\":{},\"antialiasing\":{},\"anisotropy\":{},\"unlimited_render_distance\":{},\"pixels_changed_from_capture\":{},\"replay_ms\":{},\"errors\":[{}]}}",
-        json(sha),json(renderer.adapter()),errors.empty(),draws,selected,join_arrays,renderer.stats().antialiasing,renderer.stats().anisotropy,renderer.stats().unlimited_render_distance,changed,std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count(),messages);
+    const auto result=std::format("{{\"format\":\"smbd-frame-replay-v1\",\"source_sha256\":{},\"adapter\":{},\"passed\":{},\"draws\":{},\"captured_draws_selected\":{},\"join_arrays\":{},\"antialiasing\":{},\"anisotropy\":{},\"unlimited_render_distance\":{},\"upscaled_movies\":{},\"movie_textures\":{},\"movie_upscales\":{},\"upscaled_hud\":{},\"hud_textures\":{},\"hud_upscales\":{},\"hud_filtered\":{},\"bounded_samples\":{},\"pixels_changed_from_capture\":{},\"replay_ms\":{},\"errors\":[{}]}}",
+        json(sha),json(renderer.adapter()),errors.empty(),draws,selected,join_arrays,renderer.stats().antialiasing,renderer.stats().anisotropy,renderer.stats().unlimited_render_distance,
+        renderer.stats().upscaled_movies,movies,renderer.stats().movie_upscales,renderer.stats().upscaled_hud,interface_textures,
+        renderer.stats().hud_upscales,renderer.stats().hud_filtered,renderer.stats().bounded_samples,changed,std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count(),messages);
     write_text(output/"report.json",result+'\n',false);return result;
 }
 }

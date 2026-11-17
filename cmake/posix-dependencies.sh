@@ -30,7 +30,7 @@ if [[ ! -f "$prefix/lib/libvkd3d-shader.a" ]] || ! pkg-config --exact-version=2.
         # configure and configure.ac together, so no Autotools regeneration is needed.
         ./configure --disable-maintainer-mode --disable-shared --enable-static --disable-tests --disable-demos --disable-doxygen-doc
         make include/private/vkd3d_version.h
-        make -j1 libvkd3d-shader.la
+        make "-j${workers:-1}" libvkd3d-shader.la
         mkdir -p "$prefix/lib/pkgconfig" "$prefix/include/vkd3d" "$prefix/share/licenses/vkd3d" "$prefix/share/smbd"
         install -m644 .libs/libvkd3d-shader.a "$prefix/lib/"
         cat > "$prefix/lib/pkgconfig/smbd-vkd3d-shader.pc" <<'PC'

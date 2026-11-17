@@ -8,7 +8,9 @@ enum class ShaderKind : unsigned {
     combiner0,combiner1,combiner2,combiner3,combiner4,combiner5,combiner6,combiner7,combiner8,
     fixed0,fixed1,fixed2,fixed3,fixed4,fixed5,fixed6,vertex,launch,
     color,modulate2d,modulate_cube,modulate3d,fxaa,copy_multisample,copy_multisample_stencil,copy_multisample_color,
-    resample_target,resample_stencil,resample_multisample,resample_multisample_stencil,count
+    resample_target,resample_stencil,resample_multisample,resample_multisample_stencil,
+    movie_upscale,movie_sharpen,movie_chroma,
+    interface_classify,interface_bleed,interface_conv_first,interface_conv,interface_compose,interface_filter,count
 };
 struct ShaderBinary {Bytes bytes;bool compiled=false;};
 struct StaticVertex {VertexProgram program;bool launch=false;};
@@ -19,4 +21,6 @@ ID3D10Blob* shader_blob(ShaderKind);
 std::string shader_source(ShaderKind);
 const char* shader_profile(ShaderKind);
 std::string compile_shaders(const std::filesystem::path& xbe,const std::filesystem::path& output,bool replace);
+// The verified HUD upscaler checkpoint's float32 tensors (upscaler_model.h order).
+Bytes upscaler_weights();
 }

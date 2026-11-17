@@ -552,3 +552,83 @@ recorded the expected 44 remaining copies after priming. Its live capture
 shows the effect with the override on and finite vertices. Isolating its
 draw in replay changes 306173 of 307200 pixels, versus zero before the
 projection fix. Evidence: build/checks/teleporters/report.json.
+
+Upscaled FMVs (2026-11-16)
+--------------------------
+Target SHA-256: 9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2.
+Enhancements / Upscaled FMVs persists as upscaled_movies=0/1 (default 0).
+Sofdec frames are identified only from original game state, never by size,
+hashing or decoded instructions. E5900 clears the two frame-texture slots
+755F20/755F24 with the player 756080. Service E6050 locks
+[755F20+4*(byte 578B98!=0)] through SDK texture lock 31F560 (E614F), decodes
+with 2DC490, then toggles 578B98; E59B0 returns the other slot for drawing
+(or slot 0 while 756090 is set); E5A50 releases both and clears the slots.
+Each D3D texture object holds its data address at +4. In capture
+build/checks/fmv/native-opening (frame 902), objects 01AEC7A0/01AEC7D0 hold 02966000 and
+02A92000, both Format 00011229/Size 271DF27F: 640x480 linear A8R8G8B8, pitch
+2560. Current runtimes may place these objects above 64 MiB (04789C30), so
+lookups use mapped-page access rather than a fixed RAM range.
+
+A texture upload whose address matches either slot is a movie frame. With the
+option on and an internal resolution of 2x or more, that upload is filtered
+once into a scale-sized image (edge-steered 12-tap Lanczos-2 clamped to the
+four nearest texels, then contrast-adaptive sharpening at half a stop with
+noise attenuation; FSR 1 EASU/RCAS design, see THIRD_PARTY_NOTICES.txt). The
+original draw samples it with its normalized coordinates. Overlays such as
+"PRESS START BUTTON" and subtitles use their own textures and are unchanged.
+Decoded frames update one persistent source texture; one released enlarged
+image is reused by the game's double-buffered next frame. Frame captures record
+"movie" per texture and "upscaled_movies" in the header; replay falls back to
+the capture's guest RAM for older captures.
+
+Windows hardware: Ryzen 5 5600X / RTX 5060 Ti. smbd-tool check-movie-upscaling
+passes 17 cases (1x unchanged; 2x-4x one enlargement per frame, exact flat
+colour, gradients within 2 levels of bilinear, edge gradient energy x1.35/
+x1.11/x1.33, storage released when disabled, clean D3D11 validation). Cost per
+decoded frame over ordinary upload: 0.045/0.094/0.232 ms at 2x/3x/4x; movies
+decode at 30 Hz. Replay of standard-4x-final: option off 0 changed pixels,
+on one enlargement. Live hidden 4x capture build/checks/upscaled-fmv/live-4x-on
+flags texture 01C2B000 as a movie and replays with 0 changed pixels. Opening
+FMV, 600 frames at 4x, off/on: median 16.452/16.544 ms, p99 20.480/20.687 ms
+(both paced by the 60 Hz movie source), texture-upload work 33.5/20.9 ms in
+total, private committed memory 434.1/471.0 MiB. Evidence:
+build/checks/upscaled-fmv. Linux/macOS shader compilation and visuals still
+require their own validation.
+
+FMV colour reconstruction (2026-11-16, same target): decoded Sofdec frames
+repeat each 4:2:0 colour sample over an aligned 2x2 block. In captures
+frame-1794852770521-254439341200 (resource 116), standard-4x-final,
+fmv/native-opening and upscaled-fmv/live-4x-on, BT.601 B-Y/R-Y spread within
+even-aligned 2x2 blocks averages 0.21 levels versus 0.7-1.3 for offset blocks;
+at least 99.7% of blocks agree within 2 levels and every block above 4 has a
+clipped channel. Luma differs per pixel (about 4.5). This produced 2-pixel
+colour stairs on equal-brightness edges (the red shirt against dark fur and
+green) with or without upscaling; the original routine's conversion code
+beyond 2DC490 -> 2DC0D0 was not traced. Upscaled FMVs now recover the
+half-resolution plane (block mean, block brightness and a confidence that falls
+from 1 at 6 levels of spread to 0 at 10), then interpolate it with bilinear
+weights times exp(-(10*(block luma - enlarged luma))^2), keeping the enlarged
+luma. Low-confidence neighbourhoods keep the edge-adaptive colour. Results:
+check-movie-upscaling 20/20, equal-brightness 4:2:0 diagonal 0.128/0.124/0.124
+px RMS from straight at 2x/3x/4x versus 0.309/0.363/0.348 when stretched;
+cost per decoded frame over ordinary upload 0.046/0.140/0.268 ms. The
+armhole capture replays with one enlargement and no D3D11 messages; the
+standard-4x-final replay with the option off still changes 0 pixels.
+
+Upscaled HUD (2026-11-16, same target)
+-----------------------------------------
+Enhancements / Upscaled HUD persists as upscaled_hud=0/1 (default 0) and needs
+an internal resolution of 2x or more. Textures sampled by the original
+immediate frontend's 313B0 completion (sprites, fonts, outlined text and
+overlays) are enlarged once each on the GPU with the bundled Real-ESRGAN
+realesr-animevideov3 model, or a clamped Catmull-Rom filter for soft or tiny
+artwork, in bounded steps after each published frame; until finished, a
+texture keeps its original image. Details, evidence and measurements:
+knowledge/hud_upscaling.txt. Captures record "interface" marks and
+"upscaled_hud"; smbd-tool replay-frame accepts --upscaled-hud 0|1.
+
+Enhancement toggles row (2026-11-17): Upscaled FMVs, Upscaled HUD and
+Corrected subtitles share one line in Enhancements / Image quality. With an
+upscaler enabled below 2x, "(upscaling needs 2x or higher)" follows on the
+same line, or wraps to the next when the window is too narrow. Settings
+capture: build/checks/text-bleed/ui-1x/settings-4.png.

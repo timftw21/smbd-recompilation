@@ -43,6 +43,8 @@ std::string hex32(std::uint32_t value);
 std::string hex_bytes(Bytes bytes);
 std::string hash(File& file, std::uint64_t offset, std::uint64_t count,
                  bool sha1 = false, Bytes prefix = {});
+std::string hash(File* file, std::uint64_t offset, std::uint64_t count, bool sha1, Bytes prefix);
+std::string sha256(Bytes data); // Uppercase hexadecimal, as hash() returns.
 void copy(File& file, std::uint64_t offset, std::uint64_t count,
           const std::filesystem::path& output);
 void write_text(const std::filesystem::path& output, std::string_view text, bool replace);

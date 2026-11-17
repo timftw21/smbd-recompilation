@@ -1,4 +1,5 @@
 #include "shaders.h"
+#include "upscaler_model.h"
 #include "xbe.h"
 #ifdef _WIN32
 #include <d3dcompiler.h>
@@ -11,6 +12,10 @@
 #include <map>
 #include <sstream>
 #include <stdexcept>
+
+#ifndef SMBD_UPSCALER_MODEL
+#error SMBD_UPSCALER_MODEL must name resources/upscaler/realesr-animevideov3.pth
+#endif
 
 namespace smbd {
 namespace {
@@ -96,6 +101,10 @@ static ShaderBinary compile_binary(ShaderKind kind,const VertexProgram* program=
 #ifndef SMBD_COMPILED_SHADERS
 ShaderBinary shader_binary(ShaderKind kind,const VertexProgram* program) {return compile_binary(kind,program);}
 std::span<const StaticVertex> static_vertex_shaders() {return {};}
+Bytes upscaler_weights() {
+    static const auto model=read_upscaler_model(SMBD_UPSCALER_MODEL);
+    return std::as_bytes(std::span(model));
+}
 #endif
 std::string compile_shaders(const std::filesystem::path& executable,const std::filesystem::path& destination,bool replace) {
     Xbe image(executable);if(!image.supported()) throw std::runtime_error("Shader generation requires the verified executable");
@@ -141,6 +150,9 @@ std::string compile_shaders(const std::filesystem::path& executable,const std::f
         const auto& value=vertices[i];const auto binary=compile_binary(value.launch?ShaderKind::launch:ShaderKind::vertex,&value.program);
         total+=binary.bytes.size();array(output,"vertex_"+std::to_string(i),binary.bytes);
     }
+    // The unmodified checkpoint is verified and embedded as float32 tensors.
+    const auto model=read_upscaler_model(SMBD_UPSCALER_MODEL);
+    array(output,"upscaler_model",std::as_bytes(std::span(model)));
     output<<std::format("const std::array<StaticVertex,{}> programs{{{{\n",vertices.size());
     for(const auto& value:vertices) program(output,value);
     output<<"}};\n}\nstd::span<const StaticVertex> static_vertex_shaders(){return programs;}\nShaderBinary shader_binary(ShaderKind kind,const VertexProgram* program){\nswitch(kind){\n";
@@ -152,9 +164,10 @@ std::string compile_shaders(const std::filesystem::path& executable,const std::f
     for(unsigned i=0;i<vertices.size();++i)
         output<<std::format("if(kind==ShaderKind::{} && key==programs[{}].program) return {{Bytes(reinterpret_cast<const std::byte*>(vertex_{}),sizeof(vertex_{})-1),false}};\n",
             vertices[i].launch?"launch":"vertex",i,i,i);
-    output<<"throw std::runtime_error(\"Vertex program is missing from the compiled shader bank\");}\n}\n";
+    output<<"throw std::runtime_error(\"Vertex program is missing from the compiled shader bank\");}\n";
+    output<<"Bytes upscaler_weights(){return {reinterpret_cast<const std::byte*>(upscaler_model),sizeof(upscaler_model)-1};}\n}\n";
     write_text(destination,output.str(),replace);
-    return std::format("{{\"format\":\"smbd-shaders-aot-v1\",\"sha256\":{},\"title_records\":{},\"sdk_programs\":3,\"vertex_programs\":{},\"builtin_shaders\":{},\"bytecode_bytes\":{},\"runtime_compiler\":false}}",
-        json(image.sha256),title_records,vertices.size(),builtins,total);
+    return std::format("{{\"format\":\"smbd-shaders-aot-v1\",\"sha256\":{},\"title_records\":{},\"sdk_programs\":3,\"vertex_programs\":{},\"builtin_shaders\":{},\"bytecode_bytes\":{},\"upscaler_sha256\":{},\"upscaler_floats\":{},\"runtime_compiler\":false}}",
+        json(image.sha256),title_records,vertices.size(),builtins,total,json(upscaler_model_sha256),model.size());
 }
 }
