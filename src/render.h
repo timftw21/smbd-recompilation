@@ -39,7 +39,7 @@ struct TextureData {
 // Xbox cubemap mip chains start each face on a 128-byte boundary.
 inline constexpr std::uint64_t cubemap_face_size(std::uint64_t bytes) {return (bytes+127)&~std::uint64_t(127);}
 enum class SurfaceColor {rgba8,rgb565};
-enum class SurfaceDepth {z24s8,z16};
+enum class SurfaceDepth {z24s8,z16,none};
 
 struct Vertex {
     Float4 position{0, 0, 0, 1}; // Homogeneous D3D clip coordinates.

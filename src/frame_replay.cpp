@@ -160,8 +160,9 @@ std::string replay_frame(const std::filesystem::path& capture,const std::filesys
             std::uint32_t shared=UINT32_MAX;
             for(const auto& [id,other]:surfaces) if(!retired.contains(id) && s.key[0]==other.key[0] && (s.key[2]&~255U)==(other.key[2]&~255U) &&
                 ((s.key[2]&15)==3)==((other.key[2]&15)==3) && (s.key[3]&65535)==(other.key[3]&65535) && s.width==other.width && s.height==other.height) shared=other.native;
+            const auto zeta=(s.key[2]>>4)&15;
             s.native=renderer.create_target(s.width,s.height,(s.key[2]&15)==3?SurfaceColor::rgb565:SurfaceColor::rgba8,
-                ((s.key[2]>>4)&15)==1?SurfaceDepth::z16:SurfaceDepth::z24s8,shared);
+                zeta==0?SurfaceDepth::none:zeta==1?SurfaceDepth::z16:SurfaceDepth::z24s8,shared);
             const auto id=record.at("resource").number();resources.emplace(id,s.native);surfaces.emplace(id,s);
             renderer.set_target(s.native);renderer.clear(0);
         }

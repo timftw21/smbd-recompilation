@@ -276,7 +276,7 @@ struct Gpu::Impl {
         if(size<=image_limit-capture_image_bytes) {
             save_png(renderer.read_target(id),capture.directory/name);image=json(name);capture_image_bytes+=size;
         } else capture.truncated=true;
-        if(id) {
+        if(id && ((key[2]>>4)&15)) {
             const auto depth_size=std::uint64_t(width)*height*scale*scale*(((key[2]>>4)&15)==1?2:4);
             if(depth_size<=binary_limit-capture_bytes) depth=capture_data(std::format("depth-{}.bin",id),renderer.read_depth(id));
             else capture.truncated=true;
@@ -587,9 +587,11 @@ struct Gpu::Impl {
         flush();
         if(to==targets.end()) {
             const auto color=bpp==2?SurfaceColor::rgb565:SurfaceColor::rgba8;
-            const std::array key{destination,0U,bpp==2?0x123U:0x128U,destination_pitch|(destination_pitch<<16)};
+            // A 2D copy only owns color. A later 3D view can share that image
+            // with the depth attachment specified by its own surface registers.
+            const std::array key{destination,0U,bpp==2?0x103U:0x108U,destination_pitch};
             const auto w=dx+width,h=dy+height;
-            to=targets.emplace(key,Surface{renderer.create_target(w,h,color,SurfaceDepth::z24s8,UINT32_MAX,!capture.pending),w,h}).first;
+            to=targets.emplace(key,Surface{renderer.create_target(w,h,color,SurfaceDepth::none,UINT32_MAX,!capture.pending),w,h}).first;
             write_color(key,to->second,0,0,w,h);
         } else if(dx+width>to->second.width || dy+height>to->second.height)
             grow_color(to->first,to->second,std::max(dx+width,to->second.width),std::max(dy+height,to->second.height));

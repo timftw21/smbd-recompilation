@@ -183,7 +183,7 @@ void MultisampleCopy::resample(ID3D11ShaderResourceView* color,ID3D11ShaderResou
     context_->OMSetBlendState(nullptr,nullptr,UINT_MAX);context_->IASetInputLayout(nullptr);
     context_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     context_->VSSetShader(vertex_.Get(),nullptr,0);context_->PSSetShader(resample_[source_samples>1?2:0].Get(),nullptr,0);
-    context_->OMSetRenderTargets(1,&target,destination);context_->OMSetDepthStencilState(depth_.Get(),0);
+    context_->OMSetRenderTargets(1,&target,destination);context_->OMSetDepthStencilState(destination?depth_.Get():no_depth_.Get(),0);
     ID3D11ShaderResourceView* sources[]={color,depth,stencil};context_->PSSetShaderResources(0,3,sources);
     auto buffer=offset_.Get();context_->PSSetConstantBuffers(0,1,&buffer);context_->Draw(3,0);
     if(stencil) {
@@ -203,7 +203,7 @@ void MultisampleCopy::grow(ID3D11ShaderResourceView* color,ID3D11ShaderResourceV
     context_->RSSetState(raster_.Get());context_->OMSetBlendState(nullptr,nullptr,UINT_MAX);
     context_->IASetInputLayout(nullptr);context_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     context_->VSSetShader(vertex_.Get(),nullptr,0);context_->PSSetShader(pixel_.Get(),nullptr,0);
-    context_->OMSetRenderTargets(1,&target,destination);context_->OMSetDepthStencilState(depth_.Get(),0);
+    context_->OMSetRenderTargets(1,&target,destination);context_->OMSetDepthStencilState(destination?depth_.Get():no_depth_.Get(),0);
     ID3D11ShaderResourceView* sources[]={color,depth,stencil};context_->PSSetShaderResources(0,3,sources);context_->Draw(3,0);
     if(stencil) {
         context_->OMSetRenderTargets(0,nullptr,destination);context_->PSSetShader(stencil_.Get(),nullptr,0);

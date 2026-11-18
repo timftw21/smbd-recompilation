@@ -694,7 +694,14 @@ struct Renderer::Impl {
     std::uint32_t width, height,resolution_scale=1;
     float display_aspect=4.0f/3;
     static unsigned color_size(SurfaceColor color) {return color==SurfaceColor::rgb565?2U:4U;}
-    static unsigned depth_size(SurfaceDepth depth) {return depth==SurfaceDepth::z16?2U:4U;}
+    static unsigned depth_size(SurfaceDepth depth) {
+        switch(depth) {
+        case SurfaceDepth::z24s8:return 4;
+        case SurfaceDepth::z16:return 2;
+        case SurfaceDepth::none:return 0;
+        }
+        throw std::runtime_error("Invalid depth format");
+    }
     std::size_t target_size(unsigned w,unsigned h,SurfaceColor color=SurfaceColor::rgba8,
                             SurfaceDepth depth=SurfaceDepth::z24s8,bool shared=false) const {
         return std::size_t(w)*h*((shared?0:color_size(color)*(samples+(samples>1?1:0)))+depth_size(depth)*samples)*resolution_scale*resolution_scale;
@@ -943,6 +950,7 @@ struct Renderer::Impl {
             }
             checked(device->CreateShaderResourceView(output.resolved.Get(),nullptr,&output.texture_view),"Target texture view");
         }
+        if(depth_format==SurfaceDepth::none) return output;
         texture.Format=depth_format==SurfaceDepth::z16?DXGI_FORMAT_R16_TYPELESS:DXGI_FORMAT_R24G8_TYPELESS;
         texture.BindFlags=D3D11_BIND_DEPTH_STENCIL|D3D11_BIND_SHADER_RESOURCE;
         checked(device->CreateTexture2D(&texture,nullptr,&output.depth), "Depth target");
@@ -1177,35 +1185,38 @@ void Renderer::grow_target(std::uint32_t target,std::uint32_t width,std::uint32_
     if(required>r.target_limit-(r.target_bytes-previous)-r.presentation_bytes()) throw std::runtime_error("Render targets exceed the graphics memory budget; reduce resolution or MSAA.");
     r.unbind_textures();r.context->OMSetRenderTargets(0,nullptr,nullptr);
     for(const auto identifier:aliases) {
-    const auto prior=r.targets.at(identifier);
-    auto output=r.make_target(width,height,prior.color_format,prior.depth_format,
-        identifier==target?nullptr:&r.targets.at(target));
-    constexpr float black[4]{};
-    if(identifier==target) {
-        r.context->ClearRenderTargetView(output.color_view.Get(),black);
-        if(r.samples==1) r.context->CopySubresourceRegion(output.color.Get(),0,0,0,0,prior.color.Get(),0,nullptr);
-    }
-    r.context->ClearDepthStencilView(output.depth_view.Get(),D3D11_CLEAR_DEPTH|(prior.depth_format==SurfaceDepth::z16?0:D3D11_CLEAR_STENCIL),1,0);
-    if(r.samples>1) {
-        r.multisample_copy->grow(prior.multisample_view.Get(),prior.depth_texture.Get(),prior.stencil_texture.Get(),
-            output.color_view.Get(),output.depth_view.Get(),prior.width*r.resolution_scale,prior.height*r.resolution_scale);
-        *output.dirty=true;
-    } else {
-    // Depth/stencil resources require whole copies with matching dimensions.
-    // Migrate their packed bits through ordinary typeless textures, then copy
-    // the complete enlarged image back into its depth/stencil resource.
-    D3D11_TEXTURE2D_DESC packed{};packed.Width=prior.width*r.resolution_scale;packed.Height=prior.height*r.resolution_scale;
-    packed.MipLevels=packed.ArraySize=1;packed.Format=prior.depth_format==SurfaceDepth::z16?DXGI_FORMAT_R16_TYPELESS:DXGI_FORMAT_R24G8_TYPELESS;packed.SampleDesc.Count=1;
-    ComPtr<ID3D11Texture2D> previous_depth,grown_depth;
-    checked(r.device->CreateTexture2D(&packed,nullptr,&previous_depth),"Previous depth transfer");
-    packed.Width=width*r.resolution_scale;packed.Height=height*r.resolution_scale;
-    checked(r.device->CreateTexture2D(&packed,nullptr,&grown_depth),"Grown depth transfer");
-    r.context->CopyResource(previous_depth.Get(),prior.depth.Get());
-    r.context->CopyResource(grown_depth.Get(),output.depth.Get());
-    r.context->CopySubresourceRegion(grown_depth.Get(),0,0,0,0,previous_depth.Get(),0,nullptr);
-    r.context->CopyResource(output.depth.Get(),grown_depth.Get());
-    }
-    r.targets.at(identifier)=std::move(output);r.textures[identifier]=r.targets.at(identifier).texture_view;
+        const auto prior=r.targets.at(identifier);
+        auto output=r.make_target(width,height,prior.color_format,prior.depth_format,
+            identifier==target?nullptr:&r.targets.at(target));
+        constexpr float black[4]{};
+        if(identifier==target) {
+            r.context->ClearRenderTargetView(output.color_view.Get(),black);
+            if(r.samples==1) r.context->CopySubresourceRegion(output.color.Get(),0,0,0,0,prior.color.Get(),0,nullptr);
+        }
+        if(output.depth)
+            r.context->ClearDepthStencilView(output.depth_view.Get(),D3D11_CLEAR_DEPTH|(prior.depth_format==SurfaceDepth::z16?0:D3D11_CLEAR_STENCIL),1,0);
+        if(r.samples>1) {
+            if(identifier==target || output.depth) {
+                r.multisample_copy->grow(prior.multisample_view.Get(),prior.depth_texture.Get(),prior.stencil_texture.Get(),
+                    output.color_view.Get(),output.depth_view.Get(),prior.width*r.resolution_scale,prior.height*r.resolution_scale);
+                *output.dirty=true;
+            }
+        } else if(output.depth) {
+            // Depth/stencil resources require whole copies with matching dimensions.
+            // Migrate their packed bits through ordinary typeless textures, then copy
+            // the complete enlarged image back into its depth/stencil resource.
+            D3D11_TEXTURE2D_DESC packed{};packed.Width=prior.width*r.resolution_scale;packed.Height=prior.height*r.resolution_scale;
+            packed.MipLevels=packed.ArraySize=1;packed.Format=prior.depth_format==SurfaceDepth::z16?DXGI_FORMAT_R16_TYPELESS:DXGI_FORMAT_R24G8_TYPELESS;packed.SampleDesc.Count=1;
+            ComPtr<ID3D11Texture2D> previous_depth,grown_depth;
+            checked(r.device->CreateTexture2D(&packed,nullptr,&previous_depth),"Previous depth transfer");
+            packed.Width=width*r.resolution_scale;packed.Height=height*r.resolution_scale;
+            checked(r.device->CreateTexture2D(&packed,nullptr,&grown_depth),"Grown depth transfer");
+            r.context->CopyResource(previous_depth.Get(),prior.depth.Get());
+            r.context->CopyResource(grown_depth.Get(),output.depth.Get());
+            r.context->CopySubresourceRegion(grown_depth.Get(),0,0,0,0,previous_depth.Get(),0,nullptr);
+            r.context->CopyResource(output.depth.Get(),grown_depth.Get());
+        }
+        r.targets.at(identifier)=std::move(output);r.textures[identifier]=r.targets.at(identifier).texture_view;
     }
     r.target_bytes=r.target_bytes-previous+required;r.select_target(r.current_target);
 }
@@ -1817,7 +1828,7 @@ void Renderer::clear(std::uint32_t argb, float depth) {
     const auto rgba = color(argb);
     *r.targets.at(r.current_target).dirty=true;
     r.context->ClearRenderTargetView(r.rtv.Get(), rgba.data());
-    r.context->ClearDepthStencilView(r.dsv.Get(),D3D11_CLEAR_DEPTH|
+    if(r.dsv) r.context->ClearDepthStencilView(r.dsv.Get(),D3D11_CLEAR_DEPTH|
         (r.targets.at(r.current_target).depth_format==SurfaceDepth::z16?0:D3D11_CLEAR_STENCIL),depth,0);
     if(!r.recording) r.ended=true;
 }
@@ -1826,7 +1837,8 @@ void Renderer::clear_buffers(std::uint32_t flags,std::uint32_t argb,float depth,
     auto& r=*impl_;
     if(flags&~0xF3U) throw std::runtime_error("Invalid clear channel flags");
     if(flags&0xF0U) *r.targets.at(r.current_target).dirty=true;
-    if(r.targets.at(r.current_target).depth_format==SurfaceDepth::z16) flags&=~2U;
+    if(!r.dsv) flags&=~3U;
+    else if(r.targets.at(r.current_target).depth_format==SurfaceDepth::z16) flags&=~2U;
     if(!std::isfinite(depth) || depth<0 || depth>1) throw std::runtime_error("Invalid clear depth");
     if(!rectangle.empty() && rectangle.size()!=4) throw std::runtime_error("A clear rectangle requires four coordinates");
     const D3D11_RECT bounds=rectangle.empty()?D3D11_RECT{0,0,LONG(r.width),LONG(r.height)}:
@@ -1881,7 +1893,7 @@ void Renderer::begin(std::uint32_t argb, float depth, bool clear_target) {
     r.context->RSSetViewports(1, &viewport);
 }
 void Renderer::clear_stencil(std::uint8_t value) {
-    if(impl_->targets.at(impl_->current_target).depth_format!=SurfaceDepth::z16)
+    if(impl_->targets.at(impl_->current_target).depth_format==SurfaceDepth::z24s8)
         impl_->context->ClearDepthStencilView(impl_->dsv.Get(),D3D11_CLEAR_STENCIL,1,value);
 }
 void Renderer::draw(const RenderState& state,std::span<const Vertex> vertices,std::span<const std::uint32_t> indices) {
@@ -2277,6 +2289,7 @@ std::vector<std::byte> Renderer::read_depth(std::uint32_t target) {
     auto& r=*impl_;
     if(r.recording) throw std::runtime_error("End submission before capturing depth");
     const auto& surface=r.targets.at(target);
+    if(!surface.depth) return {};
     auto depth=surface.depth;
     if(r.samples>1) {
         auto single=r.make_target(surface.width,surface.height,surface.color_format,surface.depth_format,nullptr,1);
@@ -2358,20 +2371,26 @@ std::string check_image_copy(bool warp,bool debug,unsigned antialiasing) {
         const auto actual=renderer.readback();
         cases.emplace_back(std::move(name),actual.width==expected.width && actual.height==expected.height && actual.rgba==expected.rgba);
     };
-    const auto source=renderer.create_target(8,8),destination=renderer.create_target(8,8);
+    const auto source=renderer.create_target(8,8);
+    const auto before_copy=renderer.stats().target_bytes;
+    const auto copy_image=renderer.create_target(8,8,SurfaceColor::rgba8,SurfaceDepth::none);
+    const auto samples=antialiasing>=4?1U<<(antialiasing-3):1U;
+    cases.emplace_back("copy destination uses only color storage",renderer.read_depth(copy_image).empty() &&
+        renderer.stats().target_bytes-before_copy==8*8*4*(samples+(samples>1?1:0)));
     renderer.set_target(source);renderer.clear(0xFF204060);const auto original=renderer.readback();
-    renderer.set_target(destination);renderer.clear(0xFFCC8844);auto expected=renderer.readback();
-    renderer.copy_region(destination,source,1,2,3,1,3,4);copy(expected,original,1,2,3,1,3,4);
+    renderer.set_target(copy_image);renderer.clear(0xFFCC8844);auto expected=renderer.readback();
+    renderer.copy_region(copy_image,source,1,2,3,1,3,4);copy(expected,original,1,2,3,1,3,4);
     compare("partial rectangle preserves surrounding pixels",expected);
     const auto before_overlap=expected;
-    renderer.copy_region(destination,destination,1,0,2,2,5,5);copy(expected,before_overlap,1,0,2,2,5,5);
+    renderer.copy_region(copy_image,copy_image,1,0,2,2,5,5);copy(expected,before_overlap,1,0,2,2,5,5);
     compare("overlapping copy retains source pixels",expected);
-    renderer.copy_region(destination,source,0,0,0,0,8,8);compare("whole image copy",original);
+    renderer.copy_region(copy_image,source,0,0,0,0,8,8);compare("whole image copy",original);
+    const auto destination=renderer.create_target(8,8,SurfaceColor::rgba8,SurfaceDepth::z24s8,copy_image);
     const auto alias=renderer.create_target(8,8,SurfaceColor::rgba8,SurfaceDepth::z16,destination);
     renderer.set_target(destination);renderer.clear_buffers(3,0,0.625f,0xA5);const auto original_depth=renderer.read_depth(destination);
     renderer.set_target(alias);renderer.clear(0xFF5A3C78,0.375f);const auto shared=renderer.readback();const auto alias_depth=renderer.read_depth(alias);
     renderer.set_target(destination);compare("color image shared across depth views",shared);
-    renderer.grow_target(destination,10,9);
+    renderer.grow_target(copy_image,10,9);
     Image grown{10,9,std::vector<std::byte>(10*9*4)};copy(grown,shared,0,0,0,0,8,8);
     compare("shared image growth preserves pixels",grown);
     renderer.set_target(alias);compare("alias follows image growth",grown);
