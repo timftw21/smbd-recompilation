@@ -10,7 +10,7 @@
 
 An unofficial native version of the original Xbox game for Windows, Linux x86-64, and Steam Deck, built around accurate gameplay, original presentation, and enhancements. This fan project is independent of SEGA. You must provide your own US Xbox game disc image. Original game files are not distributed here.
 
-**0.6.0 is the latest public development release.** Bugs, slowdowns, and stops in untested game modes are still possible. Linux and Steam Deck support needs more testing. macOS remains a planned target.
+**0.6.1 is the latest public development release.** Bugs, slowdowns, and stops in untested game modes are still possible. Linux and Steam Deck support needs more testing. macOS remains a planned target.
 
 ## AI disclosure
 
@@ -23,6 +23,10 @@ OpenAI Codex and Anthropic Claude have assisted with development and research. C
 | [<img src="resources/screenshots/mode-select.jpg" alt="Mode Select menu" width="260">](resources/screenshots/mode-select.jpg) | [<img src="resources/screenshots/stage-select.jpg" alt="World 3 Stage Select" width="260">](resources/screenshots/stage-select.jpg) | [<img src="resources/screenshots/gameplay.jpg" alt="AIAI on a stage" width="260">](resources/screenshots/gameplay.jpg) |
 
 ## Current status
+
+### Changes in 0.6.1
+
+- Fixed a crash at high internal resolutions with MSAA by removing unused depth buffers from image copies.
 
 ### Changes in 0.6.0
 
@@ -63,7 +67,7 @@ OpenAI Codex and Anthropic Claude have assisted with development and research. C
 
 You need a Direct3D 11-capable graphics card and an XISO image of the **US Xbox release of Super Monkey Ball Deluxe**. A full raw-disc dump must first be converted to XISO. The executable is checked against [the supported-target registry](knowledge/supported_target.json).
 
-**[Download the 0.6.0 Windows installer](https://github.com/timftw21/smbd-recompilation/releases/download/v0.6.0/smbd-0.6.0-windows-x64-setup.exe)** · [Release notes and SHA-256 checksum](https://github.com/timftw21/smbd-recompilation/releases/tag/v0.6.0)
+**[Download the 0.6.1 Windows installer](https://github.com/timftw21/smbd-recompilation/releases/download/v0.6.1/smbd-0.6.1-windows-x64-setup.exe)** · [Release notes and SHA-256 checksum](https://github.com/timftw21/smbd-recompilation/releases/tag/v0.6.1)
 
 1. Run the installer and select your US Xbox XISO image.
 2. Choose an installation folder. You can keep a copy of the image with the game and create a desktop shortcut.
