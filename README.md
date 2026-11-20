@@ -34,19 +34,6 @@ OpenAI Codex and Anthropic Claude have assisted with development and research. C
 - Fixed the tops and edges of the lives, speed, and timer digits being cut off at higher internal resolutions.
 - Fixed holes in the lamp glow on WA2 stages such as 3-15 CASCADE. This bug is also present in the original game.
 
-### Changes in 0.6.1
-
-- Fixed a crash at high internal resolutions with MSAA by removing unused depth buffers from image copies.
-
-### Changes in 0.6.0
-
-- Added "Upscaled FMVs" option to Enhancements. It's not AI upscaling, but it's cleaner than the original.
-- Added "Upscaled HUD" option to Enhancements. This is AI upscaling via Real-ESRGAN.
-- Added "Corrected subtitles" option to Enhancements. Fixes some issues that the localization team overlooked :)
-- Fixed subtle text artifacts at higher internal resolutions.
-- Fixed lingering replay timing issues.
-- Raised worker count for Linux and Steam Deck builds. Completely overlooked this. Building should be much faster.
-
 ### Known issues
 
 - Minor timing issues at higher refresh rates.
