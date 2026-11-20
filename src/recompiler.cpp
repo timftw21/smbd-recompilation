@@ -45,6 +45,7 @@ struct CheckedRange {
 
 class Emitter {
 public:
+    std::uint32_t entry=0;
     std::set<unsigned> used, dirty;
     bool uses_flags = false, writes_flags = false;
     bool calls = false;
@@ -362,6 +363,36 @@ public:
         body << "{ // " << instruction.text << '\n' << prologue;
         if(loop_headers.contains(instruction.address))
             body << "    if(smbd::checkpoint_due(cpu)) { commit(); smbd::checkpoint(cpu," << constant(instruction.address) << "); }\n";
+        if(entry==0xE9180 && instruction.address==0xE921A) {
+            if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="0F85C0010000")
+                throw std::runtime_error("Original rolling sound state branch differs");
+            // After a live toggle, stop with the controller that started the
+            // roll; the next request starts the newly selected one.
+            body << "    if(rolling_mode==2U) goto " << label(0xE9685) << ";\n";
+        }
+        if(entry==0xE9180 && instruction.address==0xE95E8) {
+            if(instruction.target()!=0xE3C60) throw std::runtime_error("Original rolling layer volume differs");
+            // EBX walks the layer curves at 581740; the pushed volume is final.
+            body << "    if(rolling_mode==1U) rolling_sound_layer(cpu,rolling_player,(ebx-0x581740U)/4U,memory.load<std::uint8_t>(esp+8U),rolling_request,false);\n";
+        }
+        if(entry==0xE9180 && instruction.address==0xE9685) {
+            if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="8BD9") throw std::runtime_error("Original rolling stop differs");
+            body << "    rolling_sound_stop(cpu,rolling_player);\n";
+        }
+        if(instruction.address==0xBB4D5 || instruction.address==0xBB4D6 || instruction.address==0xBB4DB) {
+            // The generic background pass queues an object's translucent
+            // shapes through A2D80 with the current z mode. WA2_POKO_LIGHT
+            // objects must not write depth over the glows that WA2's lamp
+            // code D5A20 draws (see background_light_depth).
+            const auto bytes=hex_bytes(Bytes(instruction.bytes).first(ins.length));
+            if((instruction.address==0xBB4D5 && bytes!="55") || (instruction.address==0xBB4D6 && instruction.target()!=0xA2D80) ||
+               (instruction.address==0xBB4DB && bytes!="83C404"))
+                throw std::runtime_error("Original background translucent queue differs");
+            if(instruction.address!=0xBB4D6) {
+                native_declarations["background_light_depth"]="void background_light_depth(Cpu&,Memory&,std::uint32_t,bool);\n";
+                body << "    background_light_depth(cpu,memory,esi," << (instruction.address==0xBB4D5?"true":"false") << ");\n";
+            }
+        }
         if(instruction.address==0xB785F) {
             if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="F605142189000A")
                 throw std::runtime_error("Original dynamic FOV entry differs");
@@ -1546,7 +1577,15 @@ public:
             used.insert(4); dirty.insert(4);
             body << "    esp -= 4U;\n    memory.store<std::uint32_t>(esp, " << constant(next)
                  << ");\n    commit();\n    cpu.eip = " << constant(instruction.target().value_or(instruction.address)) << ";\n    ";
-            if(instruction.address==0x9932B || instruction.address==0x9938F) {
+            if(entry==0xE9180 && instruction.address==0xE934A) {
+                if(instruction.target()!=0xE53F0 || ins.length!=5) throw std::runtime_error("Original rolling sample caller differs");
+                // Classic voices replace the non-looping ADX start. BL holds the
+                // layer volume and EBP walks the layer curves at 581740. Return
+                // the invalid handle that every later sound call ignores.
+                body << "if(rolling_mode==1U) { rolling_sound_layer(cpu,rolling_player,(ebp-0x581740U)/4U,ebx&0xFFU,rolling_request,true);\n"
+                        "        cpu.registers[smbd::eax]=UINT32_MAX;cpu.registers[smbd::esp]+=4U;cpu.eip=" << constant(next) << "; }\n"
+                        "    else guest_000E53F0(cpu, memory);\n";
+            } else if(instruction.address==0x9932B || instruction.address==0x9938F) {
                 if(instruction.target()!=0x98B50) throw std::runtime_error("Original sampled pose call differs");
                 native_declarations["frame_sampled_pose"]="void guest_00098B50_sampled(Cpu&,Memory&,const std::uint32_t*);\n";
                 body << "guest_00098B50_sampled(cpu,memory,&frame_pose_time);\n";
@@ -1934,6 +1973,7 @@ LoweredFunction lower(const Function& function) {
         return result;
     }
     Emitter emitter;
+    emitter.entry=function.entry;
     if(function.instructions.contains(0x1F0AD6)) {
         constexpr std::pair<std::uint32_t,std::string_view> replay_fade[]={{0x1F0AD6,"E9E5A5FFFF"},
             {0x1EB0C5,"FF8010020000"},{0x1EB0FD,"2B8118020000"},{0x1EB108,"C3"},{0x1EB10E,"C3"}};
@@ -1976,6 +2016,9 @@ LoweredFunction lower(const Function& function) {
         layout!=frame_presentations.end() && !layout->prologue_end)
         emitter.native_declarations["menu_layout"]="void native_menu_layout(Cpu&,Memory&,std::uint32_t,bool);\n";
     for(const auto& [name,declaration] : emitter.native_declarations) out << declaration;
+    if(function.entry==0xE9180) out << "std::uint32_t rolling_sound_mode(Cpu&,std::uint32_t);\n"
+        "void rolling_sound_layer(Cpu&,std::uint32_t,std::uint32_t,std::uint32_t,std::uint32_t,bool);\n"
+        "void rolling_sound_stop(Cpu&,std::uint32_t);\n";
     if(function.entry==0x12F30 || function.entry==0x13180) out << "bool native_goal_query(Cpu&,Memory&,std::uint32_t);\n";
     if(function.entry==0x13C80) out << "void native_sample_goals(Cpu&,Memory&);\n";
     if(function.entry==0xA8000) out << "void frame_reset_world();\n";
@@ -2008,6 +2051,11 @@ LoweredFunction lower(const Function& function) {
     out << ") {\n";
     out << "    if(smbd::checkpoint_due(cpu)) smbd::checkpoint(cpu," << constant(function.entry) << ");\n";
     const auto entry_begin=out.view().size();
+    if(function.entry==0xE9180)
+        out << "    const auto rolling_player=memory.load<std::uint32_t>(cpu.registers[smbd::esp]+4)&0x7FFU;\n"
+               "    const auto rolling_request=(memory.load<std::uint32_t>(cpu.registers[smbd::esp]+8)&0xFFU)|\n"
+               "        (memory.load<std::uint32_t>(cpu.registers[smbd::esp]+12)&0xFFU)<<8;\n"
+               "    const auto rolling_mode=rolling_sound_mode(cpu,rolling_player);\n";
     if(function.entry==0xB7350) {
         if(hex_bytes(Bytes(function.instructions.at(function.entry).bytes).first(8))!="F30F1005347C3400")
             throw std::runtime_error("Original camera array initializer differs");

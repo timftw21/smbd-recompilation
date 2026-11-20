@@ -31,6 +31,7 @@ struct XboxHost {
     bool widescreen=false,ultrawide=false;
     bool unlimited_render_distance=false;
     bool corrected_subtitles=true;
+    bool classic_rolling_sound=false;
 };
 struct BootIo {
     std::uint32_t ordinal=0,status=0,information=0,callsite=0;
@@ -84,10 +85,15 @@ public:
     void aspect_ratio(unsigned mode);
     void unlimited_render_distance(bool);
     void corrected_subtitles(bool); // Applies from the next subtitle script load.
+    void classic_rolling_sound(bool);
     bool movie_sync() const;
 private:
     friend std::string check_services(Xbe&,const std::filesystem::path&,const std::filesystem::path&);
     friend void native_platform(Cpu&,Memory&,std::uint32_t);
+    friend std::uint32_t rolling_sound_mode(Cpu&,std::uint32_t player);
+    friend void rolling_sound_layer(Cpu&,std::uint32_t player,std::uint32_t layer,std::uint32_t volume,std::uint32_t request,bool start);
+    friend void rolling_sound_stop(Cpu&,std::uint32_t player);
+    friend void background_light_depth(Cpu&,Memory&,std::uint32_t object,bool begin);
     friend void native_frame_wait(Cpu&,Memory&);
     friend void native_frame_begin(Cpu&,Memory&,std::uint32_t);
     friend void native_stage_time(Cpu&,Memory&);

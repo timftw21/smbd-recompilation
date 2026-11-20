@@ -93,6 +93,13 @@ struct VertexAttribute {
 };
 using VertexLayout=std::array<VertexAttribute,16>;
 struct VertexStream { Bytes bytes;std::uint32_t stride; };
+// D3D11 state objects selected by Renderer::prepare, as 1-based ids. They
+// stay valid for the renderer's lifetime; zero resolves at submission.
+struct PipelineStates {
+    std::uint16_t blend=0,depth=0,raster=0;
+    std::array<std::uint16_t,4> samplers{};
+    bool operator==(const PipelineStates&) const = default;
+};
 struct StreamDraw {
     const RenderState& state;
     const VertexConstants& constants;
@@ -101,7 +108,7 @@ struct StreamDraw {
     const ProgramVertex& current;
     std::uint32_t layout,count;
     std::span<const std::uint32_t> indices;
-    std::uint64_t pipeline=0;
+    PipelineStates pipeline{};
 };
 
 struct RenderStats {
@@ -181,7 +188,7 @@ public:
     void performance_frame(std::uint64_t next_frame);
     void finish_performance();
     void performance_resources();
-    std::uint64_t prepare(const RenderState&); // Cached D3D11 states; shaders are built ahead of time.
+    PipelineStates prepare(const RenderState&); // Cached D3D11 states; shaders are built ahead of time.
     std::uint32_t prepare_program(const VertexProgram&, bool launch = false);
     std::uint32_t prepare_fixed(const FixedTransform& = {});
     std::uint32_t prepare_layout(std::uint32_t program,const VertexLayout&);

@@ -223,7 +223,9 @@ Gaming Mode, visual parity and hardware performance still need verification.
 Discord Rich Presence
 
 Settings > General > Discord Rich Presence is off by default. It shares the
-game or settings state and elapsed time with Discord desktop over local IPC.
+game mode, stage and elapsed time with Discord desktop over local IPC. The fields come from original guest state twice per second; see
+knowledge/discord_presence.txt, and use smbd-tool inspect-presence ISO
+CAPTURE... to decode frame captures without Discord.
 Turning it off or closing the game clears the activity. Automated and hidden
 runs skip Discord. Start Discord before launching the game on Steam Deck so
 Flatpak can expose its socket.

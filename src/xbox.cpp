@@ -18,6 +18,7 @@
 #include "audio.h"
 #include "gpu.h"
 #include "interface_marks.h"
+#include "rolling.h"
 #include "subtitles.h"
 #include <algorithm>
 #include <bit>
@@ -190,6 +191,10 @@ struct Xbox::State {
     struct InputHandle {std::uint32_t id=0,port=0;};
     std::array<InputHandle,32> input_handles{};
     std::uint32_t next_input_handle=0xF2000000;
+    // Declared before the mixer so its bound sample memory outlives the voices.
+    std::unique_ptr<ClassicRolling> classic_rolling;
+    struct RollingPlayer {bool classic=false;unsigned idle=0;};
+    std::array<RollingPlayer,ClassicRolling::players> rolling_players{};
     std::unique_ptr<Audio> audio;
     std::uint32_t audio_device=0,audio_references=0;
     float output_gain=1;
@@ -855,6 +860,70 @@ struct Xbox::State {
         } catch(...) {cpu=saved;throw;}
         cpu=saved;
     }
+    // Classic rolling sound. E9180 keeps its original state at 765708 and
+    // 581620; classic voices leave its handles at -1, which every sound call
+    // it makes (E3C60, E34A0) ignores.
+    static State* running(const Cpu& cpu) {
+        if(!cpu.kernel || !cpu.kernel->context || cpu.kernel->entries[255]!=dispatch_kernel<255>) return nullptr;
+        return static_cast<State*>(cpu.kernel->context);
+    }
+    bool rolling_started(std::uint32_t player) const {return memory.load<std::uint32_t>(0x765708+8*player)!=0;}
+    std::optional<std::uint8_t> background_light_update;
+    ClassicRolling* rolling_voices() {
+        if(!audio) return nullptr;
+        if(!classic_rolling) {
+            if(!disc) throw std::runtime_error("Classic rolling sound requires the mounted game disc");
+            classic_rolling=std::make_unique<ClassicRolling>(*disc);
+        }
+        return classic_rolling.get();
+    }
+    double rolling_doppler(std::uint32_t request) {
+        std::array<std::byte,32> curve;
+        std::memcpy(curve.data(),memory.access(0x58174C,curve.size()),curve.size());
+        return rolling_curve(curve,static_cast<float>(std::min(request&0xFFU,127U)));
+    }
+    std::uint32_t rolling_mode(std::uint32_t player) {
+        if(player>=rolling_players.size()) return 0;
+        auto& roll=rolling_players[player];roll.idle=0;
+        if(!rolling_started(player)) {
+            // A sound reset can clear the started flag without a stop request.
+            if(classic_rolling && audio) classic_rolling->release(*audio,player);
+            roll.classic=host.classic_rolling_sound;
+        } else if(roll.classic!=host.classic_rolling_sound) return 2; // Stop with the controller that started.
+        return roll.classic?1:0;
+    }
+    void rolling_layer(std::uint32_t player,std::uint32_t layer,std::uint32_t volume,std::uint32_t request,bool start) {
+        if(player>=rolling_players.size() || layer>=ClassicRolling::layers) return;
+        auto* voices=rolling_voices();
+        if(!voices) return;
+        const auto doppler=rolling_doppler(request);
+        const auto level=static_cast<std::int8_t>(request>>8);
+        if(start) voices->start(*audio,player,layer,volume&0xFFU,level,doppler);
+        else voices->update(*audio,player,layer,volume&0xFFU,level,doppler);
+    }
+    void rolling_stop(std::uint32_t player) {
+        if(classic_rolling && audio && player<rolling_players.size()) classic_rolling->release(*audio,player);
+    }
+    void rolling_tick() {
+        if(!audio) return;
+        // Decode the recordings at a frame boundary once enabled, rather than
+        // inside the first ball update that needs them.
+        if(!classic_rolling) {if(host.classic_rolling_sound && disc) rolling_voices();return;}
+        // 8C330 skips ball updates during the Story pause, and other modes can
+        // stop calling E9180 entirely. A rolling ball is refreshed at least
+        // every eighth tick, so send the game's own zero-speed stop once those
+        // refreshes cease.
+        const bool paused=(memory.load<std::uint8_t>(0x892114)&0xA)!=0;
+        for(std::uint32_t player=0;player<rolling_players.size();++player) {
+            if(!classic_rolling->active(player)) continue;
+            if(!paused && host.classic_rolling_sound && ++rolling_players[player].idle<=12) continue;
+            if(rolling_started(player)) {
+                const std::array arguments{player,0U,0U};
+                user_callback(current->cpu,0xE9180,arguments,true);
+            }
+            classic_rolling->release(*audio,player);
+        }
+    }
     bool deliver_apcs() {
         auto& thread=*current;
         if(!apc_ready(thread)) return false;
@@ -1047,6 +1116,7 @@ struct Xbox::State {
         // Utility swaps can reset the temporary FrameStep without resetting
         // the scene clock. Its retained phase is the authoritative boundary.
         frame_step.previous_phase=previous_phase;
+        if(tick) rolling_tick();
     }
     void draw_menu_layout(Cpu& cpu,std::uint32_t entry,bool record) {
         if(entry) {
@@ -3238,6 +3308,47 @@ void Xbox::aspect_ratio(unsigned mode) {
 void Xbox::performance_recording(bool enabled) {if(state_->audio) state_->audio->recording(enabled);}
 bool Xbox::movie_sync() const {return state_->movie_sync();}
 void Xbox::corrected_subtitles(bool enabled) {state_->host.corrected_subtitles=enabled;}
+void Xbox::classic_rolling_sound(bool enabled) {state_->host.classic_rolling_sound=enabled;}
+// Hooks in E9180. request packs the caller's speed (low byte) and volume.
+std::uint32_t rolling_sound_mode(Cpu& cpu,std::uint32_t player) {
+    auto* state=Xbox::State::running(cpu);
+    return state?state->rolling_mode(player):0;
+}
+void rolling_sound_layer(Cpu& cpu,std::uint32_t player,std::uint32_t layer,std::uint32_t volume,std::uint32_t request,bool start) {
+    auto* state=Xbox::State::running(cpu);
+    if(!state) return;
+    HostFloatingScope floating(cpu.floating);
+    state->rolling_layer(player,layer,volume,request,start);
+}
+void rolling_sound_stop(Cpu& cpu,std::uint32_t player) {
+    auto* state=Xbox::State::running(cpu);
+    if(!state) return;
+    HostFloatingScope floating(cpu.floating);
+    state->rolling_stop(player);
+}
+// Around the generic background queue at BB4D5..BB4DB. WA2's lamp code D5A20
+// draws the WA2_POKO_LIGHT model (claimed through 5788B8) at every
+// WA2_POKOPOKO object with depth writes off, then adds glows. The stage also
+// places objects named WA2_POKO_LIGHT, which the generic pass queues with
+// depth writes on; their alpha-tested sparkles then mask those glows. Queue
+// them with depth writes off like the lamp code.
+void background_light_depth(Cpu& cpu,Memory& memory,std::uint32_t object,bool begin) {
+    auto* state=Xbox::State::running(cpu);
+    if(!state) return;
+    constexpr std::uint32_t update=0x73CC06; // avdisp z update flag, set by A24C0.
+    auto& saved=state->background_light_update;
+    if(!begin) {
+        if(saved) {memory.store<std::uint8_t>(update,*saved);saved.reset();}
+        return;
+    }
+    constexpr std::string_view light="WA2_POKO_LIGHT";
+    const auto name=memory.load<std::uint32_t>(object+4);
+    if(!name) return;
+    for(std::uint32_t i=0;i<=light.size();++i)
+        if(memory.load<std::uint8_t>(name+i)!=(i<light.size()?static_cast<std::uint8_t>(light[i]):0)) return;
+    saved=memory.load<std::uint8_t>(update);
+    memory.store<std::uint8_t>(update,0);
+}
 void Xbox::unlimited_render_distance(bool enabled) {
     state_->host.unlimited_render_distance=enabled;
     for(auto& thread:state_->threads) thread->cpu.unlimited_render_distance=enabled;

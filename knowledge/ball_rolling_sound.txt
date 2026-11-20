@@ -1,0 +1,101 @@
+Classic ball rolling sound
+
+USA XBE SHA-256 9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2
+media/snd/mkb/allse.acx SHA-256 756CCF9D7552BCD9C4343114859AB24ADAA1F5492DBA537EDF46E83D6AD5C975
+
+Recordings
+The player table at 581620 selects sound-table types 52..54. The sound table
+at 579960 maps them to effects 248, 273 and 274, which allse.scp assigns to
+one-based allse.acx entries 111, 2 and 118. All are mono 4-bit ADX v4 at
+44100 Hz with a 500 Hz predictor cutoff.
+
+Name            Type  Effect  ACX  Samples  Content
+SND_SE01_RUN01  0x52    248   111     6393  steady hiss, level throughout
+SND_SE01_RUN02  0x53    273     2    12682  rumble swell: 10 ms fade-in from
+                                            silence, steady to 190 ms, decays
+                                            back to silence by 288 ms
+SND_SE01_RUN03  0x54    274   118    17584  clatter, tapering to silence at
+                                            both ends
+
+All 183 allse.acx entries carry a whole-file ADX loop and every allse.scp
+line uses playback mode 0, so neither file says which effects loop. The ADX
+data above decodes bit-identically to an independent ADX decoder. The
+GameCube dumps of RUN01..03 (GMBE8P-AudioManager misc_sfx.rpp) have the same
+full lengths, 0.145, 0.288 and 0.399 s. Looped whole with the decoder's
+history carried across the seam, each joins continuously: the step from the
+last to the first sample is 1599, 0 and 3, against 99.9th-percentile steps
+of 14892, 2957 and 2796 within the recordings.
+
+Original controller
+GameCube Super Monkey Ball mixes the same three effects in func_8002CA5C
+(sound.c, smb-decomp revision 5cd6ffccf3f8508231c7cd9cce5b722be4465a2b,
+https://github.com/camthesaxman/smb-decomp). The ball update calls it every
+eighth unpaused frame, or at once with zero speed when contact is lost.
+On contact it starts all three voices; each update sets volume (ctrl 7) and
+MusyX doppler (ctrl 0x84, sndFXCtrl14) on all three; at zero speed or volume
+it keys them off. ctrl 0x80 is the pitch wheel (SoundPitch) and 0x84 is
+doppler (SoundDop). SMB1's own MusyX routes ctrl 0x84 to the doppler input
+(snd_midictrl.s 800FF018) and scales the voice pitch by it at synth.s
+800ECBC8: pitch=(pitch>>16)*doppler>>13, so 8192 keeps the recorded rate.
+Playback runs at 44100 * doppler / 8192 Hz. An octave-lower base was tried
+and rejected by ear against the GameCube games.
+
+Deluxe E9180 is the same controller. 8B907..8B9BA computes speed
+min((km/h-10)*1.5,127) and volume min((km/h-10)*15,80)*0.85 like the GameCube
+caller. Unlike the GameCube, E91E9..E9216 multiplies the volume by 1.5
+(clamped to 127). Layer curves are 2-point Hermite curves evaluated by ADBB0
+(t*t*(3-2t) with zero tangents):
+  5816E0 RUN01 volume 0 -> 127
+  581700 RUN02 volume 127 -> 127 (constant)
+  581720 RUN03 volume 0 -> 127
+  58174C doppler 4608 -> 15615 (0.5625x .. 1.906x)
+Each layer volume is (boosted volume / 127) * curve(speed). Deluxe evaluates
+the doppler curve at E9422 and discards it at E9427. Its control shim E3C60
+honours only ctrl 7; pan and doppler are dropped. E53F7 rejects effect 273,
+and with mode 0 the other two recordings play once. So retail Deluxe only
+plays one-shots of RUN01 and RUN03 when rolling starts.
+
+Volume law: E2610 maps a Deluxe volume v to -100*log10(127/v) hundredths of
+a decibel, an amplitude of sqrt(v/127). MusyX's default volume table
+(hw_volconv.c musyx_vol_tab, voice volTable 0) is close to (v/127)^2.15 (within
+0.6 dB from 16 to 127). At the GameCube's maximum rolling volume of 68 the
+constant RUN02 layer is -12 dB in MusyX but -2.7 dB with E2610 and Deluxe's
+1.5x boost.
+
+Panning: CRI's driver (2CEE40, table 45E160) sends a centred mono effect to
+the centre mix bin at full volume, which the mixer folds to -3 dB per side.
+MusyX's centred pan is the same -3 dB (pan_tab 0.7079).
+
+Native restoration
+The setting is latched per player while a roll is active (765708 flag).
+- E9180 entry reads the player, speed and volume. If the setting changed
+  during a roll, E921A jumps to the stop path at E9685 first.
+- E934A: instead of E53F0, start a native looping voice for the layer with
+  the controller's volume (BL) and return handle -1. E3C60 and E34A0 ignore
+  -1, so the original controller state stays consistent.
+- E95E8: each update passes the final layer volume (including multiplayer
+  scaling) to the native voice.
+- E9685: the stop path releases the native voices.
+- Doppler is evaluated natively with the original 58174C curve on start and
+  every update, and applied to all three layers.
+- Volume: the Deluxe layer volume is scaled back by the request/boosted
+  ratio to the GameCube value, then mapped with (v/127)^2.15.
+- Loops: all three recordings loop whole at their full lengths. Each is
+  decoded twice so the first block starts from the predictor history at
+  the end of the file, as a looping ADX decoder continues. An earlier
+  version looped only RUN02's steady 40..190 ms and crossfaded 10 ms off
+  RUN01 and RUN03; its 135..150 ms cycles repeated noticeably too fast.
+- Level changes ramp over 5 ms (one MusyX DSP frame). Key-off fades over
+  30 ms; the GameCube macro's release length is not on the disc.
+- A frame tick stops a roll with the game's own zero-speed request if E9180
+  has not refreshed it for 12 ticks, during the Story pause (892114 mask 0xA)
+  or after the setting is turned off, and releases voices whose 765708 flag
+  was cleared without a stop.
+
+Validation
+smbd-tool check-rolling-sound XBE ISO OUTPUT verifies the tables and
+recordings, measures each loop seam and renders a scripted roll (rest,
+acceleration to 100 km/h, a bounce, deceleration, loss of contact) to
+classic-rolling.wav with peak, clipping, silence and level checks. Seam
+level changes are reported but do not gate the result, because RUN02's
+swell and RUN03's taper are part of the recordings.

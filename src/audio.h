@@ -41,6 +41,9 @@ public:
     void position(std::uint32_t,std::uint32_t bytes);
     void region(std::uint32_t,bool loop,std::uint32_t start,std::uint32_t bytes);
     void volume(std::uint32_t,std::int32_t hundredths_db);
+    // Native voices only: move a linear level to gain over output frames,
+    // optionally stopping the voice once the ramp reaches silence.
+    void ramp(std::uint32_t,float gain,std::uint32_t frames,bool stop=false);
     void headroom(std::uint32_t,std::uint32_t hundredths_db);
     void mixbin_headroom(std::uint32_t bin,std::uint32_t shift);
     void mixbins(std::uint32_t,std::span<const MixBin>,bool volumes_only=false);
@@ -62,7 +65,9 @@ private:
         std::array<float,128> block{};
         std::uint32_t cached_block=UINT32_MAX,source_address=0;
         double cursor=0,step=1;
-        float gain=1,headroom=1,spatial_gain=1;
+        float gain=1,headroom=1,spatial_gain=1,level=1,level_target=1,level_step=0;
+        std::uint32_t level_frames=0;
+        bool stop_after_ramp=false;
         std::array<float,2> spatial_pan{1,1};
         std::array<float,2> front_back{1,0},environment_gain{1,0},environment_pole{};
         std::array<std::array<float,2>,2> environment_history{};

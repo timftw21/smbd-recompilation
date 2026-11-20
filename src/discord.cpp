@@ -1,4 +1,5 @@
 #include "discord.h"
+#include "disc.h"
 #include "file.h"
 #include <algorithm>
 #include <array>
@@ -11,6 +12,7 @@
 #include <format>
 #include <mutex>
 #include <span>
+#include <stdexcept>
 #include <thread>
 #ifdef _WIN32
 #include <Windows.h>
@@ -158,13 +160,132 @@ struct Connection {
     }
 };
 }
+namespace {
+template<class T> T guest(std::span<const std::byte> ram,std::uint32_t address) {
+    if(address>ram.size() || sizeof(T)>ram.size()-address) throw std::runtime_error("Guest activity field lies outside RAM");
+    T value;std::memcpy(&value,ram.data()+address,sizeof(T));return value;
+}
+// Main modes, named MD_* by the table at 4773CC, and the game types that the
+// Main Game and party menus write through their tables at 435348/43534C.
+enum MainMode:std::int32_t {mode_title=0,mode_menus=1,mode_game=2,mode_test=3,mode_party=4,mode_options=5,mode_cutscenes=6,mode_replays=7};
+enum GameType:std::int32_t {type_challenge=0,type_competition=1,type_practice=2,type_story=14};
+// Course flags restored together with the difficulty and floor at 2490C9.
+constexpr std::uint32_t course_extra=0x8,course_master=0x10,course_master_extra=0x800000;
+// Sub-mode ranges, named SMD_* by the table at 4773F8.
+struct SubModes {std::int32_t first,last;std::string_view text;};
+constexpr std::array<SubModes,12> party_games{{
+    {171,172,"Monkey Bowling DX"},{173,174,"Monkey Billiards DX"},{175,176,"Monkey Shot"},
+    {185,186,"Monkey Race DX"},{187,188,"Monkey Golf DX"},{189,190,"Monkey Fight DX"},
+    {191,192,"Monkey Target DX"},{193,194,"Monkey Boat"},{197,198,"Monkey Soccer"},
+    {199,200,"Monkey Dogfight"},{201,202,"Monkey Baseball"},{203,204,"Monkey Tennis"}}};
+constexpr std::size_t stage_name_lines=1001,max_stage_name_bytes=64*1024;
+bool within(std::int32_t value,std::int32_t first,std::int32_t last) {return value>=first && value<=last;}
+std::string_view stage_name(const GameActivity& activity,const StageNames& names) {
+    if(activity.stage_id<=0 || std::size_t(activity.stage_id)>=names.size()) return {};
+    const std::string_view name=names[activity.stage_id];
+    return name=="-"?std::string_view{}:name;
+}
+// Discord accepts at most 128 bytes per activity line.
+std::string_view activity_line(std::string_view text) {
+    if(text.size()<=128) return text;
+    auto size=std::size_t(128);
+    while(size && (static_cast<unsigned char>(text[size])&0xC0)==0x80) --size;
+    return text.substr(0,size);
+}
+}
+GameActivity read_game_activity(std::span<const std::byte> ram) {
+    GameActivity activity;
+    activity.main_mode=guest<std::int32_t>(ram,0x6C9364);
+    activity.sub_mode=guest<std::int32_t>(ram,0x6C9354);
+    activity.game_type=guest<std::int32_t>(ram,0x6C9328);
+    activity.difficulty=guest<std::int32_t>(ram,0x6C92F4);
+    activity.course_flags=guest<std::uint32_t>(ram,0x6C92F8);
+    activity.stage_id=guest<std::int32_t>(ram,0x5550A8);
+    activity.floor=guest<std::int16_t>(ram,0x6C7D20);
+    activity.world=guest<std::int16_t>(ram,0x6C7D36);
+    activity.stage=guest<std::int16_t>(ram,0x6C7D38);
+    activity.scene=guest<std::int16_t>(ram,0x6C9288);
+    return activity;
+}
+StageNames load_stage_names(const std::filesystem::path& path) {
+    // Every language file holds the same names; 83F50 indexes lines by stage id.
+    Disc disc(path);
+    const auto entry=disc.find("media/stgname/usa.str");
+    if(entry.directory() || entry.size>max_stage_name_bytes) throw std::runtime_error("Invalid stage-name file on the game disc");
+    std::string text(entry.size,'\0');
+    disc.read(entry,0,std::as_writable_bytes(std::span(text)));
+    StageNames names;names.reserve(stage_name_lines);
+    for(std::size_t first=0;first<=text.size() && names.size()<stage_name_lines;) {
+        auto end=text.find('\n',first);if(end==std::string::npos) end=text.size();
+        auto line=std::string_view(text).substr(first,end-first);
+        if(!line.empty() && line.back()=='\r') line.remove_suffix(1);
+        names.emplace_back(line);first=end+1;
+    }
+    return names;
+}
+PresenceText describe_activity(const GameActivity& activity,const StageNames& names) {
+    PresenceText text;
+    switch(activity.main_mode) {
+    case mode_title:text.details="At the title screen";break;
+    case mode_menus:case mode_test:text.details="In the menus";break;
+    case mode_options:text.details=within(activity.sub_mode,229,230)?"Watching a replay":"Changing options";break;
+    case mode_cutscenes:
+        // Story Mode plays its scenes through the same player as the menus.
+        if(activity.game_type==type_story) {text.details="Story Mode";text.state="Watching a cutscene";}
+        else text.details="Watching story cutscenes";
+        break;
+    case mode_replays:text.details="Watching a replay";break;
+    case mode_party:
+        text.details="Party Games";
+        for(const auto& game:party_games) if(within(activity.sub_mode,game.first,game.last)) text.details=game.text;
+        if(within(activity.sub_mode,169,170)) text.state="Choosing a game";
+        break;
+    case mode_game: {
+        const auto name=stage_name(activity,names);
+        if(activity.game_type==type_story) {
+            text.details="Story Mode";
+            if(within(activity.sub_mode,87,89)) {
+                // SMD_GAME_SCENARIO_* runs the story menus; its DMD_SCEN_* scene
+                // keeps the previous stage loaded behind stage select.
+                if(within(activity.scene,6,7) || within(activity.scene,22,23)) text.state="Watching a cutscene";
+                else if(within(activity.scene,8,11))
+                    text.state=within(activity.world,0,9)?std::format("Choosing a stage in World {}",activity.world+1):"Choosing a stage";
+                else if(within(activity.scene,20,21)) text.state="Entering a name";
+            } else if(activity.sub_mode==94) text.state="Watching a cutscene";
+            else if(!name.empty()) text.state=within(activity.world,0,9) && within(activity.stage,0,9)?
+                std::format("Stage {}-{}: {}",activity.world+1,activity.stage+1,name):std::string(name);
+        } else if(activity.game_type==type_challenge) {
+            constexpr std::array<std::string_view,3> difficulties{"Beginner","Advanced","Expert"};
+            std::string course;
+            if(activity.course_flags&course_master_extra) course="Master Extra";
+            else if(activity.course_flags&course_master) course="Master";
+            else if(within(activity.difficulty,0,2))
+                course=std::format("{}{}",difficulties[activity.difficulty],(activity.course_flags&course_extra)?" Extra":"");
+            text.details=course.empty()?"Challenge Mode":"Challenge Mode: "+course;
+            if(!name.empty()) text.state=activity.floor>0?std::format("Floor {}: {}",activity.floor,name):std::string(name);
+        } else {
+            text.details=activity.game_type==type_practice?"Practice Mode":activity.game_type==type_competition?"Competition Mode":"Main Game";
+            text.state=name;
+        }
+        // The ending keeps the previous stage loaded.
+        if(within(activity.sub_mode,72,73)) text.state="Watching the ending";
+        break;
+    }
+    default:text.details="In game";
+    }
+    return text;
+}
 struct DiscordPresence::Impl {
+    struct Desired {
+        bool enabled=false,playing=false;
+        PresenceText activity;
+    };
     std::string application;
     bool configured=false;
-    std::atomic<unsigned> desired{0};
     std::atomic<bool> stopping{false};
     std::atomic<Status> status{Status::disabled};
     std::mutex mutex;std::condition_variable changed;
+    Desired desired;std::uint64_t revision=0; // Guarded by mutex.
     std::thread worker;
     explicit Impl(std::string_view id):application(id) {
         if(id.empty()) return;
@@ -179,24 +300,37 @@ struct DiscordPresence::Impl {
     }
     void run() {
         Connection connection;
-        std::array<char,max_payload+8> input{};unsigned received=0,sent=0,observed=0;
-        std::uint64_t sequence=0;std::string pending;
+        std::array<char,max_payload+8> input{};unsigned received=0;
+        std::uint64_t sequence=0,sent=0;std::string pending;
         auto next_connect=Clock::time_point{},next_update=Clock::time_point{},handshake_deadline=Clock::time_point{};
         bool ready=false;
         auto started=std::time(nullptr);
-        const auto activity=[&](unsigned value) {
-            const auto body=value?std::format("{{\"type\":0,\"details\":{},\"assets\":{{\"large_image\":{},\"large_text\":\"Super Monkey Ball Deluxe\"}},\"timestamps\":{{\"start\":{}}}}}",
-                json(value&4?"Adjusting settings":value&2?"In game":"Ready to play"),json(presence_icon),started):"null";
+        Desired current,previous;std::uint64_t current_revision=0;
+        const auto activity=[&](const Desired* value) {
+            std::string body="null";
+            if(value) {
+                // Before the game starts, the launcher shares only the title and elapsed time.
+                std::string_view details,state;
+                if(value->playing) {
+                    details=value->activity.details.empty()?"In game":std::string_view(value->activity.details);
+                    state=value->activity.state;
+                }
+                const auto line=[](std::string_view name,std::string_view text) {
+                    return text.empty()?std::string{}:std::format("\"{}\":{},",name,json(activity_line(text)));
+                };
+                body=std::format("{{\"type\":0,{}{}\"assets\":{{\"large_image\":{},\"large_text\":\"Super Monkey Ball Deluxe\"}},\"timestamps\":{{\"start\":{}}}}}",
+                    line("details",details),line("state",state),json(presence_icon),started);
+            }
             pending=std::to_string(++sequence);
             return connection.frame(1,std::format("{{\"cmd\":\"SET_ACTIVITY\",\"args\":{{\"pid\":{},\"activity\":{}}},\"nonce\":{}}}",connection.pid(),body,json(pending)));
         };
-        const auto disconnect=[&] {connection.close();received=sent=0;ready=false;pending.clear();next_connect=Clock::now()+retry_delay;};
+        const auto disconnect=[&] {connection.close();received=0;sent=0;ready=false;pending.clear();next_connect=Clock::now()+retry_delay;};
         while(!stopping.load(std::memory_order_relaxed)) {
-            const auto value=desired.load(std::memory_order_relaxed);
+            {std::lock_guard lock(mutex);current=desired;current_revision=revision;}
             const auto now=Clock::now();
-            if(value && (!observed || ((value&2) && !(observed&2)))) started=std::time(nullptr);
-            if(!value) {
-                if(ready) activity(0);
+            if(current.enabled && (!previous.enabled || (current.playing && !previous.playing))) started=std::time(nullptr);
+            if(!current.enabled) {
+                if(ready) activity(nullptr);
                 if(connection.valid()) disconnect();
                 status=Status::disabled;next_connect={};
             } else if(!connection.valid() && now>=next_connect) {
@@ -204,7 +338,7 @@ struct DiscordPresence::Impl {
                     status=Status::connecting;handshake_deadline=now+retry_delay;
                 } else {disconnect();status=Status::waiting;}
             }
-            if(value && connection.valid()) {
+            if(current.enabled && connection.valid()) {
                 unsigned count=0;
                 if(!connection.receive(input.data()+received,static_cast<unsigned>(input.size())-received,count)) {disconnect();status=Status::waiting;}
                 else {
@@ -224,36 +358,41 @@ struct DiscordPresence::Impl {
                     if(connection.valid() && consumed) {received-=consumed;std::memmove(input.data(),input.data()+consumed,received);}
                 }
                 if(connection.valid() && (!ready || !pending.empty()) && now>=handshake_deadline) {disconnect();status=Status::waiting;}
-                if(connection.valid() && ready && value!=sent && now>=next_update) {
-                    if(activity(value)) {sent=value;next_update=now+update_delay;handshake_deadline=now+retry_delay;}
+                if(connection.valid() && ready && current_revision!=sent && now>=next_update) {
+                    if(activity(&current)) {sent=current_revision;next_update=now+update_delay;handshake_deadline=now+retry_delay;}
                     else {disconnect();status=Status::waiting;}
                 }
             }
-            observed=value;
+            previous=current;
             std::unique_lock lock(mutex);
-            const auto wake=[&]{return stopping.load(std::memory_order_relaxed) || desired.load(std::memory_order_relaxed)!=value;};
-            if(value) changed.wait_for(lock,std::chrono::milliseconds(100),wake);
+            const auto wake=[&]{return stopping.load(std::memory_order_relaxed) || revision!=current_revision;};
+            if(current.enabled) changed.wait_for(lock,std::chrono::milliseconds(100),wake);
             else changed.wait(lock,wake);
         }
-        if(ready) activity(0);
+        if(ready) activity(nullptr);
     }
 };
 DiscordPresence::DiscordPresence(std::string_view application):impl_(std::make_unique<Impl>(application)) {}
 DiscordPresence::~DiscordPresence()=default;
-void DiscordPresence::update(bool enabled,bool playing,bool settings) {
+void DiscordPresence::update(bool enabled,bool playing,const PresenceText& activity) {
     auto& state=*impl_;
     if(enabled && !state.configured) {state.status=Status::unconfigured;return;}
     if(state.status==Status::failed) {
         if(!enabled) {
             if(state.worker.joinable()) state.worker.join();
-            state.desired=0;state.status=Status::disabled;
+            {std::lock_guard lock(state.mutex);state.desired={};++state.revision;}
+            state.status=Status::disabled;
         }
         return;
     }
-    const auto value=enabled?(1U|(playing?2U:0U)|(settings?4U:0U)):0U;
-    if(state.desired.load(std::memory_order_relaxed)==value) {
-        if(!enabled && state.status==Status::unconfigured) state.status=Status::disabled;
-        return;
+    {
+        // Called every UI frame: compare in place and copy only real changes.
+        std::lock_guard lock(state.mutex);
+        const auto& current=state.desired;
+        if(current.enabled==enabled && (!enabled || (current.playing==playing && current.activity==activity))) {
+            if(!enabled && state.status==Status::unconfigured) state.status=Status::disabled;
+            return;
+        }
     }
     if(enabled && !state.worker.joinable()) {
         try {
@@ -262,7 +401,10 @@ void DiscordPresence::update(bool enabled,bool playing,bool settings) {
             });
         } catch(const std::system_error&) {state.status=Status::failed;return;}
     }
-    {std::lock_guard lock(state.mutex);state.desired.store(value,std::memory_order_relaxed);}
+    {
+        std::lock_guard lock(state.mutex);
+        state.desired=enabled?Impl::Desired{true,playing,activity}:Impl::Desired{};++state.revision;
+    }
     state.changed.notify_one();
 }
 std::string_view DiscordPresence::status() const {

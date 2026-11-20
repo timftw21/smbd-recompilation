@@ -76,3 +76,48 @@ Validation (Windows, Ryzen 5 5600X / RTX 5060 Ti; build/checks/text-bleed)
 - Not validated: Linux/macOS builds; mip levels coarser than level 0 can
   still blend neighbouring cells when a quad is minified at the host
   resolution, as at 1x.
+
+Refinement: digit tops and edges cut off (2026-11-20)
+Symptom: user captures frame-1795194721984-203444685500 and
+frame-1795198287348-117168830400 (3x, 16:9, MSAA 4x, Upscaled HUD): the top
+of the blue lives "2" and of the white "0" in "0mph" is flat. Upscaled HUD
+on or off does not matter.
+Cause: three digit atlases address a regular cell without its first texel
+line, while their art starts on it. Lives digits (128x128 DXT3): v 1..24 and
+49..72 of 24-row cells; speed digits (128x64): v 1..16, 17..32, 33..48 of
+16-row cells; timer digits (256x128): u 1..28, 29..56, 57..84 of 28-column
+cells. Decoded alpha shows the top outline on row 0 (lives "2": columns
+44..53) and the timer digits' left outline on column 0/28/56. The original
+raster's first pixel centre lies 1/32 pixel inside the rasterized leading
+edge (v = 1.03 texels), so its first row blends that line at about 47% over
+a whole pixel, half of it outside the quad. Above 1x only the geometry is
+painted, so the line shrinks to a faint sliver; the 11-17 half-texel clamp
+(v >= 1.5) removed it entirely.
+Rule:
+- complete_screen_primitives reports, for screen-aligned quads whose UV
+  components each follow one axis, the UVs at the original's outermost
+  covered pixel centres, which UV component follows which screen axis and
+  leads high, and per axis the vertex coordinate that rasterizes at the
+  boundary of the first covered pixel (k-1/32). Guest vertices are unchanged.
+- Gpu::draw keeps the half-texel inset and widens each bound only to the
+  original's outermost samples, so no texel gets more weight than the
+  original's edge pixels gave it.
+- When a rectangle is a regular cell without its first line (far edge on a
+  cell boundary, leading edge one texel past the previous one), the leading
+  bound reaches that line's centre and the draw's private vertex copy moves
+  the leading edge to the first pixel boundary, extending the UVs along the
+  axis. 1x coverage and every original sample stay the same; above 1x the
+  band the original's first row painted shows the line's art.
+Rejected (same day): moving every frontend quad to the original's pixel
+coverage. Fonts whose UVs sit on cell boundaries (the 256x128 16x16-cell
+score font) then showed the neighbouring cell's last line as a hard band and
+a dark sliver at their top and left edges, or a flat grey lid when clamped to
+the first centre's UV. Only the three atlases above match the cell rule
+across 1,694 bounded UV edges in seven captures.
+Validation (RTX 5060 Ti; scratch routes: Challenge Beginner 1 PLAIN in play
+and at the goal, at the user's settings): the lives "2", speed "0" and timer
+digits regain their outlines; the goal screen's score, STAGE SCORE, TIME
+BONUS and "X 2" render as before. check-hud-upscaling, check-cpu and
+check-image-copy pass; a replay of the new capture differs from it in 273
+pixels, as replays do. Captures made before this change replay with their
+recorded vertices and bounds.

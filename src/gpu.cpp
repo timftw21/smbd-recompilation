@@ -122,7 +122,7 @@ struct Gpu::Impl {
         RenderState state;const VertexConstants* constants=nullptr;ProgramView view;ProgramVertex current;
         std::array<VertexStream,16> streams{};
         std::uint32_t layout=0,count=0,stream_count=0;
-        std::uint64_t pipeline=0;
+        PipelineStates pipeline{};
         std::vector<std::uint32_t> indices;
         std::vector<std::uint32_t> packed;
     };
@@ -142,6 +142,17 @@ struct Gpu::Impl {
     static constexpr std::size_t sample_bound_limit=4096;
     std::unordered_map<std::uint64_t,InterfaceSampleBounds> sample_bounds;
     std::deque<std::uint64_t> sample_bound_order;
+    // A texture rectangle that is a regular atlas cell without its first texel
+    // line: the far edge on a cell boundary, the near (leading) edge one texel
+    // past the previous one. The lives, speed and timer digits use such UVs
+    // while their art starts on that line, which the original showed only
+    // through its first pixel row or column (knowledge/frontend_sampling.txt).
+    static bool skips_first_line(float low,float high,bool leading_high,float texels) {
+        const auto first=std::round(low),last=std::round(high),cell=last-first+1;
+        if(std::abs(low-first)>1e-3f || std::abs(high-last)>1e-3f || cell<2) return false;
+        if(leading_high) return last<texels && std::fmod(first,cell)==0 && std::fmod(last+1,cell)==0;
+        return first>=1 && std::fmod(first-1,cell)==0 && std::fmod(last,cell)==0;
+    }
     void bound_samples(Draw& draw,unsigned stride) {
         // Frontend draws hold one quad, or one cell repeated at sub-pixel
         // offsets for outlines and shadows; every quad must report the same
@@ -149,13 +160,26 @@ struct Gpu::Impl {
         const auto bytes=std::as_bytes(std::span(draw.packed));
         const std::size_t size=std::size_t(stride)*4,quads=size?bytes.size()/size:0;
         if(!quads || quads>16 || bytes.size()%size) return;
+        std::array<const InterfaceSampleBounds*,16> each{};
         InterfaceSampleBounds common;
         for(std::size_t quad=0;quad<quads;++quad) {
             const auto found=sample_bounds.find(interface_quad_identity(bytes.subspan(quad*size,size)));
             if(found==sample_bounds.end()) return;
-            if(!quad) common=found->second;
-            else if(found->second.mask!=common.mask || found->second.sets!=common.sets) return;
+            const auto& bounds=found->second;each[quad]=&bounds;
+            if(!quad) {common=bounds;continue;}
+            if(bounds.mask!=common.mask || bounds.sets!=common.sets) return;
+            // Sub-pixel copies sample slightly different ranges; allow every
+            // texel the original read for any of them.
+            common.sampled_mask&=bounds.sampled_mask;
+            for(unsigned set=0;set<2;++set)
+                if((((bounds.leading_high^common.leading_high)|(bounds.follows_y^common.follows_y))>>(set*2))&3) common.sampled_mask&=~(1U<<set);
+            if(bounds.leading_max!=common.leading_max || bounds.uv_word!=common.uv_word) common.sampled_mask=0;
+            for(unsigned set=0;set<2;++set) for(unsigned c=0;c<2;++c) {
+                common.sampled[set][c]=std::min(common.sampled[set][c],bounds.sampled[set][c]);
+                common.sampled[set][c+2]=std::max(common.sampled[set][c+2],bounds.sampled[set][c+2]);
+            }
         }
+        std::uint32_t extend=0; // Screen axes whose leading edge moves out.
         for(unsigned set=0;set<2;++set) {
             // UV set N feeds stage N. Only plain 2D lookups of swizzled
             // textures take the clamp: their coordinates are normalized, as
@@ -167,14 +191,77 @@ struct Gpu::Impl {
             const float width=float(1U<<((format>>20)&15)),height=float(1U<<((format>>24)&15));
             auto b=common.sets[set];
             // Half a texel inside the rectangle, bilinear filtering of the
-            // full-resolution level reads only the quad's own texels.
-            const std::array<float,2> inset{0.5f/width,0.5f/height};
+            // full-resolution level reads only the quad's own texels. Samples
+            // the original raster itself made beyond that stay reachable, with
+            // no more weight than its outermost pixel centres gave them.
+            const std::array<float,2> inset{0.5f/width,0.5f/height},texels{width,height};
             for(unsigned c=0;c<2;++c) {
                 if(b[c+2]-b[c]>2*inset[c]) {b[c]+=inset[c];b[c+2]-=inset[c];}
                 else b[c]=b[c+2]=(b[c]+b[c+2])/2;
+                if(!(common.sampled_mask&(1U<<set))) continue;
+                auto low=common.sampled[set][c],high=common.sampled[set][c+2];
+                const float n=texels[c];const unsigned bit=set*2+c;
+                const bool leading_high=common.leading_high&(1U<<bit);
+                // Skipped art keeps its line: the leading edge extends to the
+                // original's first pixel boundary and may sample to its centre.
+                if(skips_first_line(common.sets[set][c]*n,common.sets[set][c+2]*n,leading_high,n)) {
+                    if(leading_high) high=common.sets[set][c+2]+inset[c];else low=common.sets[set][c]-inset[c];
+                    extend|=1U<<((common.follows_y>>bit)&1);
+                }
+                b[c]=std::min(b[c],low);b[c+2]=std::max(b[c+2],high);
             }
             draw.state.sample_bounds[set]={b[0],b[1],b[2],b[3]};
             draw.state.bounded_samples|=1U<<set;
+        }
+        if(!extend) return;
+        // Move each quad's leading edge on those axes outward to the boundary
+        // of the original's first covered pixel, which keeps 1x coverage, and
+        // extend every attribute that varies along the axis, so the original's
+        // samples are unchanged. Only this draw's vertex copy changes.
+        const unsigned words=stride/4;
+        for(std::size_t quad=0;quad<quads;++quad) {
+            const auto& e=*each[quad];
+            auto* vertex=draw.packed.data()+quad*4*words;
+            for(unsigned axis=0;axis<2;++axis) {
+                if(!(extend&(1U<<axis))) continue;
+                const auto at=[&](unsigned i,unsigned word) {return std::bit_cast<float>(vertex[i*words+word]);};
+                const bool maximum=(e.leading_max>>axis)&1;
+                float lead=at(0,axis),trail=lead;
+                for(unsigned i=1;i<4;++i) {
+                    lead=maximum?std::max(lead,at(i,axis)):std::min(lead,at(i,axis));
+                    trail=maximum?std::min(trail,at(i,axis)):std::max(trail,at(i,axis));
+                }
+                const float target=e.leading_edge[axis];
+                if(lead==trail || !std::isfinite(target) || (maximum?target<lead:target>lead) ||
+                   std::abs(target-lead)>=std::abs(trail-lead)) continue;
+                std::array<std::uint32_t,4*7> moved{};
+                std::copy_n(vertex,4*words,moved.begin());
+                bool valid=true;
+                for(unsigned word=3;word<words && valid;++word) {
+                    // Values on the leading and trailing side of this axis.
+                    std::array<std::uint32_t,2> side{};std::array<bool,2> seen{};bool along=true;
+                    for(unsigned i=0;i<4;++i) {
+                        const unsigned s=at(i,axis)!=lead;
+                        if(seen[s] && side[s]!=vertex[i*words+word]) along=false;
+                        side[s]=vertex[i*words+word];seen[s]=true;
+                    }
+                    if(!along) {
+                        // Varying along the other axis only leaves it unchanged.
+                        for(unsigned i=0;i<4;++i) for(unsigned j=0;j<4;++j)
+                            if(at(i,1-axis)==at(j,1-axis) && vertex[i*words+word]!=vertex[j*words+word]) valid=false;
+                        continue;
+                    }
+                    if(side[0]==side[1]) continue;
+                    if(word<e.uv_word) {valid=false;break;} // A packed colour gradient.
+                    const float a=std::bit_cast<float>(side[0]),z=std::bit_cast<float>(side[1]);
+                    const float value=a+(z-a)*(target-lead)/(trail-lead);
+                    if(!std::isfinite(value)) {valid=false;break;}
+                    for(unsigned i=0;i<4;++i) if(at(i,axis)==lead) moved[i*words+word]=std::bit_cast<std::uint32_t>(value);
+                }
+                if(!valid) continue;
+                for(unsigned i=0;i<4;++i) if(at(i,axis)==lead) moved[i*words+axis]=std::bit_cast<std::uint32_t>(target);
+                std::copy_n(moved.begin(),4*words,vertex);
+            }
         }
     }
     void mark_interface(const TextureKey& key,Texture& texture) {

@@ -1,0 +1,60 @@
+Discord Rich Presence game state, 2026-11-20
+
+Verified Xbox executable SHA256:
+9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2
+
+Rich Presence reads these original fields every 30 game ticks. Nothing is
+written to guest memory. smbd-tool inspect-presence ISO CAPTURE... prints the
+decoded fields and the exact Discord text for frame captures.
+
+Modes (both name tables are the game's own debug strings):
+- 6C9364: current main mode. 15B27..15B30 copies the request at 6C9360 and
+  indexes the MD_* name table at 4773CC: 0 ADV (title/attract), 1 SEL (menus),
+  2 GAME, 3 TEST, 4 MINI (party games), 5 OPTION, 6 AUTHOR (story cutscene
+  player), 7 EXOPT (replays), 8 NUL.
+- 6C9354: current sub-mode. 15B69..15B70 copies 6C9358 and indexes the 266
+  SMD_* names at 4773F8. 51 SMD_GAME_PLAY_MAIN and 53 SMD_GAME_GOAL_MAIN match
+  play and goal in live runs. Party games use 171..204 (SMD_MINI_BOWLING_*
+  through SMD_MINI_TENNIS_*); PILOT2 is Monkey Target (its debug view at
+  39F9A0 lists wing and wind; FONT_TGT_WIND/ALT/SPEED are its HUD fonts).
+- 6C9328: game type. Main Game select stores 435348[selection] at 29FF09:
+  {14 Story, 0 Challenge, 1 Competition, 2 Practice}. Party select stores
+  43534C[selection] at 29FF28: {3,4,5,6,7,8,10,9}. Captures agree: Story 14,
+  Practice 2, Bowling 7, Golf 8, Shot 9, scripted Challenge 0.
+
+Course (Challenge) and Story position:
+- 2490B1..249107 restores a replay header: Story (header+1 bit 0x10) writes
+  world/stage to 6C7D36/6C7D38; otherwise difficulty to 6C92F4 and floor to
+  word 6C7D20. It then rebuilds course flags 6C92F8: 0x8 Extra, 0x10 Master,
+  0x800000 Master Extra. 11230 (Ultimate restore) agrees: difficulty 0/1/2 =
+  Beginner/Advanced/Expert, Extra courses add 0x8, Master adds 0x18|0x2000000,
+  Master Extra 0x800008|0x2000000.
+- Scripted Challenge runs: Beginner floor 1 = difficulty 0, floor 1, stage 801
+  "1 PLAIN"; floor 2 = floor 2, stage 802 DIAMOND, flags 0x705 (no Extra);
+  Advanced floor 1 = difficulty 1, stage 811 BUMP.
+- Story world/stage are zero-based: 1-1 SIMPLE (201) = 0/0, 1-2 DIAMOND
+  (502) = 0/1. Practice keeps them only for Story stages (4-1 PRO SKATERS =
+  3/0); Practice therefore shows the stage name alone.
+
+Stage names:
+- 5550A8: loaded stage id. Loader 81B80 stores its argument at 81CEF; 7FDA0
+  unloads and stores -1 at 7FE38. Menus may keep a background stage loaded,
+  so names are shown only in the GAME main mode.
+- 83F50 opens "/stgname/%s.str" for usa/ger/fra/spa/ita/jpn (555400) and 83E80
+  records 1001 line offsets at 730158: line N names stage id N. The six disc
+  files are byte-identical ASCII, so presence reads media/stgname/usa.str once
+  (6284 bytes). "-" marks an unused id.
+
+Story menus and scenes:
+- Sub-modes 87..89 (SMD_GAME_SCENARIO_*) run the Story menus; 6C9288 selects
+  the DMD_SCEN_* scene named by the 27 pointers at 69BCE8 (283320 reads it at
+  28334F). Scenes 8..11 (SEL_WORLD_*, SEL_FLOOR_*) are stage select, 6..7 and
+  22..23 scene playback. A scripted stage-select capture shows sub-mode 88,
+  scene 11, world 0 ("WORLD 1 Jungle Island") with stage 201 still loaded.
+  Scenes 20..21 (ENTRY_*) are the save's Name Entry screen (capture
+  frame-1793748230717, scene 21).
+- Story scenes themselves run in main mode 6 (MD_AUTHOR, sub-mode 248) while
+  the game type stays 14; the menu's cutscene viewer uses the same mode with
+  game type -1.
+- Sub-modes 72..73 (SMD_GAME_ENDING_*) are the ending and keep the previous
+  stage loaded.

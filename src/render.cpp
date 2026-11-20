@@ -178,6 +178,56 @@ PipelineKey pipeline_key(const RenderState& state) {
         std::bit_cast<std::uint32_t>(state.polygon_offset_scale),std::bit_cast<std::uint32_t>(state.polygon_offset_bias),std::uint32_t(state.scissor_test)}) key[i++]=value;
     return key;
 }
+// The NV097 values each D3D11 state object consumes. Every kind is cached on
+// its own: the game combines a few dozen of each into thousands of distinct
+// draw states over a long session, so their cross product is unbounded.
+using BlendKey=std::array<std::uint32_t,5>;
+using DepthKey=std::array<std::uint32_t,10>;
+using RasterKey=std::array<std::uint32_t,7>;
+using SamplerKey=std::array<std::uint32_t,5>;
+BlendKey blend_key(const RenderState& s) {
+    return {std::uint32_t(s.blend),s.blend_source,s.blend_destination,s.blend_equation,s.color_mask};
+}
+DepthKey depth_key(const RenderState& s) {
+    return {std::uint32_t(s.depth_test),std::uint32_t(s.depth_write),s.depth_function,std::uint32_t(s.stencil_test),s.stencil_function,
+        s.stencil_read_mask,s.stencil_write_mask,s.stencil_fail,s.stencil_depth_fail,s.stencil_pass};
+}
+RasterKey raster_key(const RenderState& s) {
+    return {std::uint32_t(s.cull),s.cull_face,std::uint32_t(s.front_ccw),std::uint32_t(s.scissor_test),std::uint32_t(s.polygon_offset),
+        std::bit_cast<std::uint32_t>(s.polygon_offset_scale),std::bit_cast<std::uint32_t>(s.polygon_offset_bias)};
+}
+SamplerKey sampler_key(const RenderState& s,unsigned stage) {
+    return {s.texture_address[stage],s.texture_border[stage],std::uint32_t(s.linear_filter[stage]),s.texture_filter[stage],s.texture_control[stage]};
+}
+// Unsampled stages keep a filter derived from their legacy linear flag.
+std::uint32_t sampler_filter(const SamplerKey& key) {
+    const auto [address,border,linear,filter,control]=key;
+    return filter?filter:(linear?0x02060000U:0x01030000U);
+}
+bool gaussian_filter(std::uint32_t filter) {return ((filter>>16)&63)==7 && ((filter>>24)&15)==4 && ((filter>>13)&7)==2;}
+// One D3D11 state kind with 1-based ids. D3D11 allows 4096 distinct objects
+// of each kind per device, so this limit is the device's own.
+template<class Key,class State> struct StateCache {
+    static constexpr std::size_t limit=4096;
+    std::map<Key,std::uint16_t> ids;
+    std::vector<ComPtr<State>> states;
+    template<class Create> std::uint16_t intern(const Key& key,const char* kind,Create&& create) {
+        if(const auto found=ids.find(key);found!=ids.end()) return found->second;
+        if(states.size()>=limit) throw std::runtime_error(std::format("D3D11 {} state limit reached",kind));
+        auto state=create(key);
+        states.push_back(std::move(state));
+        const auto id=static_cast<std::uint16_t>(states.size());
+        ids.emplace(key,id);
+        return id;
+    }
+    // Recreates every object for changed settings; existing ids stay valid.
+    template<class Create> void rebuild(Create&& create) {
+        std::vector<ComPtr<State>> replaced(states.size());
+        for(const auto& [key,id]:ids) replaced[id-1]=create(key);
+        states=std::move(replaced);
+    }
+    State* get(std::uint16_t id) const {return states[id-1].Get();}
+};
 struct alignas(16) Constants {
     std::array<Float4, 8> factor0, factor1;
     Float4 final0, final1, fog, alpha;
@@ -627,13 +677,6 @@ struct Renderer::Impl {
     std::array<ComPtr<ID3D11DepthStencilState>,4> clear_depths;
     std::uint32_t window_width=0,window_height=0;
     bool displaying=false;
-    struct Pipeline {
-        ComPtr<ID3D11BlendState> blend;
-        ComPtr<ID3D11DepthStencilState> depth;
-        ComPtr<ID3D11RasterizerState> raster;
-        std::array<ComPtr<ID3D11SamplerState>, 4> samplers;
-    };
-    static_assert(std::is_nothrow_move_constructible_v<Pipeline>);
     struct DrawBindings {
         ID3D11InputLayout* layout;
         D3D11_PRIMITIVE_TOPOLOGY topology;
@@ -648,11 +691,20 @@ struct Renderer::Impl {
         std::array<LONG,4> scissor;
     };
     std::optional<DrawBindings> bound_draw;
-    static constexpr unsigned pipeline_limit=1024;
-    std::map<PipelineKey,std::uint32_t> pipeline_keys;
-    decltype(pipeline_keys)::iterator last_pipeline=pipeline_keys.end();
-    std::vector<Pipeline> pipelines;
-    std::uint64_t first_pipeline=1;
+    StateCache<BlendKey,ID3D11BlendState> blend_states;
+    StateCache<DepthKey,ID3D11DepthStencilState> depth_states;
+    StateCache<RasterKey,ID3D11RasterizerState> raster_states;
+    StateCache<SamplerKey,ID3D11SamplerState> sampler_states;
+    // Remembers which state objects complete draw states select. It only
+    // shortcuts the caches above, so a full memo is forgotten, never fatal.
+    static constexpr std::size_t pipeline_limit=4096;
+    std::map<PipelineKey,PipelineStates> pipelines;
+    decltype(pipelines)::iterator last_pipeline=pipelines.end();
+    ComPtr<ID3D11BlendState> create_blend(const BlendKey&) const;
+    ComPtr<ID3D11DepthStencilState> create_depth(const DepthKey&) const;
+    ComPtr<ID3D11RasterizerState> create_raster(const RasterKey&) const;
+    ComPtr<ID3D11SamplerState> create_sampler(const SamplerKey&);
+    PipelineStates prepared(const RenderState&) const;
     struct Program {
         VertexProgram key;
         bool launch;
@@ -774,7 +826,6 @@ struct Renderer::Impl {
         const auto result=shader_binary(kind,program);stats.shader_compilations+=result.compiled;return result.bytes;
     }
     Impl(std::uint32_t w, std::uint32_t h, bool warp, bool debug,unsigned scale) : width(w), height(h),resolution_scale(scale) {
-        pipelines.reserve(pipeline_limit);
 #ifndef _WIN32
         if(warp) throw std::runtime_error("WARP is Windows-only; use a Vulkan software driver on Linux.");
         if(debug) throw std::runtime_error("The D3D11 debug layer is Windows-only.");
@@ -1100,10 +1151,10 @@ void Renderer::image_quality(unsigned scale,unsigned quality,unsigned anisotropy
     if(replace_aa) r.antialiasing=std::move(aa);
     r.antialiasing_quality=quality;r.anisotropy=anisotropy;
     r.unlimited_render_distance=unlimited_render_distance;
-    r.first_pipeline+=r.pipelines.size();
-    r.pipelines.clear();
-    r.pipeline_keys.clear();
-    r.last_pipeline=r.pipeline_keys.end();
+    // Rasterizer and sampler objects follow these settings. Rebuilding them
+    // in place keeps prepared and queued draws valid.
+    r.raster_states.rebuild([&](const RasterKey& key) {return r.create_raster(key);});
+    r.sampler_states.rebuild([&](const SamplerKey& key) {return r.create_sampler(key);});
     if(reset_hud) r.reset_interface();
 }
 void Renderer::interface_texture(std::uint32_t id,std::uint64_t content) {
@@ -1613,91 +1664,120 @@ std::uint32_t Renderer::upload(const TextureData& texture,bool reuse_slot) {
     ++r.stats.texture_uploads;r.stats.texture_upload_bytes+=texture.bytes.size();
     return r.store_texture(std::move(view),texture.cubemap?3U:texture.depth>1?2U:1U,resident_bytes,reuse_slot);
 }
-std::uint64_t Renderer::prepare(const RenderState& state) {
+ComPtr<ID3D11BlendState> Renderer::Impl::create_blend(const BlendKey& key) const {
+    const auto [enable,source,destination,equation,mask]=key;
+    D3D11_BLEND_DESC blend{};
+    auto& output = blend.RenderTarget[0];
+    output.BlendEnable = enable;
+    output.SrcBlend = blend_factor(source); output.DestBlend = blend_factor(destination);
+    output.SrcBlendAlpha = alpha_blend_factor(output.SrcBlend); output.DestBlendAlpha = alpha_blend_factor(output.DestBlend);
+    output.BlendOp = output.BlendOpAlpha = blend_op(equation);
+    if (mask & ~0x01010101U) throw std::runtime_error("Invalid NV097 color write mask");
+    output.RenderTargetWriteMask = ((mask & 0x10000) ? D3D11_COLOR_WRITE_ENABLE_RED : 0) |
+        ((mask & 0x100) ? D3D11_COLOR_WRITE_ENABLE_GREEN : 0) |
+        ((mask & 1) ? D3D11_COLOR_WRITE_ENABLE_BLUE : 0) |
+        ((mask & 0x1000000) ? D3D11_COLOR_WRITE_ENABLE_ALPHA : 0);
+    ComPtr<ID3D11BlendState> state;
+    checked(device->CreateBlendState(&blend, &state), "Blend state");
+    return state;
+}
+ComPtr<ID3D11DepthStencilState> Renderer::Impl::create_depth(const DepthKey& key) const {
+    const auto [test,write,function,stencil,stencil_function,read_mask,write_mask,fail,depth_fail,pass]=key;
+    D3D11_DEPTH_STENCIL_DESC depth{};
+    depth.DepthEnable = test; depth.DepthWriteMask = write ? D3D11_DEPTH_WRITE_MASK_ALL : D3D11_DEPTH_WRITE_MASK_ZERO;
+    depth.DepthFunc = comparison(function);
+    depth.StencilEnable=stencil;
+    if(read_mask>255 || write_mask>255) throw std::runtime_error("Stencil masks must fit eight bits");
+    depth.StencilReadMask=static_cast<UINT8>(read_mask); depth.StencilWriteMask=static_cast<UINT8>(write_mask);
+    depth.FrontFace = depth.BackFace = {stencil_operation(fail),stencil_operation(depth_fail),
+        stencil_operation(pass),comparison(stencil_function)};
+    ComPtr<ID3D11DepthStencilState> state;
+    checked(device->CreateDepthStencilState(&depth, &state), "Depth state");
+    return state;
+}
+ComPtr<ID3D11RasterizerState> Renderer::Impl::create_raster(const RasterKey& key) const {
+    const auto [cull,face,front_ccw,scissor,offset,offset_scale,offset_bias]=key;
+    D3D11_RASTERIZER_DESC raster{};
+    raster.FillMode = D3D11_FILL_SOLID; raster.DepthClipEnable = TRUE;
+    raster.MultisampleEnable=samples>1;
+    raster.CullMode = D3D11_CULL_NONE;
+    if (cull) {
+        if (face == 0x404) raster.CullMode = D3D11_CULL_FRONT;
+        else if (face == 0x405) raster.CullMode = D3D11_CULL_BACK;
+        else throw std::runtime_error("Unsupported cull face");
+    }
+    raster.FrontCounterClockwise = front_ccw;
+    raster.ScissorEnable=scissor;
+    if(offset) {
+        const auto scale=std::bit_cast<float>(offset_scale),bias=std::bit_cast<float>(offset_bias);
+        if(!std::isfinite(scale) || !std::isfinite(bias) || std::abs(bias)>=2147483648.0f) throw std::runtime_error("Invalid polygon offset");
+        raster.SlopeScaledDepthBias=scale; raster.DepthBias=static_cast<INT>(bias);
+    }
+    ComPtr<ID3D11RasterizerState> state;
+    checked(device->CreateRasterizerState(&raster, &state), "Rasterizer state");
+    return state;
+}
+ComPtr<ID3D11SamplerState> Renderer::Impl::create_sampler(const SamplerKey& key) {
+    const auto [address,border_color,linear,texture_filter,control]=key;
+    D3D11_SAMPLER_DESC sampler{};
+    const auto filter=sampler_filter(key);
+    const auto min=(filter>>16)&63,mag=(filter>>24)&15;
+    const bool gaussian=gaussian_filter(filter);
+    const bool mip=min>=3 && min<=6,min_linear=(min&1)==0;
+    auto strength=anisotropy?anisotropy:1U<<((control>>4)&3);
+    // The shader applies the Gaussian kernel at LOD zero. Its individual
+    // taps interpolate linearly and must not acquire anisotropic filtering.
+    sampler.Filter=gaussian?D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT:
+        static_cast<D3D11_FILTER>((min_linear?0x10:0)|(mag==2?4:0)|(min>=5?1:0));
+    if(!gaussian && strength>1 && min_linear && mag==2) sampler.Filter=D3D11_FILTER_ANISOTROPIC;
+    else strength=1;
+    sampler.AddressU = address_mode(address & 15);
+    sampler.AddressV = address_mode((address >> 8) & 15);
+    sampler.AddressW = address_mode((address >> 16) & 15);
+    const auto border=color(border_color);std::copy(border.begin(),border.end(),sampler.BorderColor);
+    sampler.MaxAnisotropy=strength;sampler.ComparisonFunc=D3D11_COMPARISON_NEVER;
+    int bias=filter&0x1FFF;if(bias&0x1000) bias-=0x2000;
+    constexpr float min_lod_bias=-16.0f,max_lod_bias=15.99f; // D3D11 sampler limits.
+    sampler.MipLODBias=mip?std::clamp(bias/256.0f,min_lod_bias,max_lod_bias):0;
+    sampler.MinLOD=mip?float((control>>18)&0xFFF)/256:0;sampler.MaxLOD=mip?float((control>>6)&0xFFF)/256:0;
+    if(unlimited_render_distance) sampler.MinLOD=sampler.MaxLOD=0;
+    ComPtr<ID3D11SamplerState> state;
+    checked(device->CreateSamplerState(&sampler, &state), "Sampler state");
+    ++stats.sampler_misses;
+    return state;
+}
+PipelineStates Renderer::Impl::prepared(const RenderState& state) const {
+    const auto found=pipelines.find(pipeline_key(state));
+    if(found==pipelines.end()) throw std::runtime_error("Pipeline was not prepared before submission");
+    return found->second;
+}
+PipelineStates Renderer::prepare(const RenderState& state) {
     auto& r = *impl_;
     if (r.recording) throw std::runtime_error("Prepare pipelines before frame submission");
     validate_fragment(state);
     const auto key = pipeline_key(state);
-    if(r.last_pipeline!=r.pipeline_keys.end() && r.last_pipeline->first==key)
-        return r.first_pipeline+r.last_pipeline->second;
-    if(const auto found=r.pipeline_keys.find(key);found!=r.pipeline_keys.end()) {
+    if(r.last_pipeline!=r.pipelines.end() && r.last_pipeline->first==key) return r.last_pipeline->second;
+    if(const auto found=r.pipelines.find(key);found!=r.pipelines.end()) {
         r.last_pipeline=found;
-        return r.first_pipeline+found->second;
+        return found->second;
     }
     ++r.stats.state_misses;
-    if (r.pipelines.size() >= Impl::pipeline_limit) throw std::runtime_error("Pipeline cache limit reached");
-    Impl::Pipeline pipeline;
-    D3D11_BLEND_DESC blend{};
-    auto& output = blend.RenderTarget[0];
-    output.BlendEnable = state.blend;
-    output.SrcBlend = blend_factor(state.blend_source); output.DestBlend = blend_factor(state.blend_destination);
-    output.SrcBlendAlpha = alpha_blend_factor(output.SrcBlend); output.DestBlendAlpha = alpha_blend_factor(output.DestBlend);
-    output.BlendOp = output.BlendOpAlpha = blend_op(state.blend_equation);
-    if (state.color_mask & ~0x01010101U) throw std::runtime_error("Invalid NV097 color write mask");
-    output.RenderTargetWriteMask = ((state.color_mask & 0x10000) ? D3D11_COLOR_WRITE_ENABLE_RED : 0) |
-        ((state.color_mask & 0x100) ? D3D11_COLOR_WRITE_ENABLE_GREEN : 0) |
-        ((state.color_mask & 1) ? D3D11_COLOR_WRITE_ENABLE_BLUE : 0) |
-        ((state.color_mask & 0x1000000) ? D3D11_COLOR_WRITE_ENABLE_ALPHA : 0);
-    checked(r.device->CreateBlendState(&blend, &pipeline.blend), "Blend state");
-    D3D11_DEPTH_STENCIL_DESC depth{};
-    depth.DepthEnable = state.depth_test; depth.DepthWriteMask = state.depth_write ? D3D11_DEPTH_WRITE_MASK_ALL : D3D11_DEPTH_WRITE_MASK_ZERO;
-    depth.DepthFunc = comparison(state.depth_function);
-    depth.StencilEnable=state.stencil_test;
-    if(state.stencil_read_mask>255 || state.stencil_write_mask>255) throw std::runtime_error("Stencil masks must fit eight bits");
-    depth.StencilReadMask=static_cast<UINT8>(state.stencil_read_mask); depth.StencilWriteMask=static_cast<UINT8>(state.stencil_write_mask);
-    depth.FrontFace = depth.BackFace = {stencil_operation(state.stencil_fail),stencil_operation(state.stencil_depth_fail),
-        stencil_operation(state.stencil_pass),comparison(state.stencil_function)};
-    checked(r.device->CreateDepthStencilState(&depth, &pipeline.depth), "Depth state");
-    D3D11_RASTERIZER_DESC raster{};
-    raster.FillMode = D3D11_FILL_SOLID; raster.DepthClipEnable = TRUE;
-    raster.MultisampleEnable=r.samples>1;
-    raster.CullMode = D3D11_CULL_NONE;
-    if (state.cull) {
-        if (state.cull_face == 0x404) raster.CullMode = D3D11_CULL_FRONT;
-        else if (state.cull_face == 0x405) raster.CullMode = D3D11_CULL_BACK;
-        else throw std::runtime_error("Unsupported cull face");
-    }
-    raster.FrontCounterClockwise = state.front_ccw;
-    raster.ScissorEnable=state.scissor_test;
-    if(state.polygon_offset) {
-        if(!std::isfinite(state.polygon_offset_scale) || !std::isfinite(state.polygon_offset_bias) ||
-            std::abs(state.polygon_offset_bias)>=2147483648.0f) throw std::runtime_error("Invalid polygon offset");
-        raster.SlopeScaledDepthBias=state.polygon_offset_scale; raster.DepthBias=static_cast<INT>(state.polygon_offset_bias);
-    }
-    checked(r.device->CreateRasterizerState(&raster, &pipeline.raster), "Rasterizer state");
+    PipelineStates prepared;
+    prepared.blend=r.blend_states.intern(blend_key(state),"blend",[&](const BlendKey& k) {return r.create_blend(k);});
+    prepared.depth=r.depth_states.intern(depth_key(state),"depth-stencil",[&](const DepthKey& k) {return r.create_depth(k);});
+    prepared.raster=r.raster_states.intern(raster_key(state),"rasterizer",[&](const RasterKey& k) {return r.create_raster(k);});
     for (unsigned i = 0; i < 4; ++i) {
-        D3D11_SAMPLER_DESC sampler{};
-        const auto filter=state.texture_filter[i]?state.texture_filter[i]:(state.linear_filter[i]?0x02060000U:0x01030000U);
-        const auto min=(filter>>16)&63,mag=(filter>>24)&15,control=state.texture_control[i];
-        const bool gaussian=min==7 && mag==4 && ((filter>>13)&7)==2;
-        if(!gaussian && (min<1 || min>6 || mag<1 || mag>2))
+        const auto sampler=sampler_key(state,i);
+        const auto filter=sampler_filter(sampler),min=(filter>>16)&63,mag=(filter>>24)&15;
+        if(!gaussian_filter(filter) && (min<1 || min>6 || mag<1 || mag>2))
             throw std::runtime_error(std::format("Unsupported texture filter at stage {}: {} (min {}, mag {}, shader {})",
                 i,hex32(filter),min,mag,state.texture_modes[i]));
-        const bool mip=min>=3 && min<=6,min_linear=(min&1)==0;
-        auto strength=r.anisotropy?r.anisotropy:1U<<((control>>4)&3);
-        // The shader applies the Gaussian kernel at LOD zero. Its individual
-        // taps interpolate linearly and must not acquire anisotropic filtering.
-        sampler.Filter=gaussian?D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT:
-            static_cast<D3D11_FILTER>((min_linear?0x10:0)|(mag==2?4:0)|(min>=5?1:0));
-        if(!gaussian && strength>1 && min_linear && mag==2) sampler.Filter=D3D11_FILTER_ANISOTROPIC;
-        else strength=1;
-        sampler.AddressU = address_mode(state.texture_address[i] & 15);
-        sampler.AddressV = address_mode((state.texture_address[i] >> 8) & 15);
-        sampler.AddressW = address_mode((state.texture_address[i] >> 16) & 15);
-        const auto border=color(state.texture_border[i]);std::copy(border.begin(),border.end(),sampler.BorderColor);
-        sampler.MaxAnisotropy=strength;sampler.ComparisonFunc=D3D11_COMPARISON_NEVER;
-        int bias=filter&0x1FFF;if(bias&0x1000) bias-=0x2000;
-        constexpr float min_lod_bias=-16.0f,max_lod_bias=15.99f; // D3D11 sampler limits.
-        sampler.MipLODBias=mip?std::clamp(bias/256.0f,min_lod_bias,max_lod_bias):0;
-        sampler.MinLOD=mip?float((control>>18)&0xFFF)/256:0;sampler.MaxLOD=mip?float((control>>6)&0xFFF)/256:0;
-        if(r.unlimited_render_distance) sampler.MinLOD=sampler.MaxLOD=0;
-        checked(r.device->CreateSamplerState(&sampler, &pipeline.samplers[i]), "Sampler state");
-        ++r.stats.sampler_misses;
+        prepared.samplers[i]=r.sampler_states.intern(sampler,"sampler",[&](const SamplerKey& k) {return r.create_sampler(k);});
     }
-    const auto index=static_cast<std::uint32_t>(r.pipelines.size());
-    r.last_pipeline=r.pipeline_keys.emplace(key,index).first;
-    r.pipelines.push_back(std::move(pipeline));
-    return r.first_pipeline+index;
+    // Forgetting combinations is safe: prepared and queued ids stay valid.
+    if(r.pipelines.size()>=Impl::pipeline_limit) r.pipelines.clear();
+    r.last_pipeline=r.pipelines.emplace(key,prepared).first;
+    return prepared;
 }
 std::uint32_t Renderer::prepare_program(const VertexProgram& program,bool launch) {
     auto& r=*impl_;
@@ -2036,15 +2116,9 @@ void Renderer::Impl::draw(const RenderState& state,Bytes vertex_bytes,std::size_
     if (!r.recording) throw std::runtime_error("Begin a frame before drawing");
     if (!vertex_count || vertex_count > Impl::max_vertices || input_indices.size() > Impl::max_vertices)
         throw std::runtime_error("Draw exceeds bounded vertex/index buffers");
-    // Queued draws carry the pipeline selected during preparation. A quality
-    // change retires those handles; standalone draws can still resolve by key.
-    auto pipeline_index=streams?streams->draw.pipeline-r.first_pipeline:UINT64_MAX;
-    if(pipeline_index>=r.pipelines.size()) {
-        const auto found=r.pipeline_keys.find(pipeline_key(state));
-        if(found==r.pipeline_keys.end()) throw std::runtime_error("Pipeline was not prepared before submission");
-        pipeline_index=found->second;
-    }
-    const auto& pipeline=r.pipelines[pipeline_index];
+    // Queued draws carry the state objects selected during preparation;
+    // standalone draws resolve them by their complete state.
+    const auto pipeline=streams && streams->draw.pipeline.blend?streams->draw.pipeline:r.prepared(state);
     for (const auto index : input_indices) if (index >= vertex_count) throw std::runtime_error("Vertex index outside draw");
     const auto count = input_indices.empty() ? vertex_count : input_indices.size();
     D3D11_PRIMITIVE_TOPOLOGY topology;
@@ -2129,7 +2203,7 @@ void Renderer::Impl::draw(const RenderState& state,Bytes vertex_bytes,std::size_
         if(sampled && mode==1 && r.resolution_scale>1 && ((state.bounded_samples>>i)&1)) {
             constants.sample_bounds[i]=state.sample_bounds[i];constants.bounded_samples[i]=1;++r.stats.bounded_samples;
         }
-        samplers[i] = pipeline.samplers[i].Get();
+        samplers[i] = r.sampler_states.get(pipeline.samplers[i]);
     }
     UINT vertex_offset=0;
     if(streams) {
@@ -2192,7 +2266,7 @@ void Renderer::Impl::draw(const RenderState& state,Bytes vertex_bytes,std::size_
     DrawBindings bindings{streams?streams->layout.native.Get():program?program->layout.Get():r.layout.Get(),topology,
         program?program->vertex.Get():r.vs.Get(),
         simple<r.simple_combiners.size()?r.simple_combiners[simple].Get():r.combiners[state.combiner_control&255].Get(),
-        pipeline.blend.Get(),pipeline.depth.Get(),pipeline.raster.Get(),state.stencil_reference,views,samplers,{}};
+        r.blend_states.get(pipeline.blend),r.depth_states.get(pipeline.depth),r.raster_states.get(pipeline.raster),state.stencil_reference,views,samplers,{}};
     if(state.scissor_test) {
         const auto scale=LONG(r.resolution_scale);
         for(unsigned i=0;i<bindings.scissor.size();++i) bindings.scissor[i]=state.scissor[i]*scale;
@@ -2455,6 +2529,34 @@ std::string check_image_copy(bool warp,bool debug,unsigned antialiasing) {
         before_rejection.resolution_scale==after_rejection.resolution_scale && before_rejection.antialiasing==after_rejection.antialiasing &&
         before_rejection.anisotropy==after_rejection.anisotropy && before_rejection.target_bytes==after_rejection.target_bytes);
     renderer.release_target(large);
+    // A long session combines a few dozen D3D11 state objects into thousands
+    // of distinct draw states (issue 3 exhausted a 1024-entry cache after 31
+    // minutes). Neither that nor a live quality change may invalidate a draw.
+    {
+        const auto texture=renderer.upload({1,1,TextureFormat::argb8_linear,texel});
+        RenderState plain;plain.texture_modes[0]=1;plain.textures[0]=texture;plain.final_inputs={0x00000008,0x00001800};
+        std::array<Vertex,6> quad;
+        constexpr Float4 positions[]={{-1,-1,0,1},{1,-1,0,1},{1,1,0,1},{-1,-1,0,1},{1,1,0,1},{-1,1,0,1}};
+        for(unsigned i=0;i<quad.size();++i) quad[i].position=positions[i];
+        const auto draw=[&] {renderer.set_target(0);renderer.begin();renderer.draw(plain,quad);renderer.end();return renderer.readback();};
+        const auto plain_states=renderer.prepare(plain);
+        const auto reference=draw();
+        auto state=plain;
+        std::size_t distinct=0;bool prepared=true;
+        for(const std::uint32_t source:{0x0U,0x1U,0x302U,0x300U}) for(const std::uint32_t destination:{0x0U,0x1U,0x303U,0x301U})
+        for(std::uint32_t depth=0x200;depth<=0x207;++depth) for(std::uint32_t u=1;u<=3;++u) for(std::uint32_t v=1;v<=3;++v)
+        for(std::uint32_t w=1;w<=3;++w) for(const bool cull:{false,true}) {
+            state.blend=true;state.blend_source=source;state.blend_destination=destination;
+            state.depth_test=true;state.depth_function=depth;state.cull=cull;
+            state.texture_address[0]=u|(v<<8)|0x10000;state.texture_address[1]=w|(w<<8)|0x10000;
+            try {renderer.prepare(state);++distinct;} catch(const std::runtime_error&) {prepared=false;}
+        }
+        cases.emplace_back(std::format("{} distinct draw states share bounded state caches",distinct),prepared && distinct>4096);
+        renderer.enhancements(0,renderer.stats().anisotropy==4?8:4);
+        cases.emplace_back("prepared draw states survive forgotten combinations and a live quality change",
+            renderer.prepare(plain)==plain_states && draw().rgba==reference.rgba);
+        renderer.release_texture(texture);
+    }
     const auto errors=renderer.errors();
     cases.emplace_back("D3D11 validation clean",errors.empty());
     const auto passed=std::ranges::all_of(cases,[](const auto& test){return test.second;});

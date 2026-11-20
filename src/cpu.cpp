@@ -1063,31 +1063,88 @@ void complete_screen_primitives(Memory& memory,bool ultrawide) {
     // HUD and menu text); the GPU keeps them half a texel inside this
     // rectangle. Any screen rotation qualifies; the UVs must form a rectangle.
     const unsigned sets=((format>>13)&1)+((format>>14)&1),first_uv=(format&0x800)?4:3;
-    const auto report=[&](std::uint32_t begin) {
+    // The UVs the original raster samples at its outermost covered pixel
+    // centres. NV2A interpolates them from the rasterized vertex positions, and
+    // a centre lies 1/32 pixel inside a leading edge, so bilinear filtering
+    // there reads the texel before the rectangle: glyphs whose UVs start one
+    // texel into their cell keep their top row only through those samples.
+    // Screen-aligned quads whose UV components each follow one axis qualify.
+    // Also report, per screen axis, the vertex coordinate that rasterizes at
+    // the boundary of the original's first covered pixel (k-1/32): the GPU
+    // extends a leading edge there when it holds art the UVs skip.
+    const auto original_samples=[&](const Quad& quad,InterfaceSampleBounds& bounds) {
+        Screen view;
+        if(!screen_transform(quad.value(0,2),view)) return;
+        std::array<std::array<float,2>,2> raster{},centre{};
+        for(unsigned axis=0;axis<2;++axis) {
+            for(unsigned i=0;i<4;++i) if(quad.value(i,axis)!=quad.minimum[axis] && quad.value(i,axis)!=quad.maximum[axis]) return;
+            raster[axis]={rasterize(view.scale[axis]*quad.minimum[axis]+view.offset[axis]),
+                rasterize(view.scale[axis]*quad.maximum[axis]+view.offset[axis])};
+            const auto low=std::min(raster[axis][0],raster[axis][1]),high=std::max(raster[axis][0],raster[axis][1]);
+            // Centres at k+0.5 with low<=centre<high; the 1/32 bias rules out ties.
+            centre[axis]={std::ceil(low-0.5f)+0.5f,std::ceil(high-0.5f)-0.5f};
+            if(!(centre[axis][0]<=centre[axis][1])) return;
+            // Invert NV2A's signed 1/16 truncation at the centre of the cell.
+            const auto snapped=centre[axis][0]-0.5f;
+            const auto position=snapped+(snapped>0?0.03125f:snapped<0?-0.03125f:0)-0.53125f;
+            bounds.leading_edge[axis]=(position-view.offset[axis])/view.scale[axis];
+            if(raster[axis][1]<raster[axis][0]) bounds.leading_max|=1U<<axis;
+        }
+        bounds.uv_word=first_uv;
+        for(unsigned set=0;set<sets;++set) {
+            if(!(bounds.mask&(1U<<set))) continue;
+            std::array<float,4> range{};bool complete=true;
+            for(unsigned c=0;c<2 && complete;++c) {
+                const unsigned component=first_uv+set*2+c;
+                bool found=false;
+                for(unsigned axis=0;axis<2 && !found;++axis) {
+                    std::array<float,2> at{};std::array<bool,2> seen{};bool follows=true;
+                    for(unsigned i=0;i<4;++i) {
+                        const unsigned side=quad.value(i,axis)==quad.maximum[axis];
+                        if(seen[side] && at[side]!=quad.value(i,component)) follows=false;
+                        at[side]=quad.value(i,component);seen[side]=true;
+                    }
+                    if(!follows || !seen[0] || !seen[1]) continue;
+                    const auto uv=[&](float p) {return at[0]+(at[1]-at[0])*(p-raster[axis][0])/(raster[axis][1]-raster[axis][0]);};
+                    const auto first=uv(centre[axis][0]),last=uv(centre[axis][1]);
+                    if(!std::isfinite(first) || !std::isfinite(last)) break;
+                    range[c]=std::min(first,last);range[c+2]=std::max(first,last);found=true;
+                    if(first>last) bounds.leading_high|=1U<<(set*2+c);
+                    if(axis) bounds.follows_y|=1U<<(set*2+c);
+                }
+                complete=found;
+            }
+            if(complete) {bounds.sampled[set]=range;bounds.sampled_mask|=1U<<set;}
+            else {bounds.leading_high&=~(3U<<(set*2));bounds.follows_y&=~(3U<<(set*2));}
+        }
+    };
+    // The game's own texture rectangle and the original's samples.
+    const auto sample_bounds=[&](std::uint32_t begin,InterfaceSampleBounds& bounds) {
         Quad quad;
-        if(!read_quad(begin,quad)) return;
-        InterfaceSampleBounds bounds;
+        if(!read_quad(begin,quad)) return false;
         for(unsigned set=0;set<sets;++set) {
             auto& range=bounds.sets[set];
             for(unsigned c=0;c<2;++c) {
                 const auto at=[&](unsigned i) {return quad.value(i,first_uv+set*2+c);};
                 float low=at(0),high=low;
-                for(unsigned i=0;i<4;++i) {if(!std::isfinite(at(i))) return;low=std::min(low,at(i));high=std::max(high,at(i));}
-                if(!(high>low)) return;
-                for(unsigned i=0;i<4;++i) if(at(i)!=low && at(i)!=high) return;
+                for(unsigned i=0;i<4;++i) {if(!std::isfinite(at(i))) return false;low=std::min(low,at(i));high=std::max(high,at(i));}
+                if(!(high>low)) return false;
+                for(unsigned i=0;i<4;++i) if(at(i)!=low && at(i)!=high) return false;
                 range[c]=low;range[c+2]=high;
             }
             bounds.mask|=1U<<set;
         }
-        if(bounds.mask) interface_hooks.bounds(interface_hooks.context,
-            interface_quad_identity({static_cast<const std::byte*>(memory.access(begin,stride*4)),stride*4}),bounds);
+        if(bounds.mask) original_samples(quad,bounds);
+        return bounds.mask!=0;
     };
     unsigned kept=0;
     for(unsigned quad=0;quad<words/stride;++quad) {
         const auto source=begin+quad*stride*4;
         if(clip && !visible(source)) continue;
         complete(source);
-        if(sets && interface_hooks.bounds) report(source);
+        InterfaceSampleBounds bounds;
+        if(sets && interface_hooks.bounds && sample_bounds(source,bounds)) interface_hooks.bounds(interface_hooks.context,
+            interface_quad_identity({static_cast<const std::byte*>(memory.access(source,stride*4)),stride*4}),bounds);
         if(kept!=quad) std::memcpy(memory.access(begin+kept*stride*4,stride*4),memory.access(source,stride*4),stride*4);
         ++kept;
     }

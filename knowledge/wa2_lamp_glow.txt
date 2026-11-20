@@ -1,0 +1,49 @@
+WA2 lamp glow holes (vanilla bug, fixed)
+
+USA XBE SHA-256 9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2
+
+Symptom: on WA2-background stages (for example Practice 3-15 CASCADE,
+stage id 239) the glow around each pink lamp shows blob-shaped holes when
+the lamp is away from the screen centre. Present in GameCube SMB2 too.
+
+Draws per lamp (frame capture, draws.jsonl):
+  1. WA2_POKO_LIGHT sparkle quad (4 vertices at 0x01A9E0C0, 3 textures),
+     blend SRC_ALPHA/ONE, alpha test > 0, depth write ON.
+  2. Glow sprite, blend SRC_COLOR/ONE, depth write off.
+  3. The same sparkle quad again, depth write off.
+The sparkle's noisy alpha texture writes depth in blob shapes. Away from the
+screen centre the camera-facing quad tilts in view depth and lies in front of
+the glow, which then fails the depth test there. Replaying through draw 313
+of the reporting capture showed the blobs are unlit background, not paint.
+
+Code path:
+  239E0  cached D3D z mode (GXSetZMode port), method 0x4035C.
+  A24C0  avdisp_set_z_mode(enable, func, update): bytes 73CC04..06.
+  A2D80  avdisp_draw_model_unculled_sort_translucent: queues translucent
+         shapes with callback A2B60 and a copy of the state block 73CBE0..
+         (rep movsd at A2E3C), including the z mode.
+  A2C80  avdisp_draw_model_unculled_sort_all: callback A2AC0, same copy.
+  A2720  restores a node's state block before its draw at flush time.
+  BB320.. generic background-object pass (draw_bg_objects). Objects hold
+         flags at +0, name at +4, model at +8. BB4D5..BB4DB queue an
+         opaque-translucency object through A2D80 with the current z mode.
+  D86F0  WA2 object claim callback for table 5788E8; case 1 collects
+         WA2_POKOPOKO objects into the light list (state+0x18/+0x1C).
+  D8630  WA2 model claim callback for table 5788B8; stores the
+         WA2_POKO_LIGHT model at state+0x39C.
+  D5A20  WA2 lamp pass: sets z update off (D5A3E), then for each
+         WA2_POKOPOKO object draws the WA2_POKO_LIGHT model pulled toward the
+         camera (D5B97, A2C80) and two glows (D5C0E, D5D19).
+
+A queue-time trace on a capture of 3-15 confirmed the hole-making quads are
+stage objects named WA2_POKO_LIGHT drawn by the generic pass (A2D80 from
+BB4D6 with z update 1, model 0x051C16A0), while D5A20 draws the same model
+with z update 0. The WA2_POKO_LIGHT model is one translucent additive quad
+with no opaque shapes.
+
+Fix: around BB4D5..BB4DB, an object named exactly WA2_POKO_LIGHT is queued
+with the avdisp z update byte 73CC06 cleared, restored after A2D80 returns.
+The sparkle keeps its colour, position and brightness; only its depth writes
+are removed, matching the lamp pass. Verified with captures at tick 2300 of
+the 3-15 route: the generic sparkles changed from depth write 1 to 0 and the
+glow holes disappeared at 640x480 and 1920x1440.

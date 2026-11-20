@@ -51,6 +51,7 @@ void Settings::load(const std::filesystem::path& path) {
         else if(name=="upscaled_movies") upscaled_movies=number!=0;
         else if(name=="upscaled_hud") upscaled_hud=number!=0;
         else if(name=="corrected_subtitles") corrected_subtitles=number!=0;
+        else if(name=="classic_rolling_sound") classic_rolling_sound=number!=0;
         else if(name=="discord_presence") discord_presence=number!=0;
         else if(name=="volume") volume=std::clamp(number,0,100);
         else if(name=="aspect") aspect=std::clamp(number,0,2);
@@ -65,8 +66,8 @@ void Settings::load(const std::filesystem::path& path) {
     }
 }
 void Settings::save(const std::filesystem::path& path) const {
-    auto text=std::format("executable={}\ndisc={}\nshow_fps={}\nvolume={}\nmuted={}\nmute_on_focus_loss={}\naspect={}\nvsync={}\nfullscreen={}\nresolution={}\nrefresh_rate={}\nantialiasing={}\nanisotropy={}\nunlimited_render_distance={}\nupscaled_movies={}\nupscaled_hud={}\ncorrected_subtitles={}\ndiscord_presence={}\n",
-        executable.data(),disc.data(),int(show_fps),volume,int(muted),int(mute_on_focus_loss),aspect,int(vsync),int(fullscreen),resolution,refresh_rate,antialiasing,anisotropy,int(unlimited_render_distance),int(upscaled_movies),int(upscaled_hud),int(corrected_subtitles),int(discord_presence));
+    auto text=std::format("executable={}\ndisc={}\nshow_fps={}\nvolume={}\nmuted={}\nmute_on_focus_loss={}\naspect={}\nvsync={}\nfullscreen={}\nresolution={}\nrefresh_rate={}\nantialiasing={}\nanisotropy={}\nunlimited_render_distance={}\nupscaled_movies={}\nupscaled_hud={}\ncorrected_subtitles={}\nclassic_rolling_sound={}\ndiscord_presence={}\n",
+        executable.data(),disc.data(),int(show_fps),volume,int(muted),int(mute_on_focus_loss),aspect,int(vsync),int(fullscreen),resolution,refresh_rate,antialiasing,anisotropy,int(unlimited_render_distance),int(upscaled_movies),int(upscaled_hud),int(corrected_subtitles),int(classic_rolling_sound),int(discord_presence));
     for(unsigned i=0;i<control_actions.size();++i) text+=std::format("key_{}={}\npad_{}={}\n",control_actions[i].id,bindings[i].keyboard,control_actions[i].id,bindings[i].gamepad);
     if(text.find('\r')!=std::string::npos || std::string_view(executable.data()).find('\n')!=std::string_view::npos ||
        std::string_view(disc.data()).find('\n')!=std::string_view::npos) throw std::runtime_error("Game paths cannot contain line breaks");
@@ -94,13 +95,14 @@ std::string check_presentation(const std::filesystem::path& directory,const std:
     std::filesystem::create_directories(directory);
     unsigned checks=0;
     const auto require=[&](bool condition) {++checks;if(!condition) throw std::runtime_error(std::format("Completed-frame presentation check {} failed",checks));};
-    Settings settings;require(settings.refresh_rate==60 && !settings.unlimited_render_distance && !settings.upscaled_movies && !settings.upscaled_hud && settings.corrected_subtitles);
+    Settings settings;require(settings.refresh_rate==60 && !settings.unlimited_render_distance && !settings.upscaled_movies && !settings.upscaled_hud && settings.corrected_subtitles && !settings.classic_rolling_sound);
     for(bool unlimited:{true,false}) {
         settings.unlimited_render_distance=unlimited;settings.upscaled_movies=!unlimited;settings.upscaled_hud=unlimited;settings.corrected_subtitles=unlimited;
+        settings.classic_rolling_sound=unlimited;
         settings.save(directory/"settings.cfg");
         Settings restored;restored.load(directory/"settings.cfg");
         require(restored.unlimited_render_distance==unlimited && restored.upscaled_movies==!unlimited && restored.upscaled_hud==unlimited &&
-            restored.corrected_subtitles==unlimited);
+            restored.corrected_subtitles==unlimited && restored.classic_rolling_sound==unlimited);
     }
     settings.upscaled_movies=false;settings.upscaled_hud=false;settings.corrected_subtitles=true;
     for(int rate:{0,30,144,360,1000}) {
@@ -533,7 +535,7 @@ void SettingsUi::draw(bool playing,bool recording,double fps,const std::function
                 help("Displays the presentation frame rate in the upper-right corner.");
                 ImGui::SeparatorText("DISCORD");
                 changed|=ImGui::Checkbox("Discord Rich Presence",&settings_.discord_presence);
-                help("Shares your game activity and elapsed time with Discord desktop. Turning this off clears the activity.");
+                help("Shares your game mode, stage and elapsed time with Discord desktop. Turning this off clears the activity.");
                 if(settings_.discord_presence && presence_) ImGui::TextDisabled("%s",presence_->status().data());
                 break;
             }
@@ -542,7 +544,11 @@ void SettingsUi::draw(bool playing,bool recording,double fps,const std::function
                 help("Applies to both music and sound effects.");changed|=ImGui::Checkbox("Mute",&settings_.muted);
                 help("Silences game audio while keeping your volume setting.");
                 changed|=ImGui::Checkbox("Mute on focus loss",&settings_.mute_on_focus_loss);
-                help("Silences game audio while another window has focus and restores it when you return.");break;
+                help("Silences game audio while another window has focus and restores it when you return.");
+                ImGui::SeparatorText("SOUND EFFECTS");
+                changed|=ImGui::Checkbox("Classic ball rolling sound",&settings_.classic_rolling_sound);
+                help("Restores the looping rolling sound of the GameCube games, using the recordings on the game disc. Its pitch and volume follow the ball's speed.");
+                break;
             case 3: {
                 ImGui::SeparatorText("DISPLAY");constexpr const char* aspects[]={"Standard (4:3)","Widescreen (16:9)","Ultrawide (21:9)"};
                 label("Aspect ratio");changed|=ImGui::Combo("##Aspect",&settings_.aspect,aspects,3);
@@ -673,7 +679,7 @@ void SettingsUi::draw(bool playing,bool recording,double fps,const std::function
         settings_.fullscreen=was_fullscreen;message(SDL_GetError());
     }
     if(changed) try {settings_.save(path_);} catch(const std::exception& error) {message(error.what());}
-    if(presence_) presence_->update(settings_.discord_presence && !quit && !restart,playing,visible);
+    if(presence_) presence_->update(settings_.discord_presence && !quit && !restart,playing,activity_);
     ImGui::Render();
     if(animation_>0 && animation_<1) {
         const float ease=animation_*animation_*(3-2*animation_),scale=.65f+.35f*ease;

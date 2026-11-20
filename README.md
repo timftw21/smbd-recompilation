@@ -10,7 +10,7 @@
 
 An unofficial native version of the original Xbox game for Windows, Linux x86-64, and Steam Deck, built around accurate gameplay, original presentation, and enhancements. This fan project is independent of SEGA. You must provide your own US Xbox game disc image. Original game files are not distributed here.
 
-**0.6.1 is the latest public development release.** Bugs, slowdowns, and stops in untested game modes are still possible. Linux and Steam Deck support needs more testing. macOS remains a planned target.
+**0.7.0 is the latest public development release.** Bugs, slowdowns, and stops in untested game modes are still possible. Linux and Steam Deck support needs more testing. macOS remains a planned target.
 
 ## AI disclosure
 
@@ -18,11 +18,21 @@ OpenAI Codex and Anthropic Claude have assisted with development and research. C
 
 ## Screenshots
 
-| Mode Select | Stage Select | Gameplay |
-| :---: | :---: | :---: |
-| [<img src="resources/screenshots/mode-select.jpg" alt="Mode Select menu" width="260">](resources/screenshots/mode-select.jpg) | [<img src="resources/screenshots/stage-select.jpg" alt="World 3 Stage Select" width="260">](resources/screenshots/stage-select.jpg) | [<img src="resources/screenshots/gameplay.jpg" alt="AIAI on a stage" width="260">](resources/screenshots/gameplay.jpg) |
+| Mode Select | Stage Select |
+| :---: | :---: |
+| [<img src="resources/screenshots/mode-select.jpg" alt="Mode Select menu with Party Game highlighted" width="400">](resources/screenshots/mode-select.jpg) | [<img src="resources/screenshots/stage-select.jpg" alt="World 1 Stage Select showing ESCALATORS" width="400">](resources/screenshots/stage-select.jpg) |
+| **Gameplay** | **Party Game** |
+| [<img src="resources/screenshots/gameplay.jpg" alt="AIAI on 3-15 CASCADE" width="400">](resources/screenshots/gameplay.jpg) | [<img src="resources/screenshots/party-game.jpg" alt="Monkey Bowling" width="400">](resources/screenshots/party-game.jpg) |
 
 ## Current status
+
+### Changes in 0.7.0
+
+- Discord Rich Presence now shows what you're playing: the game mode, Challenge difficulty and floor, Story stage, practice stage, or party game.
+- Added "Classic ball rolling sound" option to Audio. It plays the looping rolling sound of the GameCube games, using the recordings on the Deluxe disc.
+- Fixed a crash after long play sessions ("Pipeline cache limit reached").
+- Fixed the tops and edges of the lives, speed, and timer digits being cut off at higher internal resolutions.
+- Fixed holes in the lamp glow on WA2 stages such as 3-15 CASCADE. This bug is also present in the original game.
 
 ### Changes in 0.6.1
 
@@ -67,7 +77,7 @@ OpenAI Codex and Anthropic Claude have assisted with development and research. C
 
 You need a Direct3D 11-capable graphics card and an XISO image of the **US Xbox release of Super Monkey Ball Deluxe**. A full raw-disc dump must first be converted to XISO. The executable is checked against [the supported-target registry](knowledge/supported_target.json).
 
-**[Download the 0.6.1 Windows installer](https://github.com/timftw21/smbd-recompilation/releases/download/v0.6.1/smbd-0.6.1-windows-x64-setup.exe)** · [Release notes and SHA-256 checksum](https://github.com/timftw21/smbd-recompilation/releases/tag/v0.6.1)
+**[Download the 0.7.0 Windows installer](https://github.com/timftw21/smbd-recompilation/releases/download/v0.7.0/smbd-0.7.0-windows-x64-setup.exe)** · [Release notes and SHA-256 checksum](https://github.com/timftw21/smbd-recompilation/releases/tag/v0.7.0)
 
 1. Run the installer and select your US Xbox XISO image.
 2. Choose an installation folder. You can keep a copy of the image with the game and create a desktop shortcut.
@@ -116,7 +126,7 @@ Use the bottom row to close settings, restart the running game, restore defaults
 
 - **Game Files:** Select and validate the XISO and executable.
 - **General:** Choose a refresh limit or Unlimited, toggle the frame-rate display, and opt in to Discord Rich Presence.
-- **Audio:** Adjust master volume, mute, or mute when the window loses focus.
+- **Audio:** Adjust master volume, mute, or mute when the window loses focus. Enable **Classic ball rolling sound** under **Sound Effects** to hear the rolling samples from the Deluxe disc. It is off by default.
 - **Graphics:** Set aspect ratio, fullscreen, and V-sync.
 - **Enhancements:** Choose 1×–4× internal resolution, FXAA or supported MSAA levels, and anisotropic filtering up to 16×. Upscaled FMVs sharpens the game's movies, and Upscaled HUD enlarges HUD, menu and text artwork with the Real-ESRGAN AI upscaler; both need 2× or higher. Corrected subtitles fixes typos in the story and ending subtitles. The render distance override is recommended at higher internal resolutions. These settings and aspect ratio apply immediately.
 - **Controls:** Rebind keyboard keys, controller buttons, and stick directions, clear bindings, or restore the defaults.
@@ -124,7 +134,7 @@ Use the bottom row to close settings, restart the running game, restore defaults
 
 Higher rendering rates produce new scene updates. Game rules and input retain their original 60 Hz clock; audio keeps its own sample clock and movies retain their source cadence.
 
-To share your game activity, start Discord desktop and turn on **Settings → General → Discord Rich Presence**.
+To share your game activity, start Discord desktop and turn on **Settings → General → Discord Rich Presence**. Discord shows the game mode and stage, such as *Challenge Mode: Beginner* on *Floor 2: DIAMOND*, *Story Mode* on *Stage 1-2: DIAMOND*, or the party game you're playing.
 
 ## Controls
 

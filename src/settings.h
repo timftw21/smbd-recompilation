@@ -1,4 +1,5 @@
 #pragma once
+#include "discord.h"
 #include "file.h"
 #include "input.h"
 #include <array>
@@ -20,6 +21,7 @@ struct Settings {
     std::array<char,2048> executable{},disc{};
     bool show_fps=false,muted=false,mute_on_focus_loss=true,vsync=false,fullscreen=false;
     bool unlimited_render_distance=false,upscaled_movies=false,upscaled_hud=false,corrected_subtitles=true;
+    bool classic_rolling_sound=false;
     bool discord_presence=false;
     int volume=100,aspect=1,resolution=1,refresh_rate=60,antialiasing=0,anisotropy=0;
     ControlBindings bindings=default_bindings();
@@ -48,6 +50,7 @@ public:
     bool active() const {return visible || animation_>0;}
     bool animating() const {return visible?animation_<1:animation_>0;}
     void hide() {visible=false;animation_=0;binding_action_=-1;binding_release_=0;}
+    void activity(PresenceText text) {activity_=std::move(text);} // Shared with Discord while playing.
 private:
     SDL_Window* window_;
     Renderer& renderer_;
@@ -56,6 +59,7 @@ private:
     float icon_aspect_=1;
     Settings& settings_;
     DiscordPresence* presence_;
+    PresenceText activity_;
     std::filesystem::path path_;
     std::deque<std::string> messages_;
     std::string files_message_;

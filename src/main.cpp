@@ -16,6 +16,7 @@
 #include <fstream>
 #include <format>
 #include <iostream>
+#include <optional>
 #include <utility>
 #include "host.h"
 #ifdef _WIN32
@@ -449,11 +450,26 @@ int run(int argc,char** argv,bool restarting=false) {
     host.ultrawide=active_aspect==2;
     host.unlimited_render_distance=active_unlimited_render_distance;
     host.corrected_subtitles=settings.corrected_subtitles;
+    host.classic_rolling_sound=settings.classic_rolling_sound;
     host.refresh_rate=[&] {return pacing().rate;};
     host.display_paced=[&] {
         const bool paced=std::exchange(display_paced_frame,false) && pacing().display_driven;
         display_paced_frames+=paced;
         return paced;
+    };
+    // Rich Presence samples the original mode and stage fields twice per second.
+    smbd::StageNames stage_names;bool stage_names_loaded=false;
+    std::optional<smbd::GameActivity> shared_activity;
+    const auto share_activity=[&] {
+        if(automated || !settings.discord_presence || logic_ticks%30) return;
+        if(!stage_names_loaded) {
+            stage_names_loaded=true;
+            try {stage_names=smbd::load_stage_names(settings.disc_path());}
+            catch(const std::exception& error) {ui.message(std::string("Discord stage names are unavailable: ")+error.what());}
+        }
+        const auto activity=smbd::read_game_activity(ram);
+        if(shared_activity==activity) return;
+        shared_activity=activity;ui.activity(smbd::describe_activity(activity,stage_names));
     };
     host.poll=[&](std::uint64_t ticks) {
         logic_ticks=ticks;
@@ -475,6 +491,8 @@ int run(int argc,char** argv,bool restarting=false) {
         const auto gain=settings.output_gain((SDL_GetWindowFlags(window.get())&SDL_WINDOW_INPUT_FOCUS)!=0);
         if(gain!=output_gain) {running->output_gain(gain);output_gain=gain;}
         running->corrected_subtitles(settings.corrected_subtitles);
+        running->classic_rolling_sound(settings.classic_rolling_sound);
+        share_activity();
         if(capture_was_pending && !running->capture_status().pending) {
             capture_was_pending=false;
             const auto& status=running->capture_status();

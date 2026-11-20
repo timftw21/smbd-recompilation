@@ -24,6 +24,7 @@
 #include "gpu.h"
 #include "input.h"
 #include "audio.h"
+#include "rolling.h"
 #include "settings.h"
 #endif
 
@@ -119,6 +120,8 @@ constexpr auto usage =
     "  smbd-tool probe-cpu XBE CAPTURE_DIRECTORY_OR_- RECIPE.txt NEW_OUTPUT.json\n"
     "  smbd-tool check-input\n"
     "  smbd-tool check-audio\n"
+    "  smbd-tool check-rolling-sound XBE ISO NEW_OUTPUT_DIRECTORY\n"
+    "  smbd-tool inspect-presence ISO CAPTURE_DIRECTORY...\n"
     "  smbd-tool check-image-copy [--warp] [--msaa 2|4|8]\n"
     "  smbd-tool check-movie-upscaling NEW_OUTPUT_DIRECTORY [MOVIE_TEXTURE_BIN] [--warp]\n"
     "  smbd-tool check-hud-upscaling NEW_OUTPUT_DIRECTORY [HUD_TEXTURE.png ...] [--warp]\n"
@@ -249,6 +252,23 @@ int tool_main(int argc, char** argv) {
             output=smbd::check_input();
         } else if(command=="check-audio" && argc==2) {
             output=smbd::check_audio();
+        } else if(command=="check-rolling-sound" && argc==5) {
+            smbd::Xbe image(paths[2]);
+            output=smbd::check_rolling_sound(image,paths[3],paths[4]);
+            if(output.find("\"passed\":false")!=std::string::npos) result=3;
+        } else if(command=="inspect-presence" && argc>=4) {
+            // Decodes the Rich Presence fields from frame captures' guest RAM.
+            const auto names=smbd::load_stage_names(paths[2]);
+            output="{\"format\":\"smbd-presence-v1\",\"captures\":[";
+            for(int i=3;i<argc;++i) {
+                smbd::File memory(paths[i]/"guest-memory.bin");
+                const auto activity=smbd::read_game_activity(memory.read(0,smbd::game_activity_bytes));
+                const auto text=smbd::describe_activity(activity,names);
+                output+=std::format("{}{{\"capture\":{},\"main_mode\":{},\"sub_mode\":{},\"game_type\":{},\"difficulty\":{},\"course_flags\":\"0x{:08X}\",\"floor\":{},\"world\":{},\"stage\":{},\"scene\":{},\"stage_id\":{},\"details\":{},\"state\":{}}}",
+                    i>3?",":"",smbd::json(smbd::path_text(paths[i])),activity.main_mode,activity.sub_mode,activity.game_type,activity.difficulty,activity.course_flags,
+                    activity.floor,activity.world,activity.stage,activity.scene,activity.stage_id,smbd::json(text.details),smbd::json(text.state));
+            }
+            output+="]}";
         } else if (command == "boot" && (argc == 6 || argc == 7)) {
             smbd::Xbe image(paths[2]);
             const auto report = smbd::check_boot(image, paths[3], number(argv[4]),argc==7?paths[6]:std::filesystem::path{});

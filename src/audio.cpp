@@ -249,6 +249,14 @@ void Audio::volume(std::uint32_t id,std::int32_t db) {
     if(db>0 || db<-10000) throw std::runtime_error("Audio volume is outside -10000..0");
     StreamLock lock(stream_);voice(id).gain=db==-10000?0:std::pow(10.0f,db/2000.0f);
 }
+void Audio::ramp(std::uint32_t id,float gain,std::uint32_t frames,bool stop) {
+    if(!std::isfinite(gain) || gain<0 || gain>1) throw std::runtime_error("Audio ramp gain must be 0..1");
+    StreamLock lock(stream_);auto& value=voice(id);
+    value.level_target=gain;value.stop_after_ramp=stop;value.level_frames=frames;
+    if(frames) {value.level_step=(gain-value.level)/static_cast<float>(frames);return;}
+    value.level=gain;value.level_step=0;
+    if(stop) value.playing=false;
+}
 void Audio::headroom(std::uint32_t id,std::uint32_t db) {
     if(db>10000) throw std::runtime_error("Audio headroom is outside 0..10000");
     StreamLock lock(stream_);voice(id).headroom=std::pow(10.0f,-static_cast<float>(db)/2000.0f);
@@ -351,8 +359,14 @@ void Audio::mix_bins(std::span<float> output,unsigned frame_count) {
             const auto a=sample(value,value.play_start+first),b=sample(value,value.play_start+second);
             for(unsigned channel=0;channel<channels;++channel) samples[count][channel]=a[channel]+(b[channel]-a[channel])*blend;
             value.cursor+=value.step*value.spatial_pitch;
+            if(value.level_frames || value.level!=1) {
+                for(unsigned channel=0;channel<channels;++channel) samples[count][channel]*=value.level;
+                if(value.level_frames && !--value.level_frames) value.level=value.level_target;
+                else if(value.level_frames) value.level+=value.level_step;
+            }
         }
         mix_voice(value,std::span(samples).first(count),output,frame_count);
+        if(value.stop_after_ramp && !value.level_frames) {value.stop_after_ramp=false;value.playing=false;}
         if(!value.loop && value.cursor>=value.play_frames){value.cursor=value.play_frames;value.playing=false;}
     }
     for(unsigned bin=0;bin<32;++bin) {
@@ -458,6 +472,13 @@ std::string check_audio() {
     const std::array<MixBin,1> center_only{{{2,0}}};distance.mixbins(emitter,center_only);distance.mix(mixed);
     require(std::abs(mixed[0]-0.25f*0.5f*0.5f*0.70710678f)<0.000001f && mixed[0]==mixed[1]);
     distance.position(emitter,0);distance.mix(mixed);require(std::abs(mixed[0]-0.04419417f)<0.000001f);
+    Audio ramped(false);std::array<std::int16_t,8> half{};half.fill(16384);
+    const auto level=ramped.create(pcm);ramped.data(level,std::as_bytes(std::span(half)));
+    ramped.ramp(level,0,0);ramped.play(level,true);ramped.ramp(level,1,4);
+    std::array<float,12> rising{};ramped.mix(rising);
+    require(rising[0]==0 && rising[2]==0.125f && rising[4]==0.25f && rising[6]==0.375f && rising[8]==0.5f && rising[11]==0.5f);
+    ramped.ramp(level,0,2,true);std::array<float,8> falling{};ramped.mix(falling);
+    require(falling[0]==0.5f && falling[2]==0.25f && falling[4]==0 && falling[6]==0 && ramped.status(level)==0);
     return "{\"format\":\"smbd-audio-check-v1\",\"passed\":true,\"game_booted\":false,\"audio_device_opened\":false,\"cases\":"+std::to_string(checks)+"}";
 }
 }
