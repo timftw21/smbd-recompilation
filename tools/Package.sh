@@ -79,13 +79,13 @@ for (( pass=0; pass<8; ++pass )); do
         done < <(LD_LIBRARY_PATH="$stage/lib" ldd -- "$elf" | sed -n \
             -e 's/^[[:space:]]*\([^[:space:]]*\) => not found$/\1 not/p' \
             -e 's/^[[:space:]]*\([^[:space:]]*\) => \(.*\) (0x[0-9a-f]*)$/\1 \2/p')
-    done < <(find "$stage" -type f \( -name smbd -o -name smbd-tool -o -name '*.so.*' \) -print0)
+    done < <(find "$stage" -path "$stage/licenses" -prune -o -type f \( -name smbd -o -name smbd-tool -o -name '*.so.*' \) -print0)
     (( added )) || break
 done
 (( added == 0 )) || { echo 'Library bundling did not converge.' >&2; exit 1; }
 rmdir --ignore-fail-on-non-empty -- "$stage/licenses"
 
-mapfile -d '' -t elves < <(find "$stage" -type f \( -name smbd -o -name smbd-tool -o -name '*.so.*' \) -print0 | LC_ALL=C sort -z)
+mapfile -d '' -t elves < <(find "$stage" -path "$stage/licenses" -prune -o -type f \( -name smbd -o -name smbd-tool -o -name '*.so.*' \) -print0 | LC_ALL=C sort -z)
 floor() { for elf in "${elves[@]}"; do objdump -T -- "$elf"; done | { grep -o "$1" || true; } | sort -uV | tail -n1; }
 glibc=$(floor 'GLIBC_2\.[0-9.]*[0-9]') libstdcxx=$(floor 'GLIBCXX_3\.4\.[0-9]*')
 
