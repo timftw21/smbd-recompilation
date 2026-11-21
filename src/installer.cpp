@@ -23,6 +23,8 @@
 #include <map>
 #include <mutex>
 #include <sstream>
+#include <functional>
+#include <optional>
 #include <set>
 #include <thread>
 
@@ -30,7 +32,7 @@ using Microsoft::WRL::ComPtr;
 namespace {
 constexpr wchar_t title[]=L"Super Monkey Ball Deluxe";
 constexpr wchar_t registry[]=L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\SMBDRecomp";
-constexpr std::string_view marker="SMBD-INSTALL-V1";
+constexpr std::string_view marker=smbd::install_marker;
 constexpr COLORREF cream=RGB(255,242,201),gold=RGB(255,212,82),brown=RGB(48,27,10),yellow=RGB(255,204,31);
 constexpr RECT form_panel{24,116,856,432};
 constexpr int status_top=form_panel.bottom+8;
@@ -40,7 +42,7 @@ constexpr int form_left=form_panel.left+24,form_right=form_panel.right-24;
 constexpr int status_left=status_panel.left+16,status_right=status_panel.right-16;
 constexpr int checkbox_inset_x=12,checkbox_inset_y=4;
 constexpr std::array checkbox_rows{RECT{form_left,330,form_right,364},RECT{form_left,374,form_right,408}};
-struct Entry {std::filesystem::path path;std::uint64_t size;std::string digest;};
+using Entry=smbd::PayloadEntry;
 struct State {
     std::mutex mutex;std::wstring phase=L"Choose your game image and installation folder.",error;
     unsigned percent=0,stage=0;bool running=false,complete=false;
@@ -71,6 +73,13 @@ std::filesystem::path module_path() {
     std::array<wchar_t,32768> path{};const auto count=GetModuleFileNameW(nullptr,path.data(),DWORD(path.size()));
     checked(count && count<path.size(),"Cannot locate Setup");return std::wstring_view(path.data(),count);
 }
+// A typed trailing separator would break folder comparisons and the quoted
+// "root\" UninstallString argument, where \" reads as a literal quote.
+std::filesystem::path folder_path(const std::filesystem::path& value) {
+    auto path=std::filesystem::absolute(value).lexically_normal();
+    while(!path.has_filename() && path!=path.root_path()) path=path.parent_path();
+    return path;
+}
 std::filesystem::path known_folder(REFKNOWNFOLDERID id) {
     PWSTR value=nullptr;checked_hr(SHGetKnownFolderPath(id,0,nullptr,&value),"Cannot locate your user folders");
     std::filesystem::path path(value);CoTaskMemFree(value);return path;
@@ -80,32 +89,10 @@ smbd::Bytes resource(unsigned id) {
     const auto handle=LoadResource(nullptr,entry);checked(handle!=nullptr,"Cannot read Setup data");
     return {static_cast<const std::byte*>(LockResource(handle)),SizeofResource(nullptr,entry)};
 }
-std::filesystem::path relative_path(std::string_view value,bool data=false) {
-    const auto path=smbd::utf8_path(value);
-    if(path.empty() || path.is_absolute() || path.has_root_name() || value.find_first_of("\r\n\t:")!=std::string_view::npos)
-        throw std::runtime_error("Invalid path in installation manifest.");
-    for(const auto& part:path) if(part==".." || part==".") throw std::runtime_error("Invalid installation path.");
-    const auto first=*path.begin();
-    if(first=="logs" || first=="captures" || (first=="data" && !(data && (path=="data/local/default.xbe" || path=="data/local/game.iso"))))
-        throw std::runtime_error("The installation manifest includes private user data.");
-    return path;
-}
+std::filesystem::path relative_path(std::string_view value,bool data=false) {return smbd::install_relative_path(value,data);}
 std::vector<Entry> payload() {
     const auto bytes=resource(3);
-    if(bytes.size()>256*1024) throw std::runtime_error("Installation manifest exceeds its size limit.");
-    std::istringstream input(std::string(reinterpret_cast<const char*>(bytes.data()),bytes.size()));
-    std::string line;std::getline(input,line);
-    if(line!="SMBD-PAYLOAD-V1") throw std::runtime_error("Invalid installation manifest.");
-    std::vector<Entry> entries;
-    while(std::getline(input,line)) {
-        const auto a=line.find('\t'),b=line.find('\t',a==std::string::npos?0:a+1);
-        if(a==std::string::npos || b==std::string::npos || entries.size()==128) throw std::runtime_error("Invalid payload entry.");
-        std::uint64_t size=0;const auto parsed=std::from_chars(line.data()+a+1,line.data()+b,size);
-        if(parsed.ec!=std::errc{} || parsed.ptr!=line.data()+b || line.size()-b-1!=64) throw std::runtime_error("Invalid payload size or checksum.");
-        entries.push_back({relative_path(std::string_view(line).substr(0,a)),size,line.substr(b+1)});
-    }
-    if(entries.empty()) throw std::runtime_error("Setup does not contain any game files.");
-    return entries;
+    return smbd::payload_manifest({reinterpret_cast<const char*>(bytes.data()),bytes.size()});
 }
 void report(unsigned stage,unsigned percent,std::string_view phase) {
     {std::lock_guard lock(state.mutex);state.stage=stage;state.percent=percent;state.phase=smbd::wide(phase);++state.revision;}
@@ -203,11 +190,24 @@ void shortcut(const std::filesystem::path& destination,const std::filesystem::pa
     ComPtr<IPersistFile> file;checked_hr(link.As(&file),"Cannot save the game shortcut");
     std::filesystem::create_directories(destination.parent_path());checked_hr(file->Save(destination.c_str(),TRUE),"Cannot save the game shortcut");
 }
-void register_install(const std::filesystem::path& root,bool desktop) {
+bool shortcut_targets(const std::filesystem::path& path,const std::filesystem::path& root) {
+    ComPtr<IShellLinkW> link;
+    if(FAILED(CoCreateInstance(CLSID_ShellLink,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&link)))) return false;
+    ComPtr<IPersistFile> file;if(FAILED(link.As(&file)) || FAILED(file->Load(path.c_str(),STGM_READ))) return false;
+    std::array<wchar_t,32768> target{};
+    return SUCCEEDED(link->GetPath(target.data(),int(target.size()),nullptr,SLGP_RAWPATH)) && std::filesystem::path(target.data())==root/"smbd.exe";
+}
+void remove_registered_shortcut(const std::filesystem::path& path,const std::filesystem::path& root) {
+    if(shortcut_targets(path,root)) {std::error_code error;std::filesystem::remove(path,error);}
+}
+void register_install(const std::filesystem::path& root,std::optional<bool> desktop) {
     checked_hr(CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED),"Cannot initialize shortcuts");
     struct Com {~Com(){CoUninitialize();}} com;
     shortcut(known_folder(FOLDERID_Programs)/L"Super Monkey Ball Deluxe.lnk",root);
-    if(desktop) shortcut(known_folder(FOLDERID_Desktop)/L"Super Monkey Ball Deluxe.lnk",root);
+    const auto desktop_link=known_folder(FOLDERID_Desktop)/L"Super Monkey Ball Deluxe.lnk";
+    if(!desktop) desktop=shortcut_targets(desktop_link,root);
+    if(*desktop) shortcut(desktop_link,root);
+    else remove_registered_shortcut(desktop_link,root);
     HKEY key=nullptr;const auto status=RegCreateKeyExW(HKEY_CURRENT_USER,registry,0,nullptr,0,KEY_SET_VALUE,nullptr,&key,nullptr);
     if(status!=ERROR_SUCCESS) {SetLastError(status);checked(false,"Cannot register the uninstaller");}
     struct Key {HKEY key;~Key(){RegCloseKey(key);}} guard{key};
@@ -219,22 +219,53 @@ void register_install(const std::filesystem::path& root,bool desktop) {
     value(L"DisplayIcon",(root/"smbd.exe").native());value(L"UninstallString",L"\""+(root/"Uninstall.exe").native()+L"\" --uninstall \""+root.native()+L"\"");
     const DWORD one=1;RegSetValueExW(key,L"NoModify",0,REG_DWORD,reinterpret_cast<const BYTE*>(&one),sizeof(one));
     RegSetValueExW(key,L"NoRepair",0,REG_DWORD,reinterpret_cast<const BYTE*>(&one),sizeof(one));
-    const DWORD desktop_value=desktop?1:0;
+    const DWORD desktop_value=*desktop?1:0;
     RegSetValueExW(key,L"DesktopShortcut",0,REG_DWORD,reinterpret_cast<const BYTE*>(&desktop_value),sizeof(desktop_value));
 }
-void remove_registered_shortcut(const std::filesystem::path& path,const std::filesystem::path& root) {
-    ComPtr<IShellLinkW> link;
-    if(FAILED(CoCreateInstance(CLSID_ShellLink,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&link)))) return;
-    ComPtr<IPersistFile> file;if(FAILED(link.As(&file)) || FAILED(file->Load(path.c_str(),STGM_READ))) return;
-    std::array<wchar_t,32768> target{};
-    if(SUCCEEDED(link->GetPath(target.data(),int(target.size()),nullptr,SLGP_RAWPATH)) && std::filesystem::path(target.data())==root/"smbd.exe")
-        std::filesystem::remove(path);
+void remove_stale_uninstallers() {
+    // Earlier temporary uninstallers cannot delete themselves; remove idle ones.
+    // A copy that is still running stays, because Windows refuses the deletion.
+    std::error_code error;const auto directory=std::filesystem::temp_directory_path(error);if(error) return;
+    for(std::filesystem::directory_iterator item(directory,error),end;!error && item!=end;item.increment(error)) {
+        const std::wstring_view name=item->path().filename().native();
+        if(!name.starts_with(L"smbd-uninstall-") || !name.ends_with(L".exe") || name.size()<=19) continue;
+        const auto digits=name.substr(15,name.size()-19);
+        if(std::ranges::all_of(digits,[](wchar_t c) {return c>=L'0' && c<=L'9';})) DeleteFileW(item->path().c_str());
+    }
 }
-void install(const std::filesystem::path& iso,const std::filesystem::path& chosen,bool copy_disc,bool desktop,bool registration) {
-    const auto root=std::filesystem::absolute(chosen).lexically_normal();
-    if(root==root.root_path() || root.native().size()>160 || std::filesystem::weakly_canonical(root)!=root)
+// Windows paths may differ only in letter case, as typed or as stored on disk.
+bool same_path(const std::filesystem::path& a,const std::filesystem::path& b) {
+    const auto left=a.lexically_normal().make_preferred(),right=b.lexically_normal().make_preferred();
+    return CompareStringOrdinal(left.c_str(),-1,right.c_str(),-1,TRUE)==CSTR_EQUAL;
+}
+bool linked(const std::filesystem::path& path) {return !same_path(std::filesystem::weakly_canonical(path),path);}
+bool empty_installation_folder(const std::filesystem::path& root) {
+    for(const auto& item:std::filesystem::directory_iterator(root))
+        if(!item.path().filename().native().starts_with(L".installing-")) return false;
+    return true;
+}
+void remove_stale_staging(const std::filesystem::path& root) {
+    // The exclusive folder lock proves no other setup owns these directories.
+    std::vector<std::filesystem::path> stale;
+    for(const auto& item:std::filesystem::directory_iterator(root)) {
+        const auto attributes=GetFileAttributesW(item.path().c_str());
+        if(item.path().filename().native().starts_with(L".installing-") && attributes!=INVALID_FILE_ATTRIBUTES &&
+           (attributes&FILE_ATTRIBUTE_DIRECTORY) && !(attributes&FILE_ATTRIBUTE_REPARSE_POINT)) stale.push_back(item.path());
+    }
+    for(const auto& path:stale) std::filesystem::remove_all(path);
+}
+void write_manifest(const std::filesystem::path& path,const std::set<std::filesystem::path>& files) {
+    std::string text(marker);text+='\n';for(const auto& file:files) text+=smbd::path_text(file)+'\n';
+    smbd::write_text(path,text,false);
+}
+// desktop: create or remove the desktop shortcut; empty keeps the current choice.
+void install(const std::filesystem::path& iso,const std::filesystem::path& chosen,bool copy_disc,std::optional<bool> desktop,bool registration) {
+    auto root=folder_path(chosen);
+    if(root==root.root_path() || root.native().size()>160 || linked(root))
         throw std::runtime_error("Choose a shorter installation folder without links or junctions.");
-    if(std::filesystem::exists(root) && !std::filesystem::is_empty(root) && !std::filesystem::exists(root/"install-manifest.txt"))
+    root=std::filesystem::weakly_canonical(root);
+    if(same_path(module_path().parent_path(),root)) throw std::runtime_error("Run the downloaded Setup to update this installation.");
+    if(std::filesystem::exists(root) && !empty_installation_folder(root) && !std::filesystem::exists(root/"install-manifest.txt"))
         throw std::runtime_error("Choose an empty folder, or the folder containing an existing installation.");
     std::set<std::filesystem::path> previous_files;
     if(std::filesystem::exists(root/"install-manifest.txt")) {
@@ -245,15 +276,16 @@ void install(const std::filesystem::path& iso,const std::filesystem::path& chose
     }
     const auto entries=payload();
     for(const auto& entry:entries) {
-        if(std::filesystem::weakly_canonical((root/entry.path).parent_path())!=(root/entry.path).parent_path())
-            throw std::runtime_error("An application folder crosses a link or junction.");
+        if(linked((root/entry.path).parent_path())) throw std::runtime_error("An application folder crosses a link or junction.");
         if(std::filesystem::exists(root/entry.path) && !previous_files.contains(entry.path))
             throw std::runtime_error("The destination contains an unrelated application file. Choose an empty folder.");
     }
-    if(std::filesystem::weakly_canonical(root/"data/local")!=root/"data/local") throw std::runtime_error("The game-data folder crosses a link or junction.");
+    for(const auto& file:previous_files) if(linked((root/file).parent_path())) throw std::runtime_error("An application folder crosses a link or junction.");
+    if(linked(root/"data/local")) throw std::runtime_error("The game-data folder crosses a link or junction.");
     report(1,0,"Checking your game image");smbd::verify_install_disc(iso);cancellation();report(1,100,"Game image verified");
     std::filesystem::create_directories(root);
     SetupLock lock(root);
+    remove_stale_staging(root);
     const auto staging=root/std::format(".installing-{}",GetCurrentProcessId());
     if(!std::filesystem::create_directory(staging)) throw std::runtime_error("An installation is already using this folder.");
     struct Staging {
@@ -261,7 +293,7 @@ void install(const std::filesystem::path& iso,const std::filesystem::path& chose
         ~Staging() {
             // Recursive cleanup is restricted to this newly-created child of the selected installation folder.
             std::error_code error;
-            if(path.parent_path()==root && path.filename().native().starts_with(L".installing-") && std::filesystem::weakly_canonical(path,error)==path)
+            if(path.parent_path()==root && path.filename().native().starts_with(L".installing-") && same_path(std::filesystem::weakly_canonical(path,error),path))
                 std::filesystem::remove_all(path,error);
         }
     } cleanup{staging,root};
@@ -279,33 +311,47 @@ void install(const std::filesystem::path& iso,const std::filesystem::path& chose
     }
     smbd::install_game_files(iso,staging,copy_disc,[](unsigned percent,std::string_view phase){report(3,percent,phase);},&state.cancel);
     checked(CopyFileW(module_path().c_str(),(staging/"Uninstall.exe").c_str(),TRUE)!=FALSE,"Cannot prepare the uninstaller");
-    std::vector<std::filesystem::path> files;for(const auto& entry:entries) files.push_back(entry.path);
-    files.push_back("Uninstall.exe");files.push_back("data/local/default.xbe");
-    if(copy_disc || previous_files.contains("data/local/game.iso")) files.push_back("data/local/game.iso");
-    std::string manifest(marker);manifest+='\n';for(const auto& file:files) manifest+=smbd::path_text(file)+'\n';
-    smbd::write_text(staging/"install-manifest.txt",manifest,false);
+    std::set<std::filesystem::path> recorded;for(const auto& entry:entries) recorded.insert(entry.path);
+    recorded.insert("Uninstall.exe");recorded.insert("data/local/default.xbe");
+    if(copy_disc || previous_files.contains("data/local/game.iso")) recorded.insert("data/local/game.iso");
+    write_manifest(staging/"install-manifest.txt",recorded);
+    // Until every file is in place the folder's manifest also lists the previous
+    // files, so an interrupted update is repaired by running Setup again.
+    auto pending=recorded;pending.insert(previous_files.begin(),previous_files.end());
+    write_manifest(staging/"install-manifest.pending",pending);
+    std::vector<std::filesystem::path> files(recorded.begin(),recorded.end());
     files.push_back("data/local/settings.cfg");files.push_back("install-manifest.txt");cancellation();
-    // Detect a running game before replacing any of its application files.
-    for(const auto& entry:entries) if(std::filesystem::exists(root/entry.path)) {
-        const auto handle=CreateFileW((root/entry.path).c_str(),GENERIC_WRITE|DELETE,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
+    // Detect a running game before replacing or removing any of its application files.
+    for(const auto& file:pending) if(file!="data/local/game.iso" && std::filesystem::exists(root/file)) {
+        const auto handle=CreateFileW((root/file).c_str(),GENERIC_WRITE|DELETE,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
         if(handle==INVALID_HANDLE_VALUE) throw std::runtime_error("Close the game and its diagnostics, then try installing again.");
         CloseHandle(handle);
     }
     report(4,0,"Finishing installation");
+    const auto move=[&](const std::filesystem::path& from,const std::filesystem::path& to) {
+        checked(MoveFileExW(from.c_str(),to.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)!=FALSE,"Cannot finish installing application files");
+    };
+    move(staging/"install-manifest.pending",root/"install-manifest.txt");
     unsigned committed=0;
     for(const auto& file:files) {
         if(reuse_disc && file=="data/local/game.iso") continue;
         if(!std::filesystem::exists(staging/file)) continue;
         std::filesystem::create_directories((root/file).parent_path());
-        checked(MoveFileExW((staging/file).c_str(),(root/file).c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)!=FALSE,"Cannot finish installing application files");
+        move(staging/file,root/file);
         report(4,unsigned(++committed*100/files.size()),"Finishing installation");
+    }
+    // Remove application files that this version no longer ships.
+    for(const auto& file:previous_files) if(!recorded.contains(file)) {
+        std::error_code error;std::filesystem::remove(root/file,error);
+        for(auto parent=file.parent_path();!parent.empty();parent=parent.parent_path()) RemoveDirectoryW((root/parent).c_str());
     }
     if(registration) register_install(root,desktop);
     report(4,100,"Ready to play. Your installation is complete.");
 }
 void uninstall(const std::filesystem::path& chosen) {
-    const auto root=std::filesystem::absolute(chosen).lexically_normal();
-    if(root==root.root_path() || std::filesystem::weakly_canonical(root)!=root) throw std::runtime_error("Invalid installation folder.");
+    auto root=folder_path(chosen);
+    if(root==root.root_path() || linked(root)) throw std::runtime_error("Invalid installation folder.");
+    root=std::filesystem::weakly_canonical(root);
     const auto path=root/"install-manifest.txt";
     if(!std::filesystem::exists(path)) throw std::runtime_error("This folder is not an installed copy of the game.");
     SetupLock lock(root);
@@ -317,7 +363,7 @@ void uninstall(const std::filesystem::path& chosen) {
         const auto file=relative_path(line,true);
         if(std::ranges::find(entries,file,&Entry::path)==entries.end() && file!="Uninstall.exe" && file!="data/local/default.xbe" && file!="data/local/game.iso")
             throw std::runtime_error("Uninstall manifest contains an unknown file. No files were removed.");
-        if(std::filesystem::weakly_canonical((root/file).parent_path())!=(root/file).parent_path()) throw std::runtime_error("An uninstall path crosses a link or junction.");
+        if(linked((root/file).parent_path())) throw std::runtime_error("An uninstall path crosses a link or junction.");
         files.push_back(file);
     }
     input.close();unsigned count=0;
@@ -341,9 +387,13 @@ void uninstall(const std::filesystem::path& chosen) {
     if(RegOpenKeyExW(HKEY_CURRENT_USER,registry,0,KEY_QUERY_VALUE,&key)==ERROR_SUCCESS) {
         std::array<wchar_t,32768> location{};DWORD size=DWORD(sizeof(location));
         const auto status=RegGetValueW(key,nullptr,L"InstallLocation",RRF_RT_REG_SZ,nullptr,location.data(),&size);RegCloseKey(key);
-        if(status==ERROR_SUCCESS && std::filesystem::path(location.data())==root) RegDeleteTreeW(HKEY_CURRENT_USER,registry);
+        if(status==ERROR_SUCCESS && same_path(location.data(),root)) RegDeleteTreeW(HKEY_CURRENT_USER,registry);
     }
-    for(const auto& child:{root/"resources",root/"knowledge",root/"data/local",root/"data",root}) RemoveDirectoryW(child.c_str());
+    // Remove now-empty application folders, deepest first; saves keep data\ in place.
+    std::set<std::filesystem::path,std::greater<>> folders;
+    for(const auto& file:files) for(auto parent=file.parent_path();!parent.empty();parent=parent.parent_path()) folders.insert(parent);
+    for(const auto& folder:folders) RemoveDirectoryW((root/folder).c_str());
+    RemoveDirectoryW(root.c_str());
     report(1,100,"Uninstalled. Your saved games and preferences were kept.");
 }
 int scale(int value) {return MulDiv(value,int(dpi),96);}
@@ -539,7 +589,7 @@ LRESULT CALLBACK procedure(HWND handle,UINT message,WPARAM wparam,LPARAM lparam)
                 for(const auto input:inputs) enable_control(input,!complete);
                 update_install_button();caption_control(install_button,complete&&!uninstalling?L"Play game":uninstalling?L"Uninstall":L"Install");
                 caption_control(close_button,L"Close");
-            } else enable_control(close_button,stage<4 && !state.cancel.load());
+            } else enable_control(close_button,!uninstalling && stage<4 && !state.cancel.load());  // Uninstall cannot be cancelled.
             invalidate_status(handle);return 0;
         }
         if(message==WM_DPICHANGED) {
@@ -548,6 +598,7 @@ LRESULT CALLBACK procedure(HWND handle,UINT message,WPARAM wparam,LPARAM lparam)
         }
         if(message==WM_CLOSE) {
             bool running;{std::lock_guard lock(state.mutex);running=state.running;}
+            if(running && uninstalling) return 0;
             if(running) {state.cancel=true;SetWindowTextW(close_button,L"Cancelling…");EnableWindow(close_button,FALSE);return 0;}
             DestroyWindow(handle);return 0;
         }
@@ -624,7 +675,9 @@ int wizard(const std::filesystem::path& preview={}) {
 }
 }
 int wmain(int argc,wchar_t** argv) {
-    smbd::initialize_diagnostics();
+    // Setup logs go to the user's temporary folder, not beside the downloaded program.
+    {std::error_code error;const auto temporary=std::filesystem::temp_directory_path(error);if(!error) smbd::initialize_diagnostics(temporary/"smbd-setup-logs");}
+    bool interactive=argc==1;
     try {
         if((argc==3 || (argc==5 && std::wstring_view(argv[3])==L"--dpi")) && (std::wstring_view(argv[1])==L"--preview" || std::wstring_view(argv[1])==L"--preview-progress")) {
             if(argc==5) {preview_dpi=unsigned(std::stoul(argv[4]));if(preview_dpi<96 || preview_dpi>384) throw std::runtime_error("Preview DPI must be 96..384");}
@@ -642,26 +695,42 @@ int wmain(int argc,wchar_t** argv) {
                     if(cancellation_percent>100) throw std::runtime_error("Cancellation percentage must be 0..100");
                 } else throw std::runtime_error("Unknown installer option");
             }
-            install(argv[2],argv[3],copy,false,registration);return 0;
+            install(argv[2],argv[3],copy,std::nullopt,registration);return 0;
         }
-        if(argc>=3 && std::wstring_view(argv[1])==L"--uninstall") {
-            uninstall_root=std::filesystem::absolute(argv[2]).lexically_normal();
-            if(module_path().parent_path()==uninstall_root) {
+        std::vector<std::wstring> arguments(argv+1,argv+argc);
+        // Opening the installed Uninstall.exe directly starts uninstall, not a second installation.
+        const auto self=module_path();
+        if(arguments.empty() && same_path(self.filename(),L"Uninstall.exe") && std::filesystem::exists(self.parent_path()/"install-manifest.txt"))
+            arguments={L"--uninstall",self.parent_path().native()};
+        if(arguments.size()>=2 && arguments[0]==L"--uninstall") {
+            uninstall_root=folder_path(arguments[1]);
+            bool silent=false;DWORD parent_id=0;
+            for(std::size_t i=2;i<arguments.size();++i) {
+                if(arguments[i]==L"--silent") silent=true;
+                else if(arguments[i]==L"--wait" && i+1<arguments.size()) parent_id=DWORD(std::stoul(arguments[++i]));
+                else throw std::runtime_error("Unknown uninstaller option");
+            }
+            interactive=!silent;
+            remove_stale_uninstallers();
+            if(same_path(self.parent_path(),uninstall_root)) {
+                // Windows cannot delete a running program: a temporary copy removes this one.
+                // A silent request therefore returns once that copy has started.
                 const auto temporary=std::filesystem::temp_directory_path()/std::format("smbd-uninstall-{}.exe",GetCurrentProcessId());
-                checked(CopyFileW(module_path().c_str(),temporary.c_str(),TRUE)!=FALSE,"Cannot start the uninstaller");
-                const auto parameters=L"--uninstall \""+uninstall_root.native()+L"\" --wait "+std::to_wstring(GetCurrentProcessId());
-                checked(reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr,L"open",temporary.c_str(),parameters.c_str(),nullptr,SW_SHOWNORMAL))>32,"Cannot start the uninstaller");return 0;
+                checked(CopyFileW(self.c_str(),temporary.c_str(),FALSE)!=FALSE,"Cannot start the uninstaller");
+                auto parameters=L"--uninstall \""+uninstall_root.native()+L"\" --wait "+std::to_wstring(GetCurrentProcessId());
+                if(silent) parameters+=L" --silent";
+                checked(reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr,L"open",temporary.c_str(),parameters.c_str(),nullptr,silent?SW_HIDE:SW_SHOWNORMAL))>32,"Cannot start the uninstaller");return 0;
             }
-            if(argc==5 && std::wstring_view(argv[3])==L"--wait") {
-                const auto parent=OpenProcess(SYNCHRONIZE,FALSE,DWORD(std::stoul(argv[4])));if(parent) {WaitForSingleObject(parent,10000);CloseHandle(parent);}
+            if(parent_id) {
+                const auto parent=OpenProcess(SYNCHRONIZE,FALSE,parent_id);if(parent) {WaitForSingleObject(parent,10000);CloseHandle(parent);}
             }
-            if(argc==4 && std::wstring_view(argv[3])==L"--silent") {uninstall(uninstall_root);return 0;}
+            if(silent) {uninstall(uninstall_root);return 0;}
             uninstalling=true;
-        } else if(argc!=1) throw std::runtime_error("Unknown installer arguments");
+        } else if(!arguments.empty()) throw std::runtime_error("Unknown installer arguments");
         return wizard();
     } catch(const std::exception& error) {
         smbd::diagnostic_record("{\"type\":\"install_error\",\"message\":"+smbd::json(error.what())+'}');
-        if(argc==1) MessageBoxW(nullptr,smbd::wide(error.what()).c_str(),title,MB_OK|MB_ICONERROR);
+        if(interactive) MessageBoxW(nullptr,smbd::wide(error.what()).c_str(),title,MB_OK|MB_ICONERROR);
         return 1;
     }
 }

@@ -10,7 +10,7 @@
 
 An unofficial native version of the original Xbox game for Windows, Linux x86-64, and Steam Deck, built around accurate gameplay, original presentation, and enhancements. This fan project is independent of SEGA. You must provide your own US Xbox game disc image. Original game files are not distributed here.
 
-**0.7.0 is the latest public development release.** Bugs, slowdowns, and stops in untested game modes are still possible. Linux and Steam Deck support needs more testing. macOS remains a planned target.
+**0.7.5 is the latest public development release.** Bugs, slowdowns, and stops in untested game modes are still possible. Linux and Steam Deck support needs more testing. macOS remains a planned target.
 
 ## AI disclosure
 
@@ -26,13 +26,14 @@ OpenAI Codex and Anthropic Claude have assisted with development and research. C
 
 ## Current status
 
-### Changes in 0.7.0
+### Changes in 0.7.5
 
-- Discord Rich Presence now shows what you're playing: the game mode, Challenge difficulty and floor, Story stage, practice stage, or party game.
-- Added "Classic ball rolling sound" option to Audio. It plays the looping rolling sound of the GameCube games, using the recordings on the Deluxe disc.
-- Fixed a crash after long play sessions ("Pipeline cache limit reached").
-- Fixed the tops and edges of the lives, speed, and timer digits being cut off at higher internal resolutions.
-- Fixed holes in the lamp glow on WA2 stages such as 3-15 CASCADE. This bug is also present in the original game.
+- Added a Linux x86-64 installer, so Linux users no longer need to build from source. See [Linux x86-64](#linux-x86-64).
+- Running the installer again now repairs an interrupted update, and updates remove files that newer versions no longer use.
+- Opening `Uninstall.exe` directly now uninstalls the game instead of starting a second installation.
+- Fixed uninstalling when the installation folder was entered with a trailing backslash or a lowercase drive letter.
+- The Cancel button is now disabled during uninstall, where it had no effect.
+- Setup no longer creates a `logs` folder next to the installer.
 
 ### Known issues
 
@@ -64,7 +65,7 @@ OpenAI Codex and Anthropic Claude have assisted with development and research. C
 
 You need a Direct3D 11-capable graphics card and an XISO image of the **US Xbox release of Super Monkey Ball Deluxe**. A full raw-disc dump must first be converted to XISO. The executable is checked against [the supported-target registry](knowledge/supported_target.json).
 
-**[Download the 0.7.0 Windows installer](https://github.com/timftw21/smbd-recompilation/releases/download/v0.7.0/smbd-0.7.0-windows-x64-setup.exe)** · [Release notes and SHA-256 checksum](https://github.com/timftw21/smbd-recompilation/releases/tag/v0.7.0)
+**[Download the 0.7.5 Windows installer](https://github.com/timftw21/smbd-recompilation/releases/download/v0.7.5/smbd-0.7.5-windows-x64-setup.exe)** · [Release notes and SHA-256 checksum](https://github.com/timftw21/smbd-recompilation/releases/tag/v0.7.5)
 
 1. Run the installer and select your US Xbox XISO image.
 2. Choose an installation folder. You can keep a copy of the image with the game and create a desktop shortcut.
@@ -95,9 +96,24 @@ Replace the example disc path with your own. The first build downloads pinned de
 
 In **Game Files**, select your disc image and the prepared `data/local/default.xbe`, validate the files, then choose **Play game**. Keep the source folder, build output, and disc image available. See [BUILDING.txt](BUILDING.txt) for the build stages and developer commands.
 
-### Linux and Steam Deck
+### Linux x86-64
 
-Install the Linux prerequisites in [BUILDING.txt](BUILDING.txt), then run the installer from the source folder. It builds the game locally from your disc image.
+You need a Vulkan 1.4 driver and a distribution with glibc 2.38 and GCC 13.2's libstdc++ or newer, such as Ubuntu 24.04, Fedora 39, Debian 13, or a current Arch-based system.
+
+**[Download the 0.7.5 Linux installer](https://github.com/timftw21/smbd-recompilation/releases/download/v0.7.5/smbd-0.7.5-linux-x64-setup)** · [Release notes and SHA-256 checksum](https://github.com/timftw21/smbd-recompilation/releases/tag/v0.7.5)
+
+Allow the download to run as a program, either in your file manager's file properties or with `chmod +x smbd-0.7.5-linux-x64-setup`.
+
+1. Open the installer and select your US Xbox XISO image. You can also drag the image onto the window.
+2. Choose an installation folder. You can keep a copy of the image with the game and create a desktop shortcut.
+3. Choose **Install**. Setup verifies your image, unpacks the game, and checks that your system can run it before changing any installed files.
+4. Choose **Play game**, or launch it later from your application menu.
+
+The default installation is in `~/.local/share/Super Monkey Ball Deluxe`. The installer bundles the game's SDL3, DXVK Native, libpng and libjpeg libraries. It does not need Wine or Flatpak. The Steam Deck release path is still untested, so the source setup below remains the supported route there.
+
+### Building on Linux and Steam Deck
+
+Install the Linux prerequisites in [BUILDING.txt](BUILDING.txt), then run the source setup from the source folder. It builds the game locally from your disc image.
 
 ```sh
 bash Install.sh '/path/to/Super Monkey Ball Deluxe (USA).xiso.iso'
@@ -144,7 +160,7 @@ Change game bindings in **Controls**. Movement keys apply full tilt. Short taps 
 
 Game saves and the local storage identity are in `data/user` inside your installation or source folder. **Back up that entire folder, including `storage.key`.** Preferences and control bindings are in `data/local/settings.cfg`.
 
-For installed builds, close the game and run the newer installer using the same installation folder. Updates preserve saves and preferences. Uninstall through Windows **Installed apps**; saved games, preferences, and your original source image are kept. An image copied into the installation folder is removed during uninstall.
+For installed builds, close the game and run the newer installer using the same installation folder. Updates preserve saves and preferences. Uninstall through Windows **Installed apps**, or on Linux through the **Uninstall** action of the game's application-menu entry (right-click it). Saved games, preferences, and your original source image are kept. An image copied into the installation folder is removed during uninstall.
 
 For source builds, close the game, update the source, preserve your `data` and `build` folders, and rebuild. Launch `Play.cmd` on Windows or `bash Play.sh` on Linux and Steam Deck. When moving the project or disc image, update the paths in Game Files.
 

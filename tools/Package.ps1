@@ -48,6 +48,7 @@ try {
     # saves, generated source, profiles, debug maps, or build directories.
     Invoke-Checked cmake @('--install','build/windows','--config','Release','--prefix',$stage,'--component','Runtime')
     $files=@(Get-ChildItem -LiteralPath $stage -File -Recurse | Sort-Object FullName)
+    if($files.Count -lt 1 -or $files.Count -gt 128) {throw "The release must contain 1..128 files; found $($files.Count)."}
     # Sign staged executables before hashing or compressing them. Keep valid
     # third-party signatures, including Microsoft's runtime DLL signatures.
     if($SigningCertificateThumbprint) {
@@ -80,6 +81,9 @@ try {
         $cached=Get-Content -LiteralPath $cachePath -Raw | ConvertFrom-Json
         $reuse=$cached.sha256 -eq (Get-FileHash -LiteralPath $cabinet -Algorithm SHA256).Hash
     } else {$reuse=$false}
+    # Invalidate the cache before the manifest changes, so a failed makecab can
+    # never pair the new manifest with the previous cabinet.
+    if(!$reuse) {Remove-Item -LiteralPath $cachePath -Force -ErrorAction SilentlyContinue}
     [IO.File]::WriteAllText($manifestPath,$manifestText,[Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllLines($recipe,$directives,[Text.Encoding]::Default)
     if(!$reuse) {

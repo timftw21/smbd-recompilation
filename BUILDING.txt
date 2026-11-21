@@ -25,6 +25,12 @@ preferences and saves. Uninstall removes recorded application files and copied
 game files while keeping saved games, preferences and the original source ISO.
 Native --preview/--preview-progress BMP captures and --silent-install with
 --no-register support isolated validation without operating the desktop.
+Silent installs keep the existing desktop-shortcut choice. An interrupted update
+keeps every file listed in the folder's manifest and is repaired by running
+Setup again; files a newer release no longer ships are removed. Opening the
+installed Uninstall.exe starts uninstall. Run from the installation, --uninstall
+FOLDER --silent starts a hidden temporary copy and returns immediately. Setup
+logs are written to %TEMP%\smbd-setup-logs.
 
 Run from the source folder:
 
@@ -170,7 +176,8 @@ The following command installs the prerequisites on Ubuntu 24.04.
     libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev \
     libxss-dev libxtst-dev libwayland-dev libxkbcommon-dev libdrm-dev libgbm-dev \
     libegl1-mesa-dev libgl-dev libdecor-0-dev libudev-dev libvulkan-dev \
-    glslang-tools spirv-headers flex bison libjson-perl
+    glslang-tools spirv-headers flex bison libjson-perl libdbus-1-dev \
+    liblzma-dev xz-utils
 
 Ensure clang, clang++ and ld.lld select the installed LLVM toolchain on PATH.
 If CMake 4.2 or newer is unavailable, setup fetches the verified CMake 4.4.5
@@ -214,6 +221,34 @@ the selected build directory's logs folder. WARP, the D3D11 debug layer and hard
 watches are Windows-only. For automated runs use --mute with the game.
 The settings file picker uses SDL's native dialog. Install your desktop's XDG
 portal on Wayland if the file picker is unavailable.
+
+Linux release installer (build on Ubuntu 24.04 x86-64):
+
+  bash tools/Package.sh DISC
+  bash tools/Package.sh --skip-build
+
+This builds the game with Build.sh (or reuses build/linux with --skip-build)
+and writes build/release/smbd-VERSION-linux-x64-setup, its SHA-256 file and
+release-linux-x64.json. The payload is CMake's Runtime component with library
+symlinks replaced by files under their sonames. Libraries outside the assumed
+system base (glibc, libstdc++, libgcc_s, libz and OpenSSL 3's libcrypto) are
+bundled under lib/ with their Debian license texts, currently libpng and
+libjpeg. release-linux-x64.json records the resulting glibc and libstdc++
+floors. The XZ payload (one compression worker) is reused while its manifest
+and checksum match. Setup builds in build/linux/setup because it links static
+SDL3 with the software renderer, static liblzma and a static C++ runtime, and
+needs no GPU driver. It shares the Windows installer's manifest rules and
+mirrors its install, upgrade, cancellation and uninstall behaviour. After
+unpacking it loads the staged diagnostics tool with LD_BIND_NOW=1, so missing
+system libraries are reported before installed files change. It registers
+~/.local/share/applications/smbd-recompilation.desktop with an Uninstall
+action, and on SteamOS it seeds the Deck display defaults. --preview IMAGE.png
+and --preview-progress IMAGE.png [--dpi N] render offscreen PNG captures.
+--silent-install DISC FOLDER [--reference-disc] [--no-register]
+[--cancel-after-percent N] and --uninstall FOLDER --silent support isolated
+validation. Update, repair and uninstall rules match the Windows installer;
+opening smbd-uninstall starts uninstall. Logs are written to
+~/.local/state/smbd-recompilation/setup-logs.
 
 Ubuntu 24.04 under WSL2 passed the CPU, service, input, audio, offscreen
 rendering and live presentation diagnostics with llvmpipe. The Flatpak

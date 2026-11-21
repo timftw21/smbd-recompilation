@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 4.2)
-project(smbd VERSION 0.7.0 LANGUAGES C CXX)
+project(smbd VERSION 0.7.5 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -353,6 +353,16 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
 include(FetchContent)
 set(SMBD_BATCH "" CACHE FILEPATH "Local generated batch .cpp to compile into offline diagnostics")
 set(SMBD_SHADER_BANK "" CACHE FILEPATH "Ahead-of-time generated shader bank for the game")
+set(SMBD_INSTALLER_PAYLOAD "" CACHE FILEPATH "Local release payload built by tools/Package.ps1 or tools/Package.sh")
+set(SMBD_INSTALLER_MANIFEST "" CACHE FILEPATH "Local payload manifest built by tools/Package.ps1 or tools/Package.sh")
+set(SMBD_LINUX_INSTALLER OFF)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND SMBD_INSTALLER_PAYLOAD AND SMBD_INSTALLER_MANIFEST)
+    # The installer links a static SDL, so it cannot share the game's build tree.
+    if(SMBD_BATCH)
+        message(FATAL_ERROR "Configure the Linux installer in its own build tree; tools/Package.sh does this.")
+    endif()
+    set(SMBD_LINUX_INSTALLER ON)
+endif()
 find_package(Threads REQUIRED)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64)$")
@@ -538,8 +548,6 @@ if(SMBD_BATCH)
     endif()
 endif()
 
-set(SMBD_INSTALLER_PAYLOAD "" CACHE FILEPATH "Local cabinet built by tools/Package.ps1")
-set(SMBD_INSTALLER_MANIFEST "" CACHE FILEPATH "Local payload manifest built by tools/Package.ps1")
 if(WIN32 AND SMBD_INSTALLER_PAYLOAD AND SMBD_INSTALLER_MANIFEST)
     enable_language(RC)
     configure_file(resources/installer.rc.in generated/installer.rc @ONLY)
@@ -552,6 +560,29 @@ if(WIN32 AND SMBD_INSTALLER_PAYLOAD AND SMBD_INSTALLER_MANIFEST)
     target_link_options(smbd-setup PRIVATE /ENTRY:wmainCRTStartup "/threads:${SMBD_BUILD_WORKERS}")
     target_link_libraries(smbd-setup PRIVATE bcrypt psapi cabinet shell32 ole32 comctl32 comdlg32 gdi32 advapi32 uuid uxtheme)
     set_property(SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated/installer.rc" APPEND PROPERTY OBJECT_DEPENDS "${SMBD_INSTALLER_PAYLOAD}" "${SMBD_INSTALLER_MANIFEST}")
+elseif(SMBD_LINUX_INSTALLER)
+    set(SMBD_INSTALLER_ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/smbd.png")
+    foreach(input IN ITEMS "${SMBD_INSTALLER_PAYLOAD}" "${SMBD_INSTALLER_MANIFEST}" "${SMBD_INSTALLER_ICON}")
+        if(input MATCHES "[\"\\\\]" OR NOT IS_ABSOLUTE "${input}")
+            message(FATAL_ERROR "Installer inputs need absolute paths without quotes or backslashes: ${input}")
+        endif()
+    endforeach()
+    # Static XZ decoding and C++ runtime: Setup itself needs only glibc, OpenSSL and libz.
+    find_path(SMBD_LZMA_INCLUDE lzma.h REQUIRED)
+    find_library(SMBD_LZMA_STATIC NAMES liblzma.a REQUIRED)
+    enable_language(ASM)
+    configure_file(resources/installer-payload.S.in generated/installer-payload.S @ONLY)
+    add_executable(smbd-setup src/installer_linux.cpp src/installation.cpp "${CMAKE_CURRENT_BINARY_DIR}/generated/installer-payload.S"
+        "${imgui_SOURCE_DIR}/imgui.cpp" "${imgui_SOURCE_DIR}/imgui_draw.cpp" "${imgui_SOURCE_DIR}/imgui_tables.cpp"
+        "${imgui_SOURCE_DIR}/imgui_widgets.cpp" "${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp"
+        "${imgui_SOURCE_DIR}/backends/imgui_impl_sdlrenderer3.cpp")
+    target_include_directories(smbd-setup PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}/generated" "${imgui_SOURCE_DIR}"
+        "${imgui_SOURCE_DIR}/backends" "${SMBD_LZMA_INCLUDE}")
+    target_compile_definitions(smbd-setup PRIVATE SMBD_VERSION="${PROJECT_VERSION}")
+    target_link_libraries(smbd-setup PRIVATE smbd-core SDL3::SDL3-static "${SMBD_LZMA_STATIC}" Threads::Threads)
+    target_link_options(smbd-setup PRIVATE -static-libstdc++ -static-libgcc "$<$<CONFIG:Release>:-s>")
+    set_property(SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated/installer-payload.S" APPEND PROPERTY OBJECT_DEPENDS
+        "${SMBD_INSTALLER_PAYLOAD}" "${SMBD_INSTALLER_MANIFEST}" "${SMBD_INSTALLER_ICON}")
 endif()
 
 if(WIN32)
@@ -591,7 +622,7 @@ if(WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_LINKER_TYPE STREQU
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_LINKER_TYPE STREQUAL "LLD")
-    foreach(target IN ITEMS smbd-tool smbd)
+    foreach(target IN ITEMS smbd-tool smbd smbd-setup)
         if(TARGET ${target})
             target_link_options(${target} PRIVATE "-Wl,--threads=${SMBD_BUILD_WORKERS}"
                 "$<$<CONFIG:Release>:-Wl,--thinlto-jobs=${SMBD_BUILD_WORKERS},--thinlto-cache-dir=${CMAKE_BINARY_DIR}/lto-cache/Release,--thinlto-cache-policy=cache_size_bytes=1g>")

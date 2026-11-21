@@ -1,0 +1,32 @@
+// Verified Linux installer payload, manifest and icon, embedded at link time.
+    .section .rodata.smbd_installer,"a",@progbits
+    .balign 64
+    .globl smbd_installer_payload
+    .type smbd_installer_payload,@object
+smbd_installer_payload:
+    .incbin "@SMBD_INSTALLER_PAYLOAD@"
+smbd_installer_payload_end:
+    .size smbd_installer_payload,smbd_installer_payload_end-smbd_installer_payload
+    .balign 64
+    .globl smbd_installer_manifest
+    .type smbd_installer_manifest,@object
+smbd_installer_manifest:
+    .incbin "@SMBD_INSTALLER_MANIFEST@"
+smbd_installer_manifest_end:
+    .size smbd_installer_manifest,smbd_installer_manifest_end-smbd_installer_manifest
+    .balign 64
+    .globl smbd_installer_icon
+    .type smbd_installer_icon,@object
+smbd_installer_icon:
+    .incbin "@SMBD_INSTALLER_ICON@"
+smbd_installer_icon_end:
+    .size smbd_installer_icon,smbd_installer_icon_end-smbd_installer_icon
+    .balign 8
+    .globl smbd_installer_payload_size,smbd_installer_manifest_size,smbd_installer_icon_size
+smbd_installer_payload_size:
+    .quad smbd_installer_payload_end-smbd_installer_payload
+smbd_installer_manifest_size:
+    .quad smbd_installer_manifest_end-smbd_installer_manifest
+smbd_installer_icon_size:
+    .quad smbd_installer_icon_end-smbd_installer_icon
+    .section .note.GNU-stack,"",@progbits

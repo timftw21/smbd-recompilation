@@ -179,4 +179,9 @@ vkd3d-shader 2.1 (LGPL-2.1-or-later), with the local patches under cmake/:
 https://gitlab.winehq.org/wine/vkd3d
 Muon 0.7.1 (GPL-3.0-only) is used to build DXVK Native:
 https://github.com/muon-build/muon
+Linux release only: libpng (libpng license) and libjpeg-turbo (IJG, BSD-3-Clause
+and zlib) are bundled from Ubuntu 24.04; their license texts are in licenses/.
+This software is based in part on the work of the Independent JPEG Group.
+The Linux installer statically links XZ Utils' liblzma (public domain/0BSD):
+https://tukaani.org/xz/
 The verified dependency archives contain their respective license texts.

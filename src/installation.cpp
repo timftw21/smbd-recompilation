@@ -6,8 +6,10 @@
 #endif
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <fstream>
 #include <format>
+#include <sstream>
 
 namespace smbd {
 namespace {
@@ -32,6 +34,32 @@ struct Temporary {
     }
     ~Temporary() {std::error_code error;std::filesystem::remove(path,error);}
 };
+}
+std::filesystem::path install_relative_path(std::string_view value,bool data) {
+    const auto path=utf8_path(value);
+    if(path.empty() || path.is_absolute() || path.has_root_name() || path.has_root_directory() || value.find_first_of("\r\n\t:")!=std::string_view::npos)
+        throw std::runtime_error("Invalid path in installation manifest.");
+    for(const auto& part:path) if(part==".." || part==".") throw std::runtime_error("Invalid installation path.");
+    const auto first=*path.begin();
+    if(first=="logs" || first=="captures" || (first=="data" && !(data && (path=="data/local/default.xbe" || path=="data/local/game.iso"))))
+        throw std::runtime_error("The installation manifest includes private user data.");
+    return path;
+}
+std::vector<PayloadEntry> payload_manifest(std::string_view text) {
+    if(text.size()>256*1024) throw std::runtime_error("Installation manifest exceeds its size limit.");
+    std::istringstream input{std::string(text)};
+    std::string line;std::getline(input,line);
+    if(line!="SMBD-PAYLOAD-V1") throw std::runtime_error("Invalid installation manifest.");
+    std::vector<PayloadEntry> entries;
+    while(std::getline(input,line)) {
+        const auto a=line.find('\t'),b=line.find('\t',a==std::string::npos?0:a+1);
+        if(a==std::string::npos || b==std::string::npos || entries.size()==128) throw std::runtime_error("Invalid payload entry.");
+        std::uint64_t size=0;const auto parsed=std::from_chars(line.data()+a+1,line.data()+b,size);
+        if(parsed.ec!=std::errc{} || parsed.ptr!=line.data()+b || line.size()-b-1!=64) throw std::runtime_error("Invalid payload size or checksum.");
+        entries.push_back({install_relative_path(std::string_view(line).substr(0,a)),size,line.substr(b+1)});
+    }
+    if(entries.empty()) throw std::runtime_error("Setup does not contain any game files.");
+    return entries;
 }
 std::string verify_install_disc(const std::filesystem::path& path,const InstallProgress& progress) {
     if(progress) progress(0,"Checking your game image");

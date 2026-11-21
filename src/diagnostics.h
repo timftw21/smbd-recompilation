@@ -6,7 +6,8 @@
 
 namespace smbd {
 struct Cpu;
-void initialize_diagnostics() noexcept;
+void initialize_diagnostics() noexcept; // Logs beside the executable.
+void initialize_diagnostics(const std::filesystem::path& directory) noexcept;
 void diagnostic_record(std::string_view json_record) noexcept;
 void diagnostic_guest(const Cpu*) noexcept;
 const std::filesystem::path& diagnostic_log() noexcept;

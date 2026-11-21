@@ -119,11 +119,15 @@ LONG WINAPI fatal(EXCEPTION_POINTERS* exception) {
 }
 }
 void initialize_diagnostics() noexcept {
-    if(log_file!=INVALID_HANDLE_VALUE) return;
     try {
         wchar_t module[32768];const auto size=GetModuleFileNameW(nullptr,module,std::size(module));
         if(!size || size==std::size(module)) return;
-        const auto directory=std::filesystem::path(std::wstring_view(module,size)).parent_path()/"logs";
+        initialize_diagnostics(std::filesystem::path(std::wstring_view(module,size)).parent_path()/"logs");
+    } catch(...) {}
+}
+void initialize_diagnostics(const std::filesystem::path& directory) noexcept {
+    if(log_file!=INVALID_HANDLE_VALUE) return;
+    try {
         std::filesystem::create_directories(directory);
         SYSTEMTIME time{};GetSystemTime(&time);
         log_path=directory/std::format("smbd-{:04}{:02}{:02}-{:02}{:02}{:02}-{}.log",
