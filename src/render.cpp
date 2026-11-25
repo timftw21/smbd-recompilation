@@ -205,6 +205,47 @@ std::uint32_t sampler_filter(const SamplerKey& key) {
     return filter?filter:(linear?0x02060000U:0x01030000U);
 }
 bool gaussian_filter(std::uint32_t filter) {return ((filter>>16)&63)==7 && ((filter>>24)&15)==4 && ((filter>>13)&7)==2;}
+// Whether a top-level image (guest bytes, any texel order) has a texel below
+// full alpha. Alpha test and alpha kill can discard only such texels.
+bool transparent_texels(TextureFormat format,std::span<const std::byte> bytes) {
+    const auto* data=reinterpret_cast<const std::uint8_t*>(bytes.data());
+    const auto size=bytes.size();
+    switch(format) {
+    case TextureFormat::argb4:
+        for(std::size_t i=1;i<size;i+=2) if((data[i]>>4)!=15) return true;
+        return false;
+    case TextureFormat::a8l8:
+        for(std::size_t i=1;i<size;i+=2) if(data[i]!=255) return true;
+        return false;
+    case TextureFormat::argb8: case TextureFormat::argb8_linear:
+        for(std::size_t i=3;i<size;i+=4) if(data[i]!=255) return true;
+        return false;
+    case TextureFormat::dxt1:
+        // Colour endpoints in ascending order enable index 3 as transparent.
+        for(std::size_t i=0;i+8<=size;i+=8) {
+            const unsigned c0=data[i]|(data[i+1]<<8),c1=data[i+2]|(data[i+3]<<8);
+            if(c0>c1) continue;
+            const auto indices=std::uint32_t(data[i+4])|(data[i+5]<<8)|(data[i+6]<<16)|(std::uint32_t(data[i+7])<<24);
+            for(unsigned t=0;t<16;++t) if(((indices>>(t*2))&3)==3) return true;
+        }
+        return false;
+    case TextureFormat::dxt3:
+        for(std::size_t i=0;i+16<=size;i+=16) for(unsigned n=0;n<8;++n) if(data[i+n]!=255) return true;
+        return false;
+    case TextureFormat::dxt5:
+        for(std::size_t i=0;i+16<=size;i+=16) {
+            const unsigned a0=data[i],a1=data[i+1];
+            std::array<unsigned,8> alpha{a0,a1};
+            if(a0>a1) for(unsigned n=1;n<7;++n) alpha[n+1]=((7-n)*a0+n*a1)/7;
+            else {for(unsigned n=1;n<5;++n) alpha[n+1]=((5-n)*a0+n*a1)/5;alpha[6]=0;alpha[7]=255;}
+            std::uint64_t indices=0;
+            for(unsigned n=0;n<6;++n) indices|=std::uint64_t(data[i+2+n])<<(n*8);
+            for(unsigned t=0;t<16;++t) if(alpha[(indices>>(t*3))&7]!=255) return true;
+        }
+        return false;
+    default: return false; // Formats without alpha.
+    }
+}
 // One D3D11 state kind with 1-based ids. D3D11 allows 4096 distinct objects
 // of each kind per device, so this limit is the device's own.
 template<class Key,class State> struct StateCache {
@@ -767,6 +808,11 @@ struct Renderer::Impl {
         const VertexConstants*& bound_constants;
     };
     std::vector<ComPtr<ID3D11ShaderResourceView>> textures{1};
+    // Base-level views of mipmapped 2D textures with transparent texels. The
+    // render distance override binds them to alpha-tested or alpha-kill stages
+    // so distant cutouts such as foliage keep full detail, while opaque
+    // surfaces keep their mip chain and do not alias.
+    std::vector<ComPtr<ID3D11ShaderResourceView>> texture_base{1};
     std::vector<unsigned> texture_dimensions{0};
     std::vector<std::size_t> texture_sizes{0};
     std::vector<std::uint32_t> free_textures;
@@ -791,14 +837,16 @@ struct Renderer::Impl {
     RenderStats stats;
     std::size_t texture_bytes = 0;
     bool recording = false, ended = false;
-    std::uint32_t store_texture(ComPtr<ID3D11ShaderResourceView> view,unsigned dimension,std::size_t bytes,bool reuse) {
+    std::uint32_t store_texture(ComPtr<ID3D11ShaderResourceView> view,unsigned dimension,std::size_t bytes,bool reuse,
+                                ComPtr<ID3D11ShaderResourceView> base={}) {
         std::uint32_t id;
         if(reuse && !free_textures.empty()) {id=free_textures.back();free_textures.pop_back();}
         else {
             if(textures.size()==4096) throw std::runtime_error("Texture resource limit reached");
-            id=static_cast<std::uint32_t>(textures.size());textures.emplace_back();texture_dimensions.push_back(0);texture_sizes.push_back(0);texture_used.push_back(0);
+            id=static_cast<std::uint32_t>(textures.size());textures.emplace_back();texture_base.emplace_back();
+            texture_dimensions.push_back(0);texture_sizes.push_back(0);texture_used.push_back(0);
         }
-        textures[id]=std::move(view);texture_dimensions[id]=dimension;texture_sizes[id]=bytes;texture_bytes+=bytes;
+        textures[id]=std::move(view);texture_base[id]=std::move(base);texture_dimensions[id]=dimension;texture_sizes[id]=bytes;texture_bytes+=bytes;
         return id;
     }
     void release_slot(std::uint32_t id) {
@@ -813,7 +861,7 @@ struct Renderer::Impl {
             } else if(entry.result.view) interface_bytes-=entry.result.bytes;
             interface_textures.erase(found);
         }
-        textures[id].Reset();texture_dimensions[id]=0;texture_used[id]=0;free_textures.push_back(id);
+        textures[id].Reset();texture_base[id].Reset();texture_dimensions[id]=0;texture_used[id]=0;free_textures.push_back(id);
         if(const auto found=movie_images.find(id);found!=movie_images.end()) {
             if(upscaled_movies) movie_spare=std::move(found->second);
             movie_images.erase(found);
@@ -1196,6 +1244,7 @@ void Renderer::interface_texture(std::uint32_t id,std::uint64_t content) {
     ComPtr<ID3D11Texture2D> texture;if(FAILED(resource.As(&texture))) return;
     D3D11_TEXTURE2D_DESC desc{};texture->GetDesc(&desc);
     if(desc.ArraySize!=1 || (desc.MiscFlags&D3D11_RESOURCE_MISC_TEXTURECUBE)) return;
+    r.texture_base[id].Reset(); // HUD images keep their (possibly enlarged) view.
     auto& entry=r.interface_textures[id];
     entry.original=r.textures[id];entry.width=desc.Width;entry.height=desc.Height;entry.content=content;
     r.request_interface(id,entry);
@@ -1623,6 +1672,8 @@ std::uint32_t Renderer::upload(const TextureData& texture,bool reuse_slot) {
     const auto faces=texture.cubemap?6U:1U;
     std::vector<D3D11_SUBRESOURCE_DATA> data(texture.mip_levels*faces);
     std::vector<std::vector<std::byte>> linear(texture.mip_levels*faces);
+    const bool base_candidate=texture.mip_levels>1 && texture.depth==1 && !texture.cubemap;
+    bool transparent=false;
     std::size_t offset = 0;
     for(unsigned face=0;face<faces;++face) for (unsigned mip = 0; mip < texture.mip_levels; ++mip) {
         const auto subresource=face*texture.mip_levels+mip;
@@ -1632,6 +1683,7 @@ std::uint32_t Renderer::upload(const TextureData& texture,bool reuse_slot) {
         const auto slice = std::size_t(pitch) * (block ? (h + 3) / 4 : h),size=slice*d;
         if (offset > texture.bytes.size() || size > texture.bytes.size() - offset) throw std::runtime_error("Truncated texture mip payload");
         const auto input_bytes = texture.bytes.subspan(offset, size);
+        if(subresource==0 && base_candidate) transparent=transparent_texels(texture.format,input_bytes);
         const void* pixels = input_bytes.data();
         if (swizzled) {
             const auto output_bpp=expand_luminance?4U:bpp;
@@ -1673,7 +1725,7 @@ std::uint32_t Renderer::upload(const TextureData& texture,bool reuse_slot) {
     desc.ArraySize = faces; desc.Format = format; desc.SampleDesc.Count = 1;
     desc.MiscFlags=texture.cubemap?D3D11_RESOURCE_MISC_TEXTURECUBE:0;
     desc.Usage = D3D11_USAGE_IMMUTABLE; desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-    ComPtr<ID3D11ShaderResourceView> view;
+    ComPtr<ID3D11ShaderResourceView> view,base;
     if(texture.depth>1) {
         D3D11_TEXTURE3D_DESC volume{};
         volume.Width=texture.width;volume.Height=texture.height;volume.Depth=texture.depth;
@@ -1689,9 +1741,14 @@ std::uint32_t Renderer::upload(const TextureData& texture,bool reuse_slot) {
         ComPtr<ID3D11Texture2D> resource;
         checked(r.device->CreateTexture2D(&desc, data.data(), &resource), "Texture upload");
         checked(r.device->CreateShaderResourceView(resource.Get(), nullptr, &view), "Texture view");
+        if(transparent) {
+            D3D11_SHADER_RESOURCE_VIEW_DESC level{};
+            level.Format=format;level.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;level.Texture2D={0,1};
+            checked(r.device->CreateShaderResourceView(resource.Get(),&level,&base),"Texture base view");
+        }
     }
     ++r.stats.texture_uploads;r.stats.texture_upload_bytes+=texture.bytes.size();
-    return r.store_texture(std::move(view),texture.cubemap?3U:texture.depth>1?2U:1U,resident_bytes,reuse_slot);
+    return r.store_texture(std::move(view),texture.cubemap?3U:texture.depth>1?2U:1U,resident_bytes,reuse_slot,std::move(base));
 }
 ComPtr<ID3D11BlendState> Renderer::Impl::create_blend(const BlendKey& key) const {
     const auto [enable,source,destination,equation,mask]=key;
@@ -1769,7 +1826,6 @@ ComPtr<ID3D11SamplerState> Renderer::Impl::create_sampler(const SamplerKey& key)
     constexpr float min_lod_bias=-16.0f,max_lod_bias=15.99f; // D3D11 sampler limits.
     sampler.MipLODBias=mip?std::clamp(bias/256.0f,min_lod_bias,max_lod_bias):0;
     sampler.MinLOD=mip?float((control>>18)&0xFFF)/256:0;sampler.MaxLOD=mip?float((control>>6)&0xFFF)/256:0;
-    if(unlimited_render_distance) sampler.MinLOD=sampler.MaxLOD=0;
     ComPtr<ID3D11SamplerState> state;
     checked(device->CreateSamplerState(&sampler, &state), "Sampler state");
     ++stats.sampler_misses;
@@ -2210,6 +2266,7 @@ void Renderer::Impl::draw(const RenderState& state,Bytes vertex_bytes,std::size_
     constants.controls={state.combiner_control,state.final_inputs[0],state.final_inputs[1],state.alpha_test?state.alpha_function:0x207};
     std::array<ID3D11ShaderResourceView*, 12> views{};
     std::array<ID3D11SamplerState*, 4> samplers{};
+    const bool alpha_tested=state.alpha_test && state.alpha_function!=0x207;
     for (unsigned i = 0; i < 4; ++i) {
         const auto mode=state.texture_modes[i];
         const bool sampled=mode && mode!=4 && mode!=5;
@@ -2221,7 +2278,10 @@ void Renderer::Impl::draw(const RenderState& state,Bytes vertex_bytes,std::size_
             throw std::runtime_error("Texture resource dimension does not match its shader mode");
         if(sampled) {
             if(auto image=r.targets.find(state.textures[i]);image!=r.targets.end()) r.resolve(image->second);
-            views[i+(mode==3?4:mode==2?8:0)] = r.textures[state.textures[i]].Get();
+            auto* view=r.textures[state.textures[i]].Get();
+            if(r.unlimited_render_distance && (alpha_tested || state.alpha_kill[i]))
+                if(auto* base=r.texture_base[state.textures[i]].Get()) view=base;
+            views[i+(mode==3?4:mode==2?8:0)] = view;
             r.texture_used[state.textures[i]]=r.frame_id;
         }
         constants.stages[i]={mode,state.texture_sources[i],state.texture_clip[i],std::uint32_t(state.alpha_kill[i])};

@@ -553,6 +553,29 @@ shows the effect with the override on and finite vertices. Isolating its
 draw in replay changes 306173 of 307200 pixels, versus zero before the
 projection fix. Evidence: build/checks/teleporters/report.json.
 
+Cutout-only texture LOD (2026-11-25, same verified executable)
+-------------------------------------------------------------
+Supersedes the sampler MinLOD/MaxLOD clamp above. The user's
+frame-1795625090668-34272000400 (golf hole 1, 3x, MSAA, 16x AF) showed
+distant fairway grass aliasing: forcing level 0 on opaque ground discards
+the mip chain without adding visible detail. Every world draw in that frame
+and in the tree capture uses alpha test GREATER 0 with blending, so render
+state cannot separate grass from leaves; texel alpha can.
+
+Upload scans level 0 of mipmapped 2D textures for any texel below full
+alpha (ARGB4/8, A8L8, DXT1 index 3 with c0<=c1, DXT3 nibbles, decoded DXT5
+palette). Such textures get a second one-level SRV. With the override on,
+stages of alpha-tested (function not ALWAYS) or alpha-kill draws bind it;
+all other textures keep their original sampler and mip range. HUD textures
+drop the base view when marked, so enlarged HUD images still bind.
+
+Replays: grass capture with the override now differs from override-off by
+27 pixels (1514615 from the old override); the tree capture's foliage is
+unchanged from the old override, while terrain, water, rock and trunks are
+mipmapped again (119548 pixels). Zero D3D11 errors. Presentation passes 487
+checks, including opaque/cutout x alpha-test off/on GPU LOD checks and seven
+live graphics changes, with audio muted. Evidence: build/checks/grass-lod.
+
 Upscaled FMVs (2026-11-16)
 --------------------------
 Target SHA-256: 9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2.

@@ -28,6 +28,8 @@ template<class Load> bool movie_frame_texture(Load&& load,std::uint32_t address)
     return false;
 }
 RenderState gpu_render_state(std::span<const std::uint32_t,2048>,std::uint32_t primitive);
+// A frontend quad's input UV bounds apply only with an identity texture matrix.
+std::uint32_t frontend_atlas_stages(std::uint32_t candidates,const VertexConstants&);
 std::uint32_t prepare_gpu_program(Renderer&,std::span<const std::uint32_t,2048>,const VertexProgram&);
 std::string replay_frame(const std::filesystem::path& capture,const std::filesystem::path& output,
                          std::string_view source_sha256,std::uint32_t through=UINT32_MAX,std::uint32_t only=UINT32_MAX,bool join_arrays=false,

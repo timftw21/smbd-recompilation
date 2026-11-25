@@ -10,6 +10,12 @@ inline constexpr std::array native_graphics_helpers{
     0x00320410U,0x00322830U,0x00322B40U,0x0031D5C0U,0x0031DC00U,
     0x00322940U,0x0031AF10U,0x0031D990U,0x0031D9E0U,0x00321BA0U};
 inline constexpr std::array native_goal_queries{0x00012F30U,0x00013180U};
+// EFFECT update/draw tables 4B2DB0/4B2ED0, slots 1 (HUD) and 3 (world).
+inline constexpr std::uint32_t banana_draw_update(std::uint32_t draw) {
+    if(draw==0x4E900) return 0x4E7F0;
+    if(draw==0x4F210) return 0x4F050;
+    return 0;
+}
 struct FramePresentation {
     std::uint32_t entry,prologue_end,draw,frame_bytes,argument_bytes;
 };

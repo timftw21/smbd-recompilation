@@ -278,7 +278,11 @@ std::string replay_frame(const std::filesystem::path& capture,const std::filesys
             // Frontend quads' original sampled ranges; 0 replays without the clamp.
             if(const auto bounded=record.at("bounded_samples",true);!bounded.text.empty()) {
                 if(sample_bounds==0) {if(bounded.number()) original_settings=false;}
-                else {state.bounded_samples=bounded.number();restore(state.sample_bounds,record.at("sample_bounds"));}
+                else {
+                    // Older recordings also tagged quads with scrolling texture coordinates.
+                    state.bounded_samples=frontend_atlas_stages(bounded.number(),constants);
+                    restore(state.sample_bounds,record.at("sample_bounds"));
+                }
             }
             const auto attributes=record.at("attributes").array(16);if(attributes.size()!=16) throw std::runtime_error("Invalid captured vertex layout");
             auto& layout=next.layout;

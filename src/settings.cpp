@@ -151,21 +151,29 @@ std::string check_presentation(const std::filesystem::path& directory,const std:
         }
         // Different colours at each mip make live LOD changes observable,
         // including restoring a pipeline prepared before the option changed.
-        const std::array<std::uint32_t,5> mip_pixels{0xFFFF0000,0xFFFF0000,0xFFFF0000,0xFFFF0000,0xFF0000FF};
-        const auto texture=renderer.upload({2,2,TextureFormat::argb8,std::as_bytes(std::span(mip_pixels)),2});
-        RenderState state;state.textures[0]=texture;state.texture_modes[0]=1;
+        // Only alpha-tested textures with transparent texels keep the base
+        // level; opaque textures and untested draws stay mipmapped.
+        constexpr std::array<std::uint32_t,5> opaque{0xFFFF0000,0xFFFF0000,0xFFFF0000,0xFFFF0000,0xFF0000FF};
+        constexpr std::array<std::uint32_t,5> cutout{0x80FF0000,0xFFFF0000,0xFFFF0000,0xFFFF0000,0xFF0000FF};
+        RenderState state;state.texture_modes[0]=1;
         state.texture_filter[0]=0x02060000;state.texture_control[0]=0x04004000;
         state.final_inputs={0x00000008,0x00001800};
         std::array<Vertex,6> quad;
         constexpr Float4 positions[]={{-1,-1,0,1},{1,-1,0,1},{1,1,0,1},{-1,-1,0,1},{1,1,0,1},{-1,1,0,1}};
         for(unsigned i=0;i<quad.size();++i) {quad[i].position=positions[i];quad[i].uv[0]={.5f,.5f,0,1};}
-        for(bool unlimited:{false,true,false}) {
-            renderer.image_quality(scale,0,0,unlimited);renderer.set_target(0);renderer.prepare(state);
-            renderer.begin();renderer.draw(state,quad);renderer.end();const auto image=renderer.readback();
-            require(renderer.stats().unlimited_render_distance==unlimited);
-            require(image.rgba[0]==std::byte(unlimited?255:0) && image.rgba[2]==std::byte(unlimited?0:255));
+        for(const auto* pixels:{&opaque,&cutout}) {
+            const auto texture=renderer.upload({2,2,TextureFormat::argb8,std::as_bytes(std::span(*pixels)),2});
+            state.textures[0]=texture;
+            for(bool tested:{false,true}) for(bool unlimited:{false,true,false}) {
+                state.alpha_test=tested;state.alpha_function=0x206; // GEQUAL 0 keeps every texel.
+                renderer.image_quality(scale,0,0,unlimited);renderer.set_target(0);renderer.prepare(state);
+                renderer.begin();renderer.draw(state,quad);renderer.end();const auto image=renderer.readback();
+                require(renderer.stats().unlimited_render_distance==unlimited);
+                const bool base=unlimited && tested && pixels==&cutout;
+                require(image.rgba[0]==std::byte(base?255:0) && image.rgba[2]==std::byte(base?0:255));
+            }
+            renderer.release_texture(texture);
         }
-        renderer.release_texture(texture);
         require(SDL_SetWindowSize(window.get(),120,90) && SDL_SyncWindow(window.get()));
         require(renderer.display(true));const auto resized=renderer.read_display();renderer.present(false);
         require(resized.width==120 && resized.height==90);
@@ -602,7 +610,7 @@ void SettingsUi::draw(bool playing,bool recording,double fps,const std::function
                 }
                 ImGui::SeparatorText("RENDER DISTANCE");
                 changed|=ImGui::Checkbox("Render distance override",&settings_.unlimited_render_distance);
-                help("Removes the original far cutoff and keeps full-resolution textures at every distance. Recommended at higher internal resolutions. May reduce performance and increase texture shimmer. Applies immediately.");
+                help("Removes the original far cutoff and keeps see-through textures such as foliage at full resolution at every distance. Recommended at higher internal resolutions. May reduce performance and increase foliage shimmer. Applies immediately.");
                 break;
             }
             case 5: {

@@ -663,6 +663,14 @@ public:
             // original ribbon drawing below this boundary still runs each scene.
             body << "    if(!smbd::frame_step.logic) goto " << label(0x1B14DC) << ";\n";
         }
+        if(instruction.address==0x1C50B2) {
+            if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="83F902")
+                throw std::runtime_error("Original golf trail history boundary differs");
+            // The shot advances on rule ticks. Redraw its last positions and
+            // facing vectors together. The draw uses the capacity from 1C533B.
+            used.insert(6);dirty.insert(6);
+            body << "    if(!smbd::frame_step.logic) { esi=0x31U; goto " << label(0x1C548E) << "; }\n";
+        }
         constexpr std::tuple<std::uint32_t,std::string_view,std::uint32_t> hud_rules[]={
             {0x4D0BE,"FF04B5F8B66E00",0x4D0C5},{0x4D0DA,"0F8E98010000",0x4D278},
             {0x4D2D8,"48",0x4D2D9},{0x4D31B,"48",0x4D31C},{0x4D35D,"40",0x4D35E},
@@ -773,6 +781,13 @@ public:
             if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!=expected) throw std::runtime_error("Original item timer boundary differs");
             body << "    if(!smbd::frame_step.logic) goto " << label(instruction.address==0x2584F9?0x258517:0x258F85) << ";\n";
         }
+        if(instruction.address==0x4F0C0) {
+            if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="C7460C01000000")
+                throw std::runtime_error("Original banana transfer lifetime differs");
+            native_declarations["frame_banana_transferred"]="void frame_banana_transferred(std::uint32_t);\n";
+            used.insert(0);used.insert(6);
+            body << "    if(static_cast<std::int32_t>(eax)>=0) frame_banana_transferred(memory.load<std::uint16_t>(esi));\n";
+        }
         if(instruction.address==0x750FA) {
             if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="A1B0936C00") throw std::runtime_error("Original sprite update boundary differs");
             body << "    if(!smbd::frame_step.logic) goto " << label(0x75161) << ";\n";
@@ -852,7 +867,7 @@ public:
             if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!=expected)
                 throw std::runtime_error("Original camera dispatch signature differs");
             body << "    const auto camera_update=" << read(operands[0]) << ";\n"
-                    "    const bool continuous_camera=camera_update==0xAFCA0U || camera_update==0xB3BA0U || camera_update==0xB00D0U || camera_update==0xAFF40U || camera_update==0xB03F0U || camera_update==0xB0580U || camera_update==0xB0800U || camera_update==0xB0A50U;\n"
+                    "    const bool continuous_camera=camera_update==0xAFCA0U || camera_update==0xAFE00U || camera_update==0xB3BA0U || camera_update==0xB00D0U || camera_update==0xAFF40U || camera_update==0xB03F0U || camera_update==0xB0580U || camera_update==0xB0800U || camera_update==0xB0A50U;\n"
                     "    if(!continuous_camera && !smbd::frame_step.logic) goto " << label(next) << ";\n"
                     "    struct FrameDeltaRestore { float previous; ~FrameDeltaRestore() { smbd::frame_step.delta=previous; } } frame_delta_restore{smbd::frame_step.delta};\n"
                     "    if(!continuous_camera) smbd::frame_step.delta=1;\n";
@@ -1178,9 +1193,9 @@ public:
                 native_declarations["frame_decay"]="__m128 frame_decay(FloatingState&,__m128);\n";
                 value="smbd::frame_decay(cpu.floating,"+value+')';
             }
-            if(instruction.address==0xAFF50 || instruction.address==0xB0400) {
-                const auto bytes=instruction.address==0xAFF50?"F30F101D081A3A00":"F30F101D4C6F3900";
-                if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!=bytes) throw std::runtime_error("Original replay camera damping differs");
+            if(instruction.address==0xAFE19 || instruction.address==0xAFF50 || instruction.address==0xB0400) {
+                const auto bytes=instruction.address==0xB0400?"F30F101D4C6F3900":"F30F101D081A3A00";
+                if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!=bytes) throw std::runtime_error("Original camera damping differs");
                 native_declarations["frame_decay"]="__m128 frame_decay(FloatingState&,__m128);\n";
                 value="smbd::frame_decay(cpu.floating,"+value+')';
             }
@@ -1260,12 +1275,15 @@ public:
                     throw std::runtime_error("Original continuous increment signature differs");
                 value=std::string(ins.mnemonic==ZYDIS_MNEMONIC_ADDSS?"_mm_add_ss(":"_mm_sub_ss(")+vector(operands[0])+",smbd::frame_increment("+vector(operands[1],true)+"))";
             }
-            constexpr std::pair<std::uint32_t,std::string_view> replay_camera_motion[]={{0xAFFA7,"F30F58D8"},{0xAFFBB,"F30F58E1"},{0xAFFBF,"F30F58EA"},
-                {0xB0453,"F30F58D8"},{0xB0467,"F30F58E1"},{0xB046B,"F30F58EA"}};
-            for(const auto& [site,bytes]:replay_camera_motion) if(instruction.address==site) {
-                if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!=bytes) throw std::runtime_error("Original replay camera motion differs");
+            // Live and replay fallout use separate horizontal and vertical damping.
+            // Each position add consumes the velocity after that axis was damped.
+            constexpr std::tuple<std::uint32_t,std::string_view,std::uint32_t> camera_motion[]={
+                {0xAFE51,"F30F58D8",0x3A1A08},{0xAFE6A,"F30F58C1",0x402458},{0xAFE7F,"F30F58CA",0x3A1A08},
+                {0xAFFA7,"F30F58D8",0x3A1A08},{0xAFFBB,"F30F58E1",0x402458},{0xAFFBF,"F30F58EA",0x3A1A08},
+                {0xB0453,"F30F58D8",0x396F4C},{0xB0467,"F30F58E1",0x396F4C},{0xB046B,"F30F58EA",0x396F4C}};
+            for(const auto& [site,bytes,retention]:camera_motion) if(instruction.address==site) {
+                if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!=bytes) throw std::runtime_error("Original camera motion differs");
                 native_declarations["frame_damped_increment"]="__m128 frame_damped_increment(FloatingState&,__m128,float);\n";
-                const auto retention=site==0xAFFBB?0x402458U:site<0xB0000?0x3A1A08U:0x396F4CU;
                 value="_mm_add_ss("+vector(operands[0])+",smbd::frame_damped_increment(cpu.floating,"+vector(operands[1],true)+",std::bit_cast<float>(memory.load<std::uint32_t>("+constant(retention)+"))))";
             }
             if(instruction.address==0x8ADC1) {
@@ -1274,7 +1292,7 @@ public:
                 native_declarations["frame_power"]="__m128 frame_power(FloatingState&,__m128);\n";
                 value="_mm_mul_ss("+vector(operands[0])+",smbd::frame_power(cpu.floating,"+vector(operands[1],true)+"))";
             }
-            if(instruction.address==0xAFF81) {
+            if(instruction.address==0xAFE39 || instruction.address==0xAFF81) {
                 if(hex_bytes(Bytes(instruction.bytes).first(ins.length))!="F30F590D58244000") throw std::runtime_error("Original fallout camera vertical damping differs");
                 native_declarations["frame_decay"]="__m128 frame_decay(FloatingState&,__m128);\n";
                 value="_mm_mul_ss("+vector(operands[0])+",smbd::frame_decay(cpu.floating,"+vector(operands[1],true)+"))";
@@ -2038,6 +2056,8 @@ LoweredFunction lower(const Function& function) {
     const bool text_update=function.entry==0x6BB60,text_draw=function.entry==0x6B520;
     const bool camera_update=function.entry==0xB3BA0 || function.entry==0xB00D0;
     const bool camera_shake=function.entry==0xAE130;
+    const auto banana_update=banana_draw_update(function.entry);
+    if(banana_update) out << "void frame_banana_draw(Cpu&,Memory&,void (*)(Cpu&,Memory&),void (*)(Cpu&,Memory&),bool);\n";
     const char* ranking_camera=function.entry==0x264DF0?"frame_ranking_camera_step":function.entry==0xB74C0?"frame_ranking_camera_view":nullptr;
     if(text_update) out << "void frame_text_box_update(Cpu&,Memory&,void (*)(Cpu&,Memory&,bool,bool));\n";
     if(text_draw) out << "void frame_text_box_draw(Cpu&,Memory&,void (*)(Cpu&,Memory&));\n";
@@ -2046,7 +2066,7 @@ LoweredFunction lower(const Function& function) {
     if(ranking_camera) out << "void " << ranking_camera << "(Cpu&,Memory&,void (*)(Cpu&,Memory&));\n";
     out << "void guest_" << std::format("{:08X}", function.entry);
     if(pose_sampler) out << "_sampled";
-    if(text_update || text_draw || camera_update || camera_shake || ranking_camera) out << "_source";
+    if(text_update || text_draw || camera_update || camera_shake || ranking_camera || banana_update) out << "_source";
     out << "(Cpu& cpu, [[maybe_unused]] Memory& memory";
     if(pose_sampler) out << ", const std::uint32_t* frame_sampled_pose";
     if(text_update) out << ", bool frame_text_style, bool frame_text_placement";
@@ -2170,6 +2190,12 @@ LoweredFunction lower(const Function& function) {
     }
     out << "}\n";
     if(pose_sampler) out << "void guest_00098B50(Cpu& cpu,Memory& memory) { guest_00098B50_sampled(cpu,memory,nullptr); }\n";
+    if(banana_update) {
+        const auto guest=std::format("guest_{:08X}",function.entry);
+        result.timing_entry=std::format("    frame_banana_draw(cpu,memory,{}_source,guest_{:08X},{});\n",
+                                        guest,banana_update,function.entry==0x4F210);
+        out << "void " << guest << "(Cpu& cpu,Memory& memory) {\n" << result.timing_entry << "}\n";
+    }
     if(text_update) {
         result.timing_entry="    frame_text_box_update(cpu,memory,guest_0006BB60_source);\n";
         out << "void guest_0006BB60(Cpu& cpu,Memory& memory) {\n" << result.timing_entry << "}\n";

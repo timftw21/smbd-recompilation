@@ -738,3 +738,82 @@ scene (400*60/144). Not covered: other Baseball modes beyond the
 exhibition at-bat route; the earlier observed outfield-board phase
 differences came from input timing, and the board records (879154+k*54,
 index table 8793F4) did not change on intermediate scenes.
+
+Collected banana flight, 2026-11-25
+
+USA XBE SHA-256 9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2.
+Capture frame-1795624835138-82896306300 shows 1-1 SIMPLE at 144 Hz.
+At pickup, 259330 hides the ITEM and creates EFFECT type 3 at 25950F.
+4F050 moves it relative to the collecting player's ball for 29 updates.
+The 30th update creates type 1 at 4F0B8 and sets the old lifetime to 1.
+The snapshot contains both records in slots 0 and 1. Type 1 has 17 ticks
+left. Its update 4E7F0 moves toward the HUD by dividing the remaining
+distance by the decremented lifetime. The EFFECT walker 4DB90 runs at 60 Hz.
+
+Draws 4F210 and 4E900 now sample position, spin and scale between rule
+ticks using the original update on a private copy. The world phase adds
+the sampled offset to the player's current ball position. Once the HUD
+effect has been allocated, fractional draws in its view omit the old
+world model during the one tick the two records overlap.
+
+Capture-derived CPU probes stop after matrix assembly at A22E0. Over the
+HUD flight, 23 of 39 display intervals at 144 Hz and 80 of 96 at 360 Hz
+held the previous position before the change. Every interval now moves.
+The 60 Hz matrices and committed effect records match the baseline.
+Separate probes cover pause, expiry, a moving second player, both draw
+loops, other views and a full effect pool during the handoff.
+A hidden, muted 144 Hz run on SIMPLE collected the center banana at tick
+2682. The HUD effect was active on 48 rendered scenes at ticks 2711..2731.
+The probe and live results are in build/checks/banana-hud-9433/report.json.
+
+Fallout camera, 2026-11-25
+
+USA XBE SHA-256 9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2.
+Capture frame-1795625004123-251881285300 shows 5-1 WORMHOLE at 144 Hz.
+At frame 33105 the ball is falling in state 32. Its position has already
+advanced beyond the target stored in the camera. At fallout, 12BAC selects
+camera state 4. The dispatch at B75B1 called its update AFE00 only on
+60 Hz rule ticks, while the ball moved on each rendered frame.
+
+AFE00 now samples the ball and advances the camera each frame. The original
+update damps horizontal velocity by 0.97 and vertical velocity by 0.955,
+then adds each damped velocity to position at AFE51, AFE6A and AFE7F.
+Each axis now advances by the fraction of that update elapsed since the
+previous frame. The 60 Hz probe matched the prior camera pose and velocity
+byte for byte. With the WORMHOLE camera and a moving target, the camera held
+on 17 of 29 intervals at 144 Hz and 60 of 72 at 360 Hz before the change.
+It now moves and tracks the target on every active interval at both rates
+and with uneven frame times. The camera stays still during pause.
+
+In live falls on 1-1 SIMPLE the camera previously held on 42 of 71
+intervals at 144 Hz while the player moved on all 71. After the fix the
+camera and view matrix moved on all 71 intervals at 144 Hz and all 179 at
+360 Hz. The camera target matched the ball on every live fallout frame.
+Results are in build/checks/fallout-camera-33105/report.json.
+
+Monkey Golf shot trail, 2026-11-25
+
+USA XBE SHA-256 9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2.
+Hole 2 capture frame-1795625219350-162954354500 at 144 Hz shows the
+white trail narrowing to a point every few sections. In draws 303..311,
+27 of the 49 vertex pairs in each strip have identical XYZ on both sides.
+In the captured history at 805448, 28 of 48 adjacent pairs repeat the
+same ball position. Those zero-length segments have no direction for
+computing the camera-facing width at 8078B8.
+
+The ball in Golf state 26 moves on rule ticks. Draw routine 1C4F80
+shifted the history and appended the ball on every display frame. It now
+runs that update once per rule tick, including the original two-point
+startup and 49-point cap. Intermediate frames jump from 1C50B2 to 1C548E
+and draw the same positions and facing vectors. ESI carries the capacity
+set by the original 1C533B for the full-strip branch at 1C5652.
+
+Native probes replayed the distinct ball positions from the capture and
+stopped at 313B0 before the first strip was submitted. Its vertex bytes,
+history and facing vectors matched the 60 Hz run on every frame at 144
+and 360 Hz, including a schedule with a two-tick pause.
+
+Live Hole 1 shots kept the same 49 ball samples as the rule history.
+A new 144 Hz capture has no collapsed pairs across draws 160..168.
+At 60 Hz all watched trail bytes matched the pre-fix run on 97 frames.
+Evidence is in build/checks/golf-trail-10331/report.json.

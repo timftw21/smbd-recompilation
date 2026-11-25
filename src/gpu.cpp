@@ -100,6 +100,16 @@ RenderState gpu_render_state(std::span<const std::uint32_t,2048> registers,std::
     }
     return s;
 }
+std::uint32_t frontend_atlas_stages(std::uint32_t candidates,const VertexConstants& constants) {
+    // The retail frontend's two UV sets use DPH with k127/128 and k130/131.
+    // A translated or rotated lookup can sample outside the input rectangle.
+    std::uint32_t stages=0;
+    for(unsigned stage=0;stage<2;++stage) {
+        const auto bit=1U<<stage,row=127+stage*3;
+        if((candidates&bit) && constants[row]==Float4{1,0,0,0} && constants[row+1]==Float4{0,1,0,0}) stages|=bit;
+    }
+    return stages;
+}
 std::uint32_t prepare_gpu_program(Renderer& renderer,std::span<const std::uint32_t,2048> registers,const VertexProgram& program) {
     const auto reg=[&](unsigned method) {return registers[method/4];};
     const auto mode=reg(0x1E94)&3;
@@ -193,6 +203,7 @@ struct Gpu::Impl {
                 common.sampled[set][c+2]=std::max(common.sampled[set][c+2],bounds.sampled[set][c+2]);
             }
         }
+        const auto atlas_stages=frontend_atlas_stages(common.mask,constants);
         std::uint32_t extend=0; // Screen axes whose leading edge moves out.
         for(unsigned set=0;set<2;++set) {
             // UV set N feeds stage N. Only plain 2D lookups of swizzled
@@ -200,7 +211,7 @@ struct Gpu::Impl {
             // the quad's UVs are. Linear textures and surface copies use
             // texel coordinates and keep ordinary sampling.
             const auto format=reg(0x1B04+set*0x40),code=(format>>8)&255;
-            if(!(common.mask&(1U<<set)) || draw.state.texture_modes[set]!=1 || (format&4) ||
+            if(!(atlas_stages&(1U<<set)) || draw.state.texture_modes[set]!=1 || (format&4) ||
                code==0x11 || code==0x12 || code==0x1E) continue;
             const float width=float(1U<<((format>>20)&15)),height=float(1U<<((format>>24)&15));
             auto b=common.sets[set];

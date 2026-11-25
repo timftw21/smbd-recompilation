@@ -160,6 +160,7 @@ void collect_scene_paths(const Function& function,const LoweredFunction& lowered
     // Native bridges execute these original helpers on intermediate scenes.
     if(function.entry==0x14D80) unit.scene_calls.insert(unit.scene_calls.end(),native_menu_helpers.begin(),native_menu_helpers.end());
     if(function.entry==0x13C80) unit.scene_calls.insert(unit.scene_calls.end(),native_goal_queries.begin(),native_goal_queries.end());
+    if(const auto update=banana_draw_update(function.entry)) unit.scene_calls.push_back(update);
     std::ranges::sort(unit.scene_calls);
     unit.scene_calls.erase(std::unique(unit.scene_calls.begin(),unit.scene_calls.end()),unit.scene_calls.end());
     for(const auto& [address,operation]:unit.persistent_sites)
@@ -463,6 +464,10 @@ Batch recompile_batch(Xbe& image, std::span<const std::uint32_t> seeds,
                 unit.calls.push_back(*edge.to);
                 unit.call_edges.emplace_back(edge.from,*edge.to);
                 schedule(*edge.to);
+            }
+            if(const auto update=banana_draw_update(function.entry)) {
+                unit.calls.push_back(update);
+                schedule(update);
             }
             for(const auto& edge : function.edges)
                 if((edge.kind=="call" || edge.kind=="jump") && !edge.to) unit.indirect.push_back(edge.from);

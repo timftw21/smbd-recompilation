@@ -121,3 +121,38 @@ BONUS and "X 2" render as before. check-hud-upscaling, check-cpu and
 check-image-copy pass; a replay of the new capture differs from it in 273
 pixels, as replays do. Captures made before this change replay with their
 recorded vertices and bounds.
+
+World 6 camera steam at higher internal resolutions (2026-11-24)
+
+The two Windows captures show 6-3 Punched Seesaws in widescreen on an RTX
+5060 Ti. Frame 12317 at 1x draws the full-screen steam at draw 436. Frame
+13637 at 3x draws it at draw 435. Both use the same 256x256 texture at
+01BF1000, additive blending and wrapping on both texture axes.
+
+The captured vertex program matches all nine instructions in the verified
+US disc's media/Shaders/vs/fmt0x2a00/Flag0x00001000.xvu. It uses DPH on
+the vertex UVs with constant rows 127 and 128. At 3x those rows translate
+the lookup by (4.23187, 7.40160). Clamping the translated lookup to the
+quad's original 0..1 rectangle samples one corner across the screen.
+The remaining vertical gradient comes from the quad's vertex alpha.
+The published 0.7.5 and 0.8.0 tools produced identical faulty overlays.
+
+Live submission and replay now check the frontend texture matrix per UV set
+before using input-space atlas bounds. The second set uses rows 130 and
+131. Identity transforms keep the atlas edge handling for HUD text.
+Replaying the same steam draw at 1x, 2x, 3x and 4x matched ordinary
+wrapped sampling in every RGB pixel. The full corrected 627-draw frame
+also matched an independent replay with only draw 435's clamp disabled.
+
+A fresh muted Windows run selected World 6, stage 3 through the Practice
+menu using a private save copy. Its 3x capture contains 632 draws. The
+original steam shader ran on draw 436 with both axes wrapping and no atlas
+bounds. The 108 HUD draws still used atlas bounds. All 38 Windows HUD
+diagnostic cases passed. The full 1x frame differed from the prior replay
+at two pixels by one RGB level. Repeated runs of the old tool also varied
+by one level. The isolated 3x overlay matched its ordinary-sampling control
+on Ubuntu 24.04 under WSL2 with llvmpipe.
+
+Local inputs: build/captures/frame-1795574493070-89872547300 and
+build/captures/frame-1795574503057-99859830600.
+Verification images and reports: build/checks/world6-steam.

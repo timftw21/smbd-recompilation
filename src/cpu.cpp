@@ -161,6 +161,9 @@ struct RankingCameraStep {
     RankingCameraPose before{},after{};
 };
 thread_local RankingCameraStep ranking_camera;
+// 4DB40 initializes 512 effect slots. A successful transfer owns the
+// collecting player's draw for the rest of this rule tick.
+thread_local std::array<std::uint64_t,512> banana_transfers{};
 struct CameraFov {std::uint16_t rule=0,sample=0;bool initialized=false;};
 thread_local std::array<CameraFov,5> camera_fovs;
 struct CameraShakeFrame {
@@ -261,7 +264,7 @@ void frame_reset_camera(std::uint32_t camera) {
     }
     if(ranking_camera.camera==camera) ranking_camera={};
 }
-void reset_frame_history() {frame_reset_world();frame_reset_camera();clip_steps.clear();text_poses.clear();}
+void reset_frame_history() {frame_reset_world();frame_reset_camera();clip_steps.clear();text_poses.clear();banana_transfers={};}
 
 void frame_ranking_camera_step(Cpu& cpu,Memory& memory,void (*update)(Cpu&,Memory&)) {
     if(!ranking_camera_active(memory)) {update(cpu,memory);return;}
@@ -527,6 +530,79 @@ void frame_camera_update(Cpu& cpu,Memory& memory,void (*update)(Cpu&,Memory&),bo
     }
     write_camera_pose(memory,camera,frame.sample);
     if(!step.saved.logic) {cpu.eip=memory.load<std::uint32_t>(stack);cpu.registers[esp]=stack+4;}
+}
+
+void frame_banana_transferred(std::uint32_t slot) {
+    if(slot<banana_transfers.size()) banana_transfers[slot]=frame_rule_serial+1;
+}
+
+void frame_banana_draw(Cpu& cpu,Memory& memory,void (*draw)(Cpu&,Memory&),void (*update)(Cpu&,Memory&),bool world) {
+    const float phase=frame_step.phase;
+    if(phase==0 || (memory.load<std::uint8_t>(0x892114)&0xA) ||
+       (!world && (memory.load<std::uint8_t>(0x703E00)&4))) {
+        draw(cpu,memory);
+        return;
+    }
+    const auto stack=cpu.registers[esp],effect=memory.load<std::uint32_t>(stack+4);
+    const auto lifetime=memory.load<std::uint32_t>(effect+0x0C);
+    const auto slot=memory.load<std::uint16_t>(effect);
+    if(world && lifetime==1 && slot<banana_transfers.size() && banana_transfers[slot]==frame_rule_serial+1 &&
+       !(memory.load<std::uint8_t>(0x703E00)&4)) {
+        const auto caller=memory.load<std::uint32_t>(stack);
+        const auto player_mask=1U<<(memory.load<std::uint16_t>(effect+0x14)&31);
+        // Both draw loops keep the current view mask at caller ESP+0x0C
+        // before pushing the effect and return address. The outgoing world
+        // model would otherwise linger behind the advancing HUD model.
+        if((caller==0x4DD6A || caller==0x4DDE7) && (memory.load<std::uint32_t>(stack+0x14)&player_mask)) {
+            cpu.eip=caller;
+            cpu.registers[esp]=stack+4;
+            return;
+        }
+    }
+    // 4DB90 deletes on expiry. 4F050 spawns the HUD effect when its private
+    // countdown reaches zero. Only preview a tick that actually updates a pose.
+    if(lifetime==1 || lifetime==0 || (world && memory.load<std::uint32_t>(effect+0x10)<=1) ||
+       memory.load<std::uint8_t>(memory.load<std::uint32_t>(0x6C93C4)+slot)==3) {
+        draw(cpu,memory);
+        return;
+    }
+    constexpr std::uint32_t size=0xC0, frame=size+0x10;
+    const auto sample_stack=stack-frame,sample=sample_stack+0x10;
+    std::memcpy(memory.access(sample,size),memory.access(effect,size),size);
+    memory.store<std::uint32_t>(sample_stack,memory.load<std::uint32_t>(stack));
+    memory.store<std::uint32_t>(sample_stack+4,sample);
+    {
+        HostFloatingScope host(cpu.floating);
+        Cpu preview=cpu;
+        preview.registers[esp]=sample_stack;
+        preview.preempt=nullptr;
+        preview.diagnostic=nullptr;
+        // The effect walker decrements positive lifetimes before the callback.
+        if(std::bit_cast<std::int32_t>(lifetime)>0) memory.store<std::uint32_t>(sample+0x0C,lifetime-1);
+        {
+            FloatingScope floating(preview.floating);
+            update(preview,memory);
+        }
+        const auto value=[&](std::uint32_t address){return std::bit_cast<float>(memory.load<std::uint32_t>(address));};
+        const auto blend=[&](std::uint32_t offset){return std::lerp(value(effect+offset),value(sample+offset),phase);};
+        const auto player=std::bit_cast<std::int16_t>(memory.load<std::uint16_t>(effect+0x14));
+        const auto ball=0x738DF0U+player*0x1B0U;
+        for(unsigned axis=0;axis<3;++axis) {
+            const auto offset=4*axis;
+            // 4F15E anchors the world leg to the player's moving ball. Blend
+            // its local offset so the ball and banana share the same scene time.
+            const float position=world?value(ball+4+offset)+blend(0x8C+offset):blend(0x34+offset);
+            memory.store<std::uint32_t>(sample+0x34+offset,std::bit_cast<std::uint32_t>(position));
+            memory.store<std::uint32_t>(sample+0x24+offset,std::bit_cast<std::uint32_t>(blend(0x24+offset)));
+            const auto angle=0x4C+2*axis;
+            const auto from=memory.load<std::uint16_t>(effect+angle);
+            const auto turn=static_cast<std::int16_t>(memory.load<std::uint16_t>(sample+angle)-from);
+            memory.store<std::uint16_t>(sample+angle,static_cast<std::uint16_t>(from+static_cast<int>(turn*phase)));
+        }
+    }
+    cpu.registers[esp]=sample_stack;
+    draw(cpu,memory);
+    cpu.registers[esp]+=frame;
 }
 
 void frame_text_box_update(Cpu& cpu,Memory& memory,void (*update)(Cpu&,Memory&,bool,bool)) {
