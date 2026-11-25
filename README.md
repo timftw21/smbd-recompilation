@@ -5,7 +5,7 @@
 <h1 align="center">Super Monkey Ball Deluxe — Static Recompilation</h1>
 
 <p align="center">
-  <em>From the creator of the <a href="https://github.com/timftw21/burnout2-recompilation">Burnout 2 recompilation</a>.</em>
+  <em>From the creator of the <a href="https://github.com/timftw21/burnout2-recompilation">Burnout 2</a> and <a href="https://github.com/timftw21/scoobymm-recompilation">Scooby-Doo! Mystery Mayhem</a> recompilations.</em>
 </p>
 
 An unofficial native version of the original Xbox game for Windows, Linux x86-64, and Steam Deck, built around accurate gameplay, original presentation, and enhancements. This fan project is independent of SEGA. You must provide your own US Xbox game disc image. Original game files are not distributed here.
