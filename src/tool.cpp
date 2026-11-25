@@ -129,7 +129,8 @@ constexpr auto usage =
     "  smbd-tool check-texture-cache\n"
     "  smbd-tool check-bump-mapping\n"
     "  smbd-tool check-presentation NEW_OUTPUT_DIRECTORY [XBE ISO]\n"
-    "  smbd-tool replay-frame XBE CAPTURE_DIRECTORY NEW_OUTPUT_DIRECTORY [--through DRAW] [--draw DRAW] [--join-arrays] [--antialiasing 0..6] [--anisotropy 0|1|2|4|8|16] [--unlimited-render-distance 0|1] [--upscaled-movies 0|1] [--upscaled-hud 0|1] [--sample-bounds 0|1]\n"
+    "  smbd-tool compare-images ACTUAL REFERENCE NEW_DIFFERENCE TOLERANCE\n"
+    "  smbd-tool replay-frame XBE CAPTURE_DIRECTORY NEW_OUTPUT_DIRECTORY [--tolerance 0..255] [--through DRAW] [--draw DRAW] [--join-arrays] [--antialiasing 0..6] [--anisotropy 0|1|2|4|8|16] [--unlimited-render-distance 0|1] [--upscaled-movies 0|1] [--upscaled-hud 0|1] [--sample-bounds 0|1]\n"
     "  smbd-tool boot XBE ISO CHECKPOINT_BUDGET OUTPUT.json [FRAME.png]\n"
 #endif
     "Addresses accept decimal or hexadecimal. Decode/data: 64 KiB; analysis: 8192 instructions.\n"
@@ -184,14 +185,18 @@ int tool_main(int argc, char** argv) {
             output = smbd::verify_analysis(image, paths[3]);
             if (output.find("\"passed\":false") != std::string::npos) result = 3;
 #ifdef SMBD_HAS_BATCH
+        } else if(command=="compare-images" && argc==6) {
+            output=smbd::compare_images(paths[2],paths[3],paths[4],number(argv[5]));
+            if(output.find("\"passed\":false")!=std::string::npos) result=3;
         } else if(command=="replay-frame" && argc>=5) {
             std::uint32_t through=UINT32_MAX,only=UINT32_MAX;
             unsigned antialiasing=UINT32_MAX,anisotropy=UINT32_MAX;
             unsigned unlimited_render_distance=UINT32_MAX,upscaled_movies=UINT32_MAX,upscaled_hud=UINT32_MAX,sample_bounds=UINT32_MAX;
-            bool join_arrays=false;
+            bool join_arrays=false;unsigned tolerance=0;
             for(int i=5;i<argc;++i) {
                 const auto option=std::string_view(argv[i]);
                 if(option=="--join-arrays") {join_arrays=true;continue;}
+                if(option=="--tolerance" && i+1<argc) {tolerance=number(argv[++i]);continue;}
                 if(option=="--unlimited-render-distance" && i+1<argc) {unlimited_render_distance=number(argv[++i]);continue;}
                 if(option=="--upscaled-movies" && i+1<argc) {upscaled_movies=number(argv[++i]);continue;}
                 if(option=="--upscaled-hud" && i+1<argc) {upscaled_hud=number(argv[++i]);continue;}
@@ -203,7 +208,7 @@ int tool_main(int argc, char** argv) {
                 (option=="--through"?through:only)=number(argv[++i]);
             }
             smbd::Xbe image(paths[2]);if(!image.supported()) throw std::runtime_error("Replay requires the verified executable");
-            output=smbd::replay_frame(paths[3],paths[4],image.sha256,through,only,join_arrays,antialiasing,anisotropy,unlimited_render_distance,upscaled_movies,upscaled_hud,sample_bounds);
+            output=smbd::replay_frame(paths[3],paths[4],image.sha256,through,only,join_arrays,antialiasing,anisotropy,unlimited_render_distance,upscaled_movies,upscaled_hud,sample_bounds,tolerance);
             if(output.find("\"passed\":false")!=std::string::npos) result=3;
         } else if(command=="check-presentation" && (argc==3 || argc==5)) {
             output=argc==3?smbd::check_presentation(paths[2]):smbd::check_presentation(paths[2],paths[3],paths[4]);

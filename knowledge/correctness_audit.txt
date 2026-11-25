@@ -1,3 +1,549 @@
+Source correctness audit of 2026-11-24
+=====================================
+
+Revision 92618e2264d69b89498e1916fb968baf3adc0557, US retail XBE v1.
+All 77 tracked files under src were in scope, including platform-specific code,
+headers, embedded HLSL and both assembly implementations. The inventory below
+accounts for 37 C++ files, 38 headers and two assembly files, 26,941 lines.
+The numbered findings describe that revision. Repair verification follows
+finding 16. The November 1 research follows separately.
+
+The first repair priorities were the clean Linux build and event delivery. One
+prevented a fresh build on a standard Linux filesystem. The other could strand
+a waiting game thread. The performance and macOS requirements have separate
+results below. Each source reference is relative to the audited revision.
+
+Findings
+--------
+
+1. High. Fresh source preparation fails on a case-sensitive Linux filesystem.
+   src/pipeline.cpp:30,42,60 and Build.sh:58. The disc spells its root entry
+   Default.xbe. Preparation writes that spelling and immediately opens
+   default.xbe. On Ubuntu ext4, verify-disc passed, prepare exited 1 with
+   "Cannot open .../default.xbe", and verify succeeded on the extracted
+   Default.xbe. The bounded fixture retained the original directory spelling,
+   sector and all 7,143,424 executable bytes. Its only file was the XBE, so the
+   check exercised the actual extraction path without rescanning all media.
+   Write and verify one canonical host filename for the supported executable.
+   Keep the spelling from the disc in its metadata. The packaged installer
+   already selects the lowercase destination at src/installation.cpp:81.
+
+2. High. Two event signals can collapse into one while threads are waiting.
+   src/xbox.cpp:1003,1015,2713,2739,2916. Take two threads already waiting on
+   one auto-reset event and a third that calls SetEvent twice before yielding.
+   Both calls store 1. Only when a waiter runs does it consume that bit. One
+   thread can remain asleep indefinitely. A waiting thread can also miss a
+   notification event set and cleared during a single turn. The scheduler
+   needs to commit eligible waits at signal time, including consumption and
+   multiple-object wait results. A released thread may execute later.
+   This follows from the signal and wait paths. The gameplay run did not hang.
+   The XBE imports NtSetEvent at 003475F0 and KeSetEvent at 0034767C. Microsoft
+   specifies one satisfied wait per synchronization-event signal. ReactOS
+   independently shows wait-list processing in its dispatcher implementation.
+   https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-kesetevent
+   https://github.com/reactos/reactos/blob/master/ntoskrnl/ke/eventobj.c
+
+3. Medium. Xbox window clipping is lost for multiple or exclusive rectangles.
+   src/gpu.cpp:46 and src/render.cpp:2292. The verified 768-byte Xbox routine
+   D3DDevice_SetScissors at 0031E760 has a fast path for a single inclusive
+   rectangle. Its other path programs a full-surface clip at 0031E934, clip
+   type at 0031E949 and the separate horizontal/vertical window registers.
+   The native draw state reads only 0200/0204 and submits one D3D11 rectangle.
+   A probe of the actual gpu_render_state function returned (0,0)-(640,480)
+   for the full surface, two disjoint inclusive windows, and the same windows
+   in exclusive mode. Pixels outside the requested mask can be drawn.
+   Implement the window mask in addition to the surface
+   clip and cover inclusive and exclusive overlap. This is a draw-state
+   discrepancy. The first-level recording does not identify an affected shot.
+   https://github.com/abaire/nxdk_pgraph_tests/blob/main/src/tests/window_clip_tests.cpp
+   https://raw.githubusercontent.com/XboxDev/nxdk/master/lib/pbkit/nv_regs.h
+
+4. Medium. Frame replay can display the wrong render target.
+   src/gpu.cpp:380,870 and src/frame_replay.cpp:200,223,294. The live flip
+   resolves the currently selected surface. Its capture end record omits the
+   surface ID. Replay infers it from the last draw or clear. For example, after
+   rendering to a secondary buffer, a game can rebind the display buffer and
+   flip without another draw. Replay then copies the secondary buffer. A final
+   surface write or blit also leaves this inferred target unchanged. Record
+   the presented surface at flip and use that ID during full replay. The
+   inspected 362-draw recording happened to reproduce exactly.
+
+5. Medium. A full frame comparison can report success with a different image.
+   src/frame_replay.cpp:295,307 and src/tool.cpp:207. A complete 640x480 frame
+   replayed all 362 draws with zero differing RGB pixels and exit 0. Repeating
+   the same default command with one reference pixel changed at (10,10)
+   reported one differing pixel, passed=true and exit 0. The draw records,
+   payloads and original reference stayed intact. Only D3D diagnostics feed
+   the verdict. Marking the original trace footer and manifest truncated in
+   a separate copy also returned passed=true and exit 0 with all 362 draws.
+   Expose an image-verification verdict and failure exit for full replay, with
+   an explicit tolerance. Partial draws and enhancement comparisons can keep
+   reporting their differences. The existing tolerance-based comparator at
+   src/render.cpp:384 has no caller in either native executable.
+
+6. Medium. Metadata-only opens conflict with ordinary saves on Linux.
+   src/host_posix.cpp:84 and src/xbox.cpp:1824. On a writable ext4 file, an
+   exclusive data reader followed by FILE_READ_ATTRIBUTES | SYNCHRONIZE with
+   zero share returned error 32. Reversing the order produced the same error.
+   The same two sequences both succeeded against native CreateFileW on NTFS.
+   The Linux loop lets the metadata-only handle participate in reciprocal
+   data-sharing checks. Exclude it on both sides of that check. The existing
+   metadata-sharing cases at src/xbox.cpp:3071 use the read-only disc provider.
+   https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew
+
+7. Medium. File queries return last-write time in the change-time field.
+   src/xbox.cpp:2078,2318,2365 and src/host_posix.cpp:169. Both handle and
+   pathname queries place LastWriteTime in the fourth timestamp slot. A guest
+   can set a different ChangeTime and get success, then receive the wrong
+   value on its next query. Linux even persists an explicit change time as
+   user.smbd.change_time, but both read paths omit it. This establishes a
+   mismatch between the provider's setter and getters. FATX directory entries
+   have three stored timestamps. Establish the retail driver's ChangeTime
+   policy before choosing a persistent fourth value or an explicit alias.
+   The XBE imports NtQueryFullAttributesFile, NtQueryInformationFile and
+   NtSetInformationFile at 003475D4, 00347560 and 0034755C.
+   https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/ns-wdm-_file_basic_information
+   https://aerosoul94.github.io/blog/2020/02/25/fatx-reading-and-recovery.html
+
+8. Medium. Writable-file queries lose preallocation and pending deletion.
+   src/xbox.cpp:2072,2083,2098,2299,2309,2368. For an empty save, reserve
+   65,536 bytes with FileAllocationInformation and then query its allocation.
+   The native setter reserves storage while retaining EOF zero. Every query
+   derives allocation from rounded EOF, so the guest gets zero. Standard
+   information also leaves DeletePending zero after successful disposition
+   changes. Query the maintained allocation and disposition on both platforms,
+   respecting the Xbox allocation unit. The distinction matters to programs
+   checking whether they reserved space or requested successful deletion.
+   https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/ns-wdm-_file_standard_information
+
+9. Medium. A save opened write-through can complete a buffered write.
+   src/xbox.cpp:1822,2096 and src/host_posix.cpp:108. Writable creation records
+   option 0x2 for FileModeInformation, but generates host flags only for
+   directory access, overlapped I/O and delete-on-close. The requested
+   durability is lost on both hosts. The Linux provider already implements
+   FILE_FLAG_WRITE_THROUGH using O_SYNC if it receives the flag. Forward the
+   option when opening the file and honor it on every completion path.
+   The title imports NtCreateFile at 00347580. This is a service-contract
+   finding. Loss of an actual player's save was not observed.
+   https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntcreatefile
+
+10. Medium. A translated integer divide fault reports the wrong guest address.
+    src/cpu.h:432,441,444,448 and src/recompiler.cpp:1744. With the original
+    routine at 0030BBD0, six divided by three returned EAX=2. One divided by
+    zero exited the probe with code 3 and EIP=0030BBD0. The faulting original
+    instruction is F7 F1 (DIV ECX) at 0030BC1B. The helper throws an ordinary
+    C++ exception before committing guest state or recording the instruction.
+    x86 specifies divide-error vector 0 for a zero divisor or a quotient that
+    cannot fit. Preserve the precise pre-fault state and expose the guest
+    vector and address to exception handling and diagnostics.
+    https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html
+
+11. Medium. A recoverable thread error terminates guest execution on Linux.
+    src/xbox.cpp:2601,2643 and src/host_posix.cpp:291. At suspend count 127,
+    NtSuspendThread returns 0xC000004A. The original Xbox SuspendThread wrapper
+    calls that service at 0030963A and branches to XapiSetLastNTError on error.
+    At 00309225 the latter calls the imported RtlNtStatusToDosError. Native
+    Windows returned 156 (ERROR_SIGNAL_REFUSED). The current Linux provider
+    threw "NTSTATUS has no verified DOS error mapping" for the same value.
+    Supply the verified mapping so the original wrapper can return failure
+    and store the last error without ending the guest run.
+    https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes--0-499-
+
+12. Medium. An update can lose track of obsolete installation files.
+    src/installer.cpp:334,344 and src/installer_linux.cpp:409,419. Each updater
+    publishes a pending manifest, installs the new manifest, then deletes files
+    that the new version no longer ships. Both ignore deletion errors and
+    report success. If an old file cannot be removed, the final manifest omits
+    it, so the next update and uninstall have no record of the leftover file.
+    Keep the pending manifest until cleanup succeeds and surface a file error
+    that permits retry. The source paths establish this outcome. No installed
+    game was upgraded or removed during this audit.
+
+13. Low. Linux crash reporting calls a function outside the signal-safe set.
+    src/diagnostics_posix.cpp:51,73. A fatal signal interrupts arbitrary code,
+    then the handler formats JSON with snprintf before writing or re-raising
+    the signal. POSIX does not guarantee that formatting call is safe there.
+    It can prevent the original fault record from reaching disk. Format the
+    bounded integer fields in a fixed buffer with signal-safe operations and
+    keep the existing write loop. This result comes from the handler contract.
+    https://man7.org/linux/man-pages/man7/signal-safety.7.html
+
+14. Low. Linux setup leaves a file descriptor open when chmod fails.
+    src/installer_linux.cpp:304,310. In the menu-entry writer, an fchmod error
+    short-circuits the expression before close. The exception path unlinks
+    the temporary file while setup still owns its open descriptor. Every retry
+    can retain another descriptor until the process exits. Close it on both
+    paths and preserve the original error for the message.
+
+15. Medium. Full replay rejects frames that have no geometry draws.
+    src/frame_replay.cpp:223,293. Clearing a screen and flipping is sufficient
+    to display a frame. A complete 16x16 capture with one full red color clear,
+    a surface and a matching reference exited 1 with "No captured draws
+    selected". Replay processed the clear and then rejected it because the draw
+    count was zero. Validate a completed frame independently of draw count.
+
+16. Low. A live game report always claims the main dispatcher was not reached.
+    src/main.cpp:443,607, src/xbox.cpp:741,2956 and src/boot.cpp:25. The game
+    supplies dispatcher address 00014B90 and runs with an unlimited budget.
+    That disables checkpoint diagnostics on its threads, yet the JSON copies
+    the unobserved watch flag into main_reached. The completed Story run
+    reported false and zero checkpoints after 3,080 frames and 926,595 draws.
+    Record the first dispatcher entry once or report the field as unmeasured
+    when the watch is disabled. Either keeps the gameplay hot path lightweight.
+
+Repair verification
+-------------------
+
+The fixes use the same US executable as the audit. The original findings,
+addresses, pre-fix results and historical timings below are retained so the
+before and after results can be compared.
+
+1. A fresh preparation on Ubuntu ext4 produced default.xbe from the disc's
+   Default.xbe directory entry. Its 7,143,424 bytes matched the supported
+   SHA-256. The index retained Default.xbe and sector 265. A second prepare
+   reused the file. Both commands exited 0 on the bounded XDVDFS fixture.
+2. The service diagnostic starts two real waiting fibers, signals before
+   resuming either, and resumes them in reverse order. It checks two
+   synchronization-event releases, notification set followed by clear,
+   the winning wait-any index, consumption by a completed wait-all, and
+   releasing two semaphore counts. The wait result is recorded while the
+   dispatcher changes the signal state.
+3. Native D3D11 checks read all 64 pixels of an 8 by 8 render for disjoint
+   and overlapping inclusive and exclusive windows. Additive blending detects
+   a double draw in the overlap. A packet check also verifies that writing a
+   lower window register replaces the higher slots on the same axis. The XBE
+   at 0031E9B1 and 0031E9FA subtracts one from each maximum before packing it.
+   The renderer intersects the windows with the surface clip.
+   https://github.com/abaire/nxdk_pgraph_tests/blob/main/src/tests/window_clip_tests.cpp
+   https://github.com/xemu-project/xemu/blob/master/hw/xbox/nv2a/pgraph/pgraph.c
+4. A live capture recorded presented surface 3 on frame 186. Its 68-draw
+   Windows replay matched every RGB pixel. A separate 60-draw capture on
+   Linux also replayed exactly on its own renderer. A two-target control cleared
+   the second surface last and presented the first. Final-blit and surface-write
+   controls also matched. Legacy recordings lack the presented surface ID.
+   Replay reports it as null when it must infer the target.
+5. The audit's 362-draw frame passed with zero differing pixels. Changing one
+   RGB channel by one at (10,10) failed full replay with exit 3, then passed
+   with --tolerance 1. A truncated footer, truncated manifest and missing footer
+   each failed. An isolated draw still reported its image difference. The
+   standalone compare-images command also returned 3 on the changed reference.
+6. Both open orders for a writable file are covered by the same guest calls.
+   An exclusive data handle and a metadata-only handle coexist on NTFS and ext4.
+7. FATX stores one update time. ReactOS's FATX driver accepts the last-write
+   field on set and returns its value in both the last-write and change-time
+   slots for basic and network information. The native services now implement
+   that rule on both hosts. The check sends conflicting timestamps, then a
+   change-time-only request, and compares both handle queries with the pathname
+   query. In the XBE, 00304F0C clears the 40-byte request, 00304F12 calls
+   KeQuerySystemTime on its last-write field, and 00304F25 submits class 4
+   with the fourth timestamp still zero. The alias is supported by independent
+   FATX implementation evidence. Direct retail-kernel confirmation remains open.
+   https://github.com/reactos/reactos/blob/master/drivers/filesystems/vfatfs/finfo.c
+   https://github.com/XboxDev/fatx/blob/master/libfatx/fatx_internal.h
+8. The native service check reserves 65,536 bytes in an empty file. Query
+   classes 5, 19 and 34 and the pathname query report the reservation. EOF
+   stays zero when the reservation shrinks to 16,384 bytes and then to zero.
+   Setting and clearing disposition changes the standard query's DeletePending
+   byte. Writable allocations use 16 KiB guest units.
+9. The diagnostic inspects the native mode of both a synchronous and an
+   asynchronous guest write-through handle. Windows uses FileModeInformation.
+   Linux reads the O_SYNC bits from the open descriptor.
+10. The original unsigned division in 0030BBD0 still returns 2 for 6 / 3.
+    For 1 / 0 its trap reports vector 0 and fault and resume address 0030BC1B.
+    With a signed quotient one above INT32_MAX, original IDIV ESI at 00075D93
+    also reports vector 0 at that instruction. EDX:EAX retains
+    FFFFFFFF:80000000 and ESI remains FFFFFFFF.
+11. Calling imported ordinal 301 with C000004A returns DOS error 156. This
+    matches the Windows reference recorded for the original suspend wrapper.
+12. Both updaters call the same finalization code. The previous and current
+    filenames stay in the published manifest until obsolete file removal
+    succeeds. Windows setup returned 1 for a locked obsolete file. The native
+    finalizer was also exercised with a lock after the pending manifest was
+    published. Linux setup returned 1 when an obsolete path was a nonempty
+    directory. Each retry exited 0, retired the old name and preserved an
+    unrelated sibling file.
+13. The POSIX fatal handler writes bounded decimal and hexadecimal fields
+    directly. An isolated Linux SIGABRT produced a complete crash record with
+    signal 6, the native thread and instruction address, guest EIP 00014B90
+    and flags 00000246. The original signal terminated the process with 134.
+14. Linux setup closes the menu-entry descriptor on every chmod outcome and
+    reports the saved error if cleanup also sets errno. An injected EPERM on
+    the real desktop-entry write produced exit 1 and the expected permission
+    error. Inspection before process exit found zero open menu-entry
+    descriptors. A subsequent normal install created the desktop entry.
+15. The original 16 by 16 clear-only capture now exits 0 with zero draws and
+    zero different pixels. The final-blit and surface-write controls also
+    complete without a geometry draw.
+16. The one-checkpoint startup probe reports main_reached=false. A fresh,
+    muted Windows Story run completed 27 controller steps and four waits in
+    3,081 frames. It reported true with zero diagnostic checkpoints.
+    A hidden Linux run also reached the dispatcher with zero checkpoints.
+    Observation is attached to translated entry 00014B90.
+
+Release builds of the game, tool and setup completed on Windows x64 and Linux
+x86-64. The final native service suites passed 319 checks on Windows and
+323 on Ubuntu ext4. Both CPU suites passed 25 cases and both graphics suites
+passed 27 texture/packet checks and 16 bump-mapping checks.
+
+A cross-host comparison exposed an existing rendering difference. On WSL2
+llvmpipe, 210,372 of 307,200 RGB pixels differed from the Windows reference
+in the 362-draw capture. At a tolerance of eight channel levels, 673 pixels
+still differed. Mean absolute channel error was 0.573. The maximum was 172.
+The previously packaged Linux renderer produced exactly the same pixels
+as the repaired Linux renderer for this capture. The new verifier returned 3.
+The 68-draw Windows capture had a maximum channel difference of three on
+llvmpipe. Original Xbox pixel parity remains unmeasured.
+
+Local fix evidence is under build/checks/audit-repairs-20261124. The Linux
+comparison images are in its linux-comparison directory. The full file
+inventory, hardware details and original audit evidence follow.
+
+Executable and validation evidence
+----------------------------------
+
+The supplied US XISO was 2,953,707,520 bytes. The volume descriptor at sector
+32 pointed to the 48-byte root directory at sector 264. Its two records were
+Default.xbe (sector 265) and media (sector 3753). Native verify-disc on Windows
+and Linux verified the embedded executable. Its SHA-256 was
+9B49918BC4CD0D2541369534F9A458679F43C63462869F0F37C0ED69B3349DC2.
+It matched knowledge/supported_target.json, title 53450038, entry 0030949A.
+This pass verified the embedded executable and accessed selected media. The
+whole-image SHA in knowledge/source_media.json is previously recorded evidence.
+XboxDev's XDVDFS reader provides a separate reference for the sector and
+directory layout.
+https://github.com/XboxDev/extract-xiso/blob/master/extract-xiso.c
+
+The Windows Release game build completed with three workers. The batch
+contained 10,632 compiled functions, 909,931 discovered instructions and
+908,676 compiled instructions. The ranked call-recovery index had zero
+unresolved sites. Native check-image verified 17 sections, 15 preload
+sections, 115 imports and a 144-byte TLS template. Exact original byte windows
+are retained for the divide routine, D3D scissor setter and suspend/error path.
+The Xbox import declarations provide an independent ABI reference.
+https://raw.githubusercontent.com/XboxDev/nxdk/master/lib/xboxkrnl/xboxkrnl.h
+
+The Clang static analyzer ran sequentially over all 37 C++ files. The 34
+Windows files produced zero diagnostics. Ubuntu clang 19.1.1 covered the
+three Linux-only files. Its one warning at src/installer_linux.cpp:183 was
+reviewed. Decoder::finish leaves next_out pointing at a local byte, but the
+last decode has already returned, and the only later library call is lzma_end.
+liblzma documents that end only updates the internal member. No subsequent
+use of the expired output buffer was found. Each analyzer run used a 30,000
+node limit. Headers and assembly were also reviewed against their callers.
+https://tukaani.org/xz/liblzma-api/base_8h.html
+
+Windows native checks passed. CPU 25, kernel services 232, SDL input 58,
+audio 39, clock scheduling 38, subtitles 840 across 15 original files, texture
+cache 22, bump mapping 16, image copy 23, image blit 14, movie upscaling 20
+and HUD upscaling 38. Rolling sound used the disc's three sampled ADX layers.
+Performance capture/inspection passed. Hidden presentation passed 451 checks,
+including seven live graphics changes against the supplied executable and disc.
+
+On Ubuntu 24.04.4 x86-64 under WSL2, the existing Release tool passed disc and
+image verification, CPU 25, services 236 on ext4, input 58, audio 39 and timing
+38. Offscreen DXVK Native passed 21 image-copy cases and 16 bump-mapping cases
+on llvmpipe (LLVM 20.1.2). The provider and scissor probes were compiled from
+the audited source. Split-input SHA-1 of "abc" and HMAC-SHA1 RFC 2202 test
+case 1 both matched their known answers. The latter used the original short
+key and split the data across the two Xbox HMAC inputs.
+https://www.rfc-editor.org/rfc/rfc2202
+
+The Windows Story run used fresh storage, the checked-in first-level controller
+route, 60 Hz, widescreen, native resolution, VSync off and muted output. It
+exited 0, completed all 27 input steps and four waits, ran 3,077 simulation
+steps, emitted 3,080 frames and 926,595 draws, and saved its final image.
+Startup to the first game frame was 760.68 ms in that run. The separate
+362-draw replay matched a saved recomp frame exactly. Original-console pixel
+parity remains unmeasured. The uploader of the NTSC Xbox longplay indexes
+World 1, Jungle Island, at 03:09. That identifies the comparable chapter,
+but its camera timing and video capture settings were not matched here.
+https://www.youtube.com/watch?v=94sbAAqqTxM&t=189s
+
+Platform and performance requirements
+-------------------------------------
+
+The native macOS game cannot currently be built. CMakeLists.txt:447 rejects
+a native batch outside Windows and Linux. The helper ABI in src/cpu.h:22
+selects the x64 register convention only on Linux outside Windows. The current
+helpers use x87/SSE, and src/floating.h:6 and src/frame_step.h:2 require x86
+intrinsics. DESIGN.txt:88 requires a Mach-O helper path for Intel and direct
+C++ helpers for Apple Silicon with a native Metal presentation path. README.md
+already identifies macOS as planned. Physical Mac, Steam Deck, Linux GPU and
+controller hardware, physical audio playback, and complete game progression
+remain outside the observed coverage.
+
+Windows benchmark host was an AMD Ryzen 5 5600X and a GeForce RTX 5060 Ti.
+Both baseline rows used native 1x resolution, widescreen, 360 Hz selected,
+VSync/AA/AF off, and movie/HUD upscaling and extended render distance off.
+Each sampled 1,200 original rule ticks, approximately 20 seconds in one run,
+with zero frame records dropped or mode/ball-state changes. Frame and GPU
+entries are median / 99th percentile in milliseconds. CPU-side work uses the
+recorder's wall time after pacing, scheduler and diagnostics are subtracted.
+Peak memory is the process working set during the measured window.
+
+Scene                    Frames    Frame ms       CPU work ms    GPU ms       Peak MiB
+PRO SKATERS               4,723    4.163 / 5.580  4.135 / 5.541  1.531 / 2.010   308.80
+Night-Sky Rocket Lane     3,223    5.916 /10.554  5.869 /10.458  1.574 / 2.613   298.23
+
+Every measured baseline interval exceeded the 2.778 ms target. PRO SKATERS
+averaged 236 fresh frames/s and Bowling 161. A second Bowling run inherited
+the local enhancement switches and measured 5.578 / 10.403 ms over 3,429
+intervals. The two baseline processes took 48.8 and 47.4 seconds respectively
+including startup, controller navigation, warmup, measurement and output.
+Average translated guest-code wall time was 2.60 ms/frame on PRO SKATERS
+and 4.05 ms/frame on Bowling. The GPU spans measured by the recorder stayed
+below budget at p99 in both baseline scenes.
+
+One Practice attempt using the current save ended in Bowling before the first
+Practice barrier, exit 3. Its timing was excluded. The qualifying rerun used a
+private copy of the project's PRO SKATERS benchmark save and verified mode 51,
+ball state 32 and stage ID 18 throughout. Bowling verified mode 172, stage 159.
+These are measurements on this host, with one baseline window per scene.
+
+File-by-file coverage
+---------------------
+
+Every src file appears once in this inventory. Entries identify the behavior
+examined and the evidence available for that group.
+
+  file.cpp, file.h
+    Bounded reads, endianness, path conversion and streamed hashes. Cross-host
+    disc and executable verification exercised the read and hash paths.
+  disc.cpp, disc.h, disc_cache.h
+    XDVDFS descriptor, directory links, case-insensitive lookup and cache
+    invalidation. Checked the real root, executable, subtitle and audio reads.
+  xbe.cpp, xbe.h
+    Target validation, section mapping, preload, TLS and import extraction.
+    Both native image checks passed against the disc-matched executable.
+  pipeline.cpp, pipeline.h
+    Indexed extraction, publication paths and instruction-index comparison.
+    Finding 1 reproduced through the normal prepare command on ext4.
+  decoder.cpp, decoder.h
+    Bounded decode, branches, indirect target recovery and section membership.
+    Checked the batch index and four independently readable original routines.
+  batch.cpp, batch.h
+    Seed closure, pending edges, native API accounting and shard emission.
+    Checked a completed build and distinguished compiled/discovered counts.
+  recompiler.cpp, recompiler.h
+    Operand widths, state commits, call targets, helper ABI and trap lowering.
+    Checked generated behavior in CPU diagnostics and the divide controls.
+  cpu.cpp, cpu.h, cpu_diagnostics.cpp
+    Guest memory and registers, flags, floating/exception boundaries and probe
+    reporting. CPU checks passed on both hosts. Finding 10 reproduced on Windows.
+  cpu_floating.S, cpu_floating.asm, floating.cpp, floating.h
+    Checked x87 save/restore and the MXCSR offset against both assembly bodies,
+    the C++ layout assertion and scope entry/exit. Both x86-64 CPU suites passed.
+  native_guest_roots.h, thread_abi.h, call_trace.h
+    Compared native callback roots, frame-entry records, thread/TLS offsets
+    and optional trace declarations with batch and runtime consumers.
+  xbox.cpp, xbox.h
+    Compared dispatcher, guest stacks, object waits, files, imports and native
+    providers with executable thunks, service checks and the Story route.
+    Findings 2 and 6-11 cover service and fault behavior. See also finding 16.
+  host_posix.cpp, host.h
+    Checked descriptor access/sharing, AIO, metadata, error mapping and fiber
+    ABI. Ext4 and direct Windows control probes produced findings 6, 7 and 11.
+  crypto.cpp, crypto.h
+    Checked the 116-byte guest SHA layout, streaming blocks, padding and the
+    short-key Xbox HMAC path. Independent known-answer checks passed.
+  boot.cpp, main.cpp, automation.h
+    Followed loader, exit/report handling, script state barriers and SDL input
+    from launch to a complete Story route. Finding 16 concerns live reporting.
+  frame_clock.h, frame_step.h
+    Reviewed 60 Hz rules, presentation deadlines, missed slots and frame-step
+    fields. Paired clock checks with active scene measurements.
+  performance.cpp, performance.h
+    Checked phase and GPU timing accounting, percentile aggregation, dropped
+    samples and memory reporting against the retained native captures.
+  gpu.cpp, gpu.h
+    Checked command state, clipping, targets, fences, texture bindings and
+    capture publication. Used the original scissor setter and shared-state probe.
+  render.cpp, render.h, com_ptr.h
+    Checked D3D11 state binding, draw/copy paths, resource ownership, readback
+    and image comparison. Windows and DXVK offscreen checks covered both hosts.
+  frame_replay.cpp
+    Traced resource restoration, target selection, final copy and comparison.
+    Used a matching frame, a changed reference, a truncation flag and clear-only
+    input. Findings 4, 5 and 15 describe independent replay behaviors.
+  vertex_program.cpp, vertex_program.h
+    Reviewed token normalization, vertex operations, generated shader input
+    layouts and the fixed-function path against shader-bank use and native draws.
+  shaders.cpp, shaders.h, shader_compiler.cpp
+    Checked built-in HLSL selection, register-combiner state, vertex program
+    keys and offline bytecode. Corroborated initial r0 alpha against the
+    independent NV2A implementation and exercised bump mapping on both hosts.
+    https://raw.githubusercontent.com/xemu-project/xemu/master/hw/xbox/nv2a/pgraph/glsl/psh.c
+  antialiasing.cpp, antialiasing.h
+    Checked sample counts, resolves, post-processing and movie upscaling
+    against presentation changes, copy checks and 20 movie cases.
+  interface_marks.h, interface_upscaler.cpp, interface_upscaler.h
+    Traced original HUD hooks, sample bounds, queue cancellation and GPU/CPU
+    upscale paths. The 38 HUD cases and presentation checks passed.
+  upscaler_model.cpp, upscaler_model.h
+    Checked checkpoint identity and size, weight shapes, layer offsets and
+    the layout consumed by the HUD upscaler.
+  input.cpp, input.h
+    Checked connection changes, mappings, packet updates and rumble duration
+    using SDL virtual devices on both hosts and ordinary route input.
+  audio.cpp, audio.h
+    Checked PCM/ADPCM, play and loop regions, cursor advance, mixing and
+    muted SDL stream gain. Audio checks passed with 39 cases on each host.
+  rolling.cpp, rolling.h
+    Checked ADX selection, decoding, loop seams and mixer routing against
+    XISO sound entries 111, 2 and 118 in the rolling diagnostic.
+  subtitles.cpp, subtitles.h
+    Checked complete-read guards, original asset hashes and bounded edits.
+    The subtitle check exercised 34 changed and 326 preserved entries.
+  settings.cpp, settings.h, ui_theme.h
+    Reviewed preference parsing/persistence, input capture and menu drawing.
+    Hidden presentation exercised 4:3, 16:9, 21:9 and live option changes.
+  discord.cpp, discord.h
+    Reviewed game-state sampling, presence text, IPC framing, retry and shutdown
+    paths. Automated game runs disabled presence. No external session was opened.
+  installation.cpp, installation.h, installer.cpp, installer_linux.cpp
+    Traced disc verification, staging, manifest publication, cleanup, shortcuts
+    and extension points for each installer. See findings 1, 12 and 14.
+  diagnostics.cpp, diagnostics.h, diagnostics_posix.cpp
+    Checked diagnostic lifetimes, fault context, bounded log records and
+    fatal handlers. Native session logs cover normal runs. See finding 13.
+  tool.cpp
+    Checked command reachability, arguments and failure exits across native
+    checks, CPU probes, extraction and replay. Finding 5 records a false pass.
+
+Reproducibility
+---------------
+
+Local evidence is under build/logs/source-correctness-20261124. diagnostics/
+holds native platform results. focused/ holds bounded disassemblies, provider
+controls, CPU recipes, replay results and the clear-only input. story/ retains
+the confirmed controller console output, process exit, boot report and image.
+ProSkaters-base/, Bowling-base/ and Bowling-enhanced/ contain stage and timing
+reports and final frames. source-blobs.txt lists the 77 Git objects reviewed.
+The large XISO, saved games and private capture payloads are referenced in
+place or were used from temporary private copies.
+
+Representative commands from the project root (supply fresh output paths).
+
+  tools/Build.ps1 -Stage Game -Workers 3
+  cmake --build --preset release --target smbd-tool --parallel 3
+  smbd-tool verify-disc "<US XISO>"
+  smbd-tool check-image data/local/default.xbe
+  smbd-tool decode data/local/default.xbe 0x0031E760 768
+  smbd-tool decode data/local/default.xbe 0x0030BBD0 170
+  smbd-tool probe-cpu data/local/default.xbe - <focused/div-zero.recipe> <new.json>
+  smbd-tool replay-frame data/local/default.xbe build/captures/frame-1793991501112-114650043900 <new-dir>
+  smbd-tool replay-frame data/local/default.xbe <focused/clear-only-capture> <new-dir>
+
+For the Linux extraction case, prepare the verified US disc into an empty
+ext4 directory. The focused result used a single-entry slice of the disc to
+reach the same final filename check without a full media inventory. For the
+performance windows use the original stage scripts with --hidden --mute,
+--benchmark-ticks 1200 and --performance, the settings above and private
+copies of the appropriate saves. The Story command used --stop-after-input.
+
+Earlier audit
+=============
+
 Source correctness audit research - 2026-11-01
 
 Target: smbd-usa-v1-9b49918b

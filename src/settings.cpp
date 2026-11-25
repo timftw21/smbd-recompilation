@@ -187,7 +187,7 @@ std::string check_presentation(const std::filesystem::path& directory,const std:
         Xbox* running=nullptr;std::uint64_t frames=0;
         const std::array<std::array<unsigned,4>,7> options{{{2,1,16,2},{1,4,2,0},{2,5,4,1},{1,6,8,2},{4,0,1,0},{1,3,0,1},{1,0,0,2}}};
         const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(30);
-        XboxHost host;host.renderer=&renderer;host.main_address=0x14B90;host.storage=directory/"storage";host.mute_audio=true;
+        XboxHost host;host.renderer=&renderer;host.storage=directory/"storage";host.mute_audio=true;
         host.refresh_rate=[] {return 60U;};host.widescreen=true;
         host.poll=[&](std::uint64_t) {return frames<(options.size()+1)*24 && std::chrono::steady_clock::now()<deadline;};
         host.frames=[&] {return frames;};

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -20,4 +21,6 @@ struct PayloadEntry {std::filesystem::path path;std::uint64_t size;std::string d
 // prepared executable and copied disc image may name data/ (with data=true).
 std::filesystem::path install_relative_path(std::string_view value,bool data=false);
 std::vector<PayloadEntry> payload_manifest(std::string_view text);
+void finish_install_manifest(const std::filesystem::path& root,const std::filesystem::path& staging,
+                             const std::set<std::filesystem::path>& previous,const std::set<std::filesystem::path>& installed);
 }

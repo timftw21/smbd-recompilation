@@ -86,7 +86,7 @@ std::string probe_cpu(Xbe& image,const std::filesystem::path& capture,const std:
             std::chrono::steady_clock::now()-*static_cast<std::chrono::steady_clock::time_point*>(context)).count());
         return (ns/1000000000)*733333333+(ns%1000000000)*733333333/1000000000;
     }};
-    Cpu cpu;cpu.clock=&clock;std::ostringstream records;std::string error,line;
+    Cpu cpu;cpu.clock=&clock;std::ostringstream records;std::string error,line,trap="null";
     std::uint64_t budget=0;unsigned line_number=0,calls=0,read_bytes=0,loaded_bytes=0,records_count=0;
     const auto record=[&](const std::string& text) {if(records_count++) records<<',';records<<text;};
     try {
@@ -168,9 +168,14 @@ std::string probe_cpu(Xbe& image,const std::filesystem::path& capture,const std:
             } else throw std::runtime_error("Unknown CPU probe command: "+command);
             std::string extra;if(words>>extra) throw std::runtime_error("Unexpected CPU probe operand");
         }
+    } catch(const GuestTrap& fault) {
+        error=fault.what();cpu.diagnostic=nullptr;std::string registers;
+        for(auto value:cpu.registers) {if(!registers.empty()) registers+=',';registers+=json(hex32(value));}
+        trap=std::format("{{\"vector\":{},\"address\":{},\"resume\":{},\"flags\":{},\"registers\":[{}]}}",
+            fault.vector,json(hex32(fault.address)),json(hex32(fault.resume)),json(hex32(cpu.flags)),registers);
     } catch(const std::exception& failure) {error=failure.what();cpu.diagnostic=nullptr;}
-    return std::format("{{\"format\":\"smbd-cpu-probe-v1\",\"passed\":{},\"source_sha256\":{},\"snapshot_sha256\":{},\"virtual_snapshot_sha256\":{},\"virtual_snapshot_bytes\":{},\"recipe_sha256\":{},\"calls\":{},\"loaded_bytes\":{},\"line\":{},\"error\":{},\"eip\":{},\"records\":[{}]}}",
-        error.empty(),json(image.sha256),json(snapshot_hash),json(virtual_hash),virtual_bytes,json(hash(commands,0,commands.size())),calls,loaded_bytes,line_number,json(error),json(hex32(cpu.eip)),records.str());
+    return std::format("{{\"format\":\"smbd-cpu-probe-v1\",\"passed\":{},\"source_sha256\":{},\"snapshot_sha256\":{},\"virtual_snapshot_sha256\":{},\"virtual_snapshot_bytes\":{},\"recipe_sha256\":{},\"calls\":{},\"loaded_bytes\":{},\"line\":{},\"error\":{},\"eip\":{},\"trap\":{},\"records\":[{}]}}",
+        error.empty(),json(image.sha256),json(snapshot_hash),json(virtual_hash),virtual_bytes,json(hash(commands,0,commands.size())),calls,loaded_bytes,line_number,json(error),json(hex32(cpu.eip)),trap,records.str());
 }
 std::string check_cpu(Xbe& image) {
     if (!image.supported()) throw std::runtime_error("CPU diagnostics require the supported executable");

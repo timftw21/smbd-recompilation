@@ -9,7 +9,6 @@ std::string check_boot(Xbe& image,const std::filesystem::path& disc,std::uint32_
     image.load(std::span(ram).subspan(image.base, image.image_size));
     Memory memory(0,ram);
     XboxHost host;
-    host.main_address = 0x00014B90; // Verified game dispatcher; not the CRT entry.
     host.capture=capture;
     Xbox xbox(image,memory,ram,disc,std::move(host));
     const auto result = xbox.run(budget);

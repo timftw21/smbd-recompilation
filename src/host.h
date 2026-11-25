@@ -29,7 +29,7 @@ constexpr DWORD GENERIC_READ=0x80000000,GENERIC_WRITE=0x40000000,GENERIC_ALL=0x1
     FILE_ATTRIBUTE_REPARSE_POINT=0x400,FILE_FLAG_WRITE_THROUGH=0x80000000,FILE_FLAG_OVERLAPPED=0x40000000,
     FILE_FLAG_NO_BUFFERING=0x20000000,FILE_FLAG_RANDOM_ACCESS=0x10000000,FILE_FLAG_SEQUENTIAL_SCAN=0x08000000,
     FILE_FLAG_DELETE_ON_CLOSE=0x04000000,FILE_FLAG_BACKUP_SEMANTICS=0x02000000,FILE_FLAG_OPEN_REPARSE_POINT=0x00200000,
-    FILE_BEGIN=0,GetFileExInfoStandard=0,REG_DWORD=4,FIBER_FLAG_FLOAT_SWITCH=1;
+    FILE_BEGIN=0,REG_DWORD=4,FIBER_FLAG_FLOAT_SWITCH=1;
 constexpr DWORD PAGE_NOACCESS=1,PAGE_READONLY=2,PAGE_READWRITE=4,PAGE_WRITECOPY=8,
     PAGE_EXECUTE=0x10,PAGE_EXECUTE_READ=0x20,PAGE_EXECUTE_READWRITE=0x40,PAGE_EXECUTE_WRITECOPY=0x80,
     PAGE_GUARD=0x100,PAGE_NOCACHE=0x200,PAGE_WRITECOMBINE=0x400;
@@ -41,20 +41,20 @@ struct BY_HANDLE_FILE_INFORMATION {
     DWORD dwFileAttributes;FILETIME ftCreationTime,ftLastAccessTime,ftLastWriteTime;
     DWORD dwVolumeSerialNumber,nFileSizeHigh,nFileSizeLow,nNumberOfLinks,nFileIndexHigh,nFileIndexLow;
 };
-struct WIN32_FILE_ATTRIBUTE_DATA {DWORD dwFileAttributes;FILETIME ftCreationTime,ftLastAccessTime,ftLastWriteTime;DWORD nFileSizeHigh,nFileSizeLow;};
 struct FILE_ALLOCATION_INFO {LARGE_INTEGER AllocationSize;};
 struct FILE_END_OF_FILE_INFO {LARGE_INTEGER EndOfFile;};
 struct FILE_DISPOSITION_INFO {BOOL DeleteFile;};
 struct FILE_BASIC_INFO {LARGE_INTEGER CreationTime,LastAccessTime,LastWriteTime,ChangeTime;DWORD FileAttributes;};
-enum FILE_INFO_BY_HANDLE_CLASS {FileBasicInfo,FileAllocationInfo,FileEndOfFileInfo,FileDispositionInfo};
+struct FILE_STANDARD_INFO {LARGE_INTEGER AllocationSize,EndOfFile;DWORD NumberOfLinks;bool DeletePending,Directory;};
+enum FILE_INFO_BY_HANDLE_CLASS {FileBasicInfo,FileStandardInfo,FileAllocationInfo,FileEndOfFileInfo,FileDispositionInfo};
 struct OVERLAPPED {DWORD Offset=0,OffsetHigh=0;aiocb io{};bool submitted=false;};
 DWORD GetLastError();
 HANDLE CreateFileW(const char*,DWORD,DWORD,void*,DWORD,DWORD,HANDLE);
 BOOL CloseHandle(HANDLE);
 DWORD GetFileAttributesW(const char*);
-BOOL GetFileAttributesExW(const char*,DWORD,WIN32_FILE_ATTRIBUTE_DATA*);
 BOOL CreateDirectoryW(const char*,void*);
 BOOL GetFileInformationByHandle(HANDLE,BY_HANDLE_FILE_INFORMATION*);
+BOOL GetFileInformationByHandleEx(HANDLE,FILE_INFO_BY_HANDLE_CLASS,void*,DWORD);
 BOOL GetFileSizeEx(HANDLE,LARGE_INTEGER*);
 BOOL SetFilePointerEx(HANDLE,LARGE_INTEGER,LARGE_INTEGER*,DWORD);
 BOOL SetFileInformationByHandle(HANDLE,FILE_INFO_BY_HANDLE_CLASS,void*,DWORD);
@@ -93,6 +93,7 @@ inline void release_virtual_pages(std::byte* address,std::size_t) {VirtualFree(a
 std::filesystem::path executable_path();
 std::uint32_t ethernet_status();
 std::uint32_t dos_error(std::uint32_t status);
+bool file_write_through(HANDLE);
 void random_bytes(void*,std::size_t);
 std::byte* reserve_virtual_pages(std::size_t);
 bool commit_virtual_pages(std::byte*,std::size_t);

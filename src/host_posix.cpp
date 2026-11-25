@@ -6,6 +6,7 @@
 #include <cstring>
 #include <exception>
 #include <fstream>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -36,6 +37,8 @@ BOOL failed(int error=errno) {last_error=error_code(error);return FALSE;}
 struct Handle {
     int fd=-1;bool delete_on_close=false;DWORD access=0,share=0;
     std::filesystem::path path;
+    // Once a marked handle closes, retain its link until the final handle closes.
+    std::shared_ptr<std::filesystem::path> pending_delete;
 };
 // Only the cooperative guest thread opens/closes these; AIO uses descriptors.
 thread_local std::vector<Handle*> files;
@@ -52,12 +55,12 @@ DWORD attributes(const struct stat& value) {
     return (S_ISDIR(value.st_mode)?FILE_ATTRIBUTE_DIRECTORY:FILE_ATTRIBUTE_NORMAL)|
         (S_ISLNK(value.st_mode)?FILE_ATTRIBUTE_REPARSE_POINT:0)|((value.st_mode&0222)?0:FILE_ATTRIBUTE_READONLY);
 }
-FILETIME creation_time(int fd,const char* path,const struct stat& status) {
+FILETIME creation_time(int fd,const struct stat& status) {
     std::uint64_t saved=0;
-    const auto size=fd>=0?fgetxattr(fd,"user.smbd.creation_time",&saved,sizeof(saved)):getxattr(path,"user.smbd.creation_time",&saved,sizeof(saved));
+    const auto size=fgetxattr(fd,"user.smbd.creation_time",&saved,sizeof(saved));
     if(size==sizeof(saved)) return {DWORD(saved),DWORD(saved>>32)};
     struct statx value{};
-    if(!statx(fd>=0?fd:AT_FDCWD,fd>=0?"":path,fd>=0?AT_EMPTY_PATH:AT_SYMLINK_NOFOLLOW,STATX_BTIME,&value) && (value.stx_mask&STATX_BTIME))
+    if(!statx(fd,"",AT_EMPTY_PATH,STATX_BTIME,&value) && (value.stx_mask&STATX_BTIME))
         return timestamp(timespec{value.stx_btime.tv_sec,value.stx_btime.tv_nsec});
     return timestamp(status.st_ctim);
 }
@@ -81,10 +84,14 @@ HANDLE CreateFileW(const char* path,DWORD access,DWORD share,void*,DWORD mode,DW
     constexpr auto delete_mask=DELETE|GENERIC_ALL;
     const auto wants_read=bool(access&read_mask),wants_write=bool(access&write_mask);
     struct stat target_status{};const bool exists=!lstat(path,&target_status);
-    for(const auto* file:files) {
+    std::shared_ptr<std::filesystem::path> pending_delete;
+    if(exists) for(const auto* file:files) {
         struct stat open_status{};
-        if(file->path!=normalized && !(exists && !fstat(file->fd,&open_status) &&
-           open_status.st_dev==target_status.st_dev && open_status.st_ino==target_status.st_ino)) continue;
+        if(fstat(file->fd,&open_status) || open_status.st_dev!=target_status.st_dev || open_status.st_ino!=target_status.st_ino) continue;
+        pending_delete=file->pending_delete;
+        if(!pending_delete->empty()) {last_error=ERROR_ACCESS_DENIED;return INVALID_HANDLE_VALUE;}
+        constexpr auto shared_rights=read_mask|write_mask|delete_mask;
+        if(!(access&shared_rights) || !(file->access&shared_rights)) continue;
         if((wants_read && !(file->share&FILE_SHARE_READ)) || (wants_write && !(file->share&FILE_SHARE_WRITE)) ||
            ((access&delete_mask) && !(file->share&FILE_SHARE_DELETE)) ||
            ((file->access&read_mask) && !(share&FILE_SHARE_READ)) ||
@@ -106,7 +113,8 @@ HANDLE CreateFileW(const char* path,DWORD access,DWORD share,void*,DWORD mode,DW
     case OPEN_EXISTING:break;default:last_error=ERROR_INVALID_PARAMETER;return INVALID_HANDLE_VALUE;
     }
     if(flags&FILE_FLAG_WRITE_THROUGH) options|=O_SYNC;
-    auto result=std::make_unique<Handle>(Handle{-1,bool(flags&FILE_FLAG_DELETE_ON_CLOSE),access,share,normalized});
+    if(!pending_delete) pending_delete=std::make_shared<std::filesystem::path>();
+    auto result=std::make_unique<Handle>(Handle{-1,bool(flags&FILE_FLAG_DELETE_ON_CLOSE),access,share,normalized,std::move(pending_delete)});
     files.push_back(result.get());
     const auto fd=open(path,options,0666);
     if(fd<0) {failed();files.pop_back();return INVALID_HANDLE_VALUE;}
@@ -118,9 +126,14 @@ HANDLE CreateFileW(const char* path,DWORD access,DWORD share,void*,DWORD mode,DW
 BOOL CloseHandle(HANDLE value) {
     if(!value || value==INVALID_HANDLE_VALUE) return FALSE;
     auto* item=static_cast<Handle*>(value);bool okay=true;
-    if(item->delete_on_close) {
-        struct stat status{};const bool directory=!fstat(item->fd,&status) && S_ISDIR(status.st_mode);
-        if((directory?rmdir(item->path.c_str()):unlink(item->path.c_str())) && errno!=ENOENT) okay=failed();
+    if(item->delete_on_close) *item->pending_delete=item->path;
+    if(item->pending_delete.use_count()==1 && !item->pending_delete->empty()) {
+        const auto* path=item->pending_delete->c_str();
+        struct stat opened{},named{};
+        if(fstat(item->fd,&opened)) okay=failed();
+        else if(lstat(path,&named)) {if(errno!=ENOENT) okay=failed();}
+        else if(named.st_dev==opened.st_dev && named.st_ino==opened.st_ino &&
+                (S_ISDIR(opened.st_mode)?rmdir(path):unlink(path)) && errno!=ENOENT) okay=failed();
     }
     if(close(item->fd)) okay=failed();
     std::erase(files,item);
@@ -129,15 +142,29 @@ BOOL CloseHandle(HANDLE value) {
 DWORD GetFileAttributesW(const char* path) {
     struct stat value{};if(lstat(path,&value)) {failed();return INVALID_FILE_ATTRIBUTES;}return attributes(value);
 }
-BOOL GetFileAttributesExW(const char* path,DWORD,WIN32_FILE_ATTRIBUTE_DATA* output) {
-    struct stat value{};if(lstat(path,&value)) return failed();
-    *output={attributes(value),creation_time(-1,path,value),timestamp(value.st_atim),timestamp(value.st_mtim),DWORD(std::uint64_t(value.st_size)>>32),DWORD(value.st_size)};return TRUE;
+bool file_write_through(HANDLE file) {
+    const auto flags=fcntl(handle(file).fd,F_GETFL);
+    if(flags<0) throw std::runtime_error("Cannot query native file flags");
+    return (flags&O_SYNC)==O_SYNC;
 }
 BOOL CreateDirectoryW(const char* path,void*) {return mkdir(path,0777)?failed():TRUE;}
 BOOL GetFileInformationByHandle(HANDLE file,BY_HANDLE_FILE_INFORMATION* output) {
     struct stat value{};if(fstat(handle(file).fd,&value)) return failed();
-    *output={attributes(value),creation_time(handle(file).fd,nullptr,value),timestamp(value.st_atim),timestamp(value.st_mtim),DWORD(value.st_dev),
+    *output={attributes(value),creation_time(handle(file).fd,value),timestamp(value.st_atim),timestamp(value.st_mtim),DWORD(value.st_dev),
         DWORD(std::uint64_t(value.st_size)>>32),DWORD(value.st_size),DWORD(value.st_nlink),DWORD(std::uint64_t(value.st_ino)>>32),DWORD(value.st_ino)};return TRUE;
+}
+BOOL GetFileInformationByHandleEx(HANDLE file,FILE_INFO_BY_HANDLE_CLASS kind,void* output,DWORD) {
+    if(kind!=FileStandardInfo) return failed(EINVAL);
+    auto& item=handle(file);struct stat value{};
+    if(fstat(item.fd,&value)) return failed();
+    auto& info=*static_cast<FILE_STANDARD_INFO*>(output);
+    info.Directory=S_ISDIR(value.st_mode);info.NumberOfLinks=DWORD(value.st_nlink);
+    info.EndOfFile.QuadPart=info.Directory?0:value.st_size;
+    info.AllocationSize.QuadPart=info.Directory?0:std::int64_t(value.st_blocks)*512;
+    info.DeletePending=!item.pending_delete->empty() || std::ranges::any_of(files,[&](auto* other) {
+        return other->pending_delete==item.pending_delete && other->delete_on_close;
+    });
+    return TRUE;
 }
 BOOL GetFileSizeEx(HANDLE file,LARGE_INTEGER* output) {
     struct stat value{};if(fstat(handle(file).fd,&value)) return failed();output->QuadPart=value.st_size;return TRUE;
@@ -152,21 +179,20 @@ BOOL SetFileInformationByHandle(HANDLE file,FILE_INFO_BY_HANDLE_CLASS kind,void*
     if(kind==FileAllocationInfo) {
         const auto size=static_cast<FILE_ALLOCATION_INFO*>(data)->AllocationSize.QuadPart;
         struct stat status{};if(fstat(item.fd,&status)) return failed();
-        if(size<status.st_size) return ftruncate(item.fd,size)?failed():TRUE;
+        if(size<=status.st_size) return ftruncate(item.fd,size)?failed():TRUE;
+        // KEEP_SIZE cannot shrink a previous reservation. Truncating to the
+        // current EOF drops only the extents past it, including on ext4.
+        if(std::uint64_t(size)<std::uint64_t(status.st_blocks)*512 && ftruncate(item.fd,status.st_size)) return failed();
         // Extending the allocation reserves storage without extending EOF.
-        return size && fallocate(item.fd,FALLOC_FL_KEEP_SIZE,0,size)?failed():TRUE;
+        return fallocate(item.fd,FALLOC_FL_KEEP_SIZE,0,size)?failed():TRUE;
     }
     if(kind==FileDispositionInfo) {
-        for(const auto* other:files) if(other!=&item && other->path==item.path && !(other->share&FILE_SHARE_DELETE)) {
-            last_error=ERROR_SHARING_VIOLATION;return FALSE;
-        }
+        if(!(item.access&(DELETE|GENERIC_ALL))) {last_error=ERROR_ACCESS_DENIED;return FALSE;}
         item.delete_on_close=static_cast<FILE_DISPOSITION_INFO*>(data)->DeleteFile;return TRUE;
     }
     auto& value=*static_cast<FILE_BASIC_INFO*>(data);
-    // Linux birth/change timestamps cannot be set through futimens. Preserve
-    // explicitly supplied Xbox metadata on the save itself, across reopening.
+    // futimens cannot set the FATX creation timestamp. Keep it across reopening.
     if(value.CreationTime.QuadPart>0 && fsetxattr(item.fd,"user.smbd.creation_time",&value.CreationTime.QuadPart,8,0)) return failed();
-    if(value.ChangeTime.QuadPart>0 && fsetxattr(item.fd,"user.smbd.change_time",&value.ChangeTime.QuadPart,8,0)) return failed();
     std::array<timespec,2> times{{{0,UTIME_OMIT},{0,UTIME_OMIT}}};
     if(value.LastAccessTime.QuadPart>0) times[0]=timestamp(value.LastAccessTime);
     if(value.LastWriteTime.QuadPart>0) times[1]=timestamp(value.LastWriteTime);
@@ -297,7 +323,7 @@ std::uint32_t dos_error(std::uint32_t status) {
     case 0xC00000A2:return 19;case 0xC0000101:return 145;case 0xC0000120:return 995;case 0x102:return 1460;
     case 0x103:return 997;case 0x80000005:return 234;case 0x80000006:return 18;
     case 0xC0000013:return 21;case 0xC0000018:return 487;case 0xC0000024:return 6;case 0xC0000040:return 8;
-    case 0xC0000047:return 298;case 0xC00000BA:return 5;case 0xC00000BB:return 50;case 0xC0000103:return 267;case 0xC0000106:return 206;
+    case 0xC0000047:return 298;case 0xC000004A:return 156;case 0xC00000BA:return 5;case 0xC00000BB:return 50;case 0xC0000103:return 267;case 0xC0000106:return 206;
     default:throw std::runtime_error("NTSTATUS has no verified DOS error mapping: "+std::to_string(status));
     }
 }

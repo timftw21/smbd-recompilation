@@ -32,7 +32,7 @@ std::uint32_t prepare_gpu_program(Renderer&,std::span<const std::uint32_t,2048>,
 std::string replay_frame(const std::filesystem::path& capture,const std::filesystem::path& output,
                          std::string_view source_sha256,std::uint32_t through=UINT32_MAX,std::uint32_t only=UINT32_MAX,bool join_arrays=false,
                          unsigned antialiasing=UINT32_MAX,unsigned anisotropy=UINT32_MAX,unsigned unlimited_render_distance=UINT32_MAX,
-                         unsigned upscaled_movies=UINT32_MAX,unsigned upscaled_hud=UINT32_MAX,unsigned sample_bounds=UINT32_MAX);
+                         unsigned upscaled_movies=UINT32_MAX,unsigned upscaled_hud=UINT32_MAX,unsigned sample_bounds=UINT32_MAX,unsigned tolerance=0);
 // The original SDK produces NV2A packets. This bridge shares the native renderer
 // with offline diagnostics; it does not decode or execute CPU instructions.
 class Gpu {

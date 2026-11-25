@@ -115,7 +115,10 @@ std::vector<std::byte> payload(const std::filesystem::path& root,Json name,std::
 }
 std::string replay_frame(const std::filesystem::path& capture,const std::filesystem::path& output,
                          std::string_view sha,std::uint32_t through,std::uint32_t only,bool join_arrays,unsigned antialiasing,unsigned anisotropy,unsigned unlimited_render_distance,
-                         unsigned upscaled_movies,unsigned upscaled_hud,unsigned sample_bounds) {
+                         unsigned upscaled_movies,unsigned upscaled_hud,unsigned sample_bounds,unsigned tolerance) {
+    if(tolerance>255) throw std::runtime_error("Image tolerance must be 0..255");
+    const bool full=through==UINT32_MAX && only==UINT32_MAX;
+    bool original_settings=true;
     if(unlimited_render_distance!=UINT32_MAX && unlimited_render_distance>1) throw std::runtime_error("Unlimited render distance must be 0 or 1");
     if(upscaled_movies!=UINT32_MAX && upscaled_movies>1) throw std::runtime_error("Upscaled movies must be 0 or 1");
     if(upscaled_hud!=UINT32_MAX && upscaled_hud>1) throw std::runtime_error("Upscaled HUD must be 0 or 1");
@@ -138,20 +141,42 @@ std::string replay_frame(const std::filesystem::path& capture,const std::filesys
         if(size>128*1024*1024-payload_bytes) throw std::runtime_error("Replay resources exceed the capture's 128 MiB limit");
         payload_bytes+=size;return payload(capture,name,size);
     };
-    bool verified=false;
+    bool verified=false,complete=false,ended=false,manifest_complete=true;
+    std::uint32_t trace_draws=0;
+    std::optional<std::uint32_t> presented,manifest_draws;
+    if(std::filesystem::exists(capture/"capture.json")) {
+        File manifest(capture/"capture.json");
+        if(manifest.size()>16384) throw std::runtime_error("Frame manifest exceeds 16 KiB");
+        const auto bytes=manifest.read(0,manifest.size());
+        const Json info{std::string_view(reinterpret_cast<const char*>(bytes.data()),bytes.size())};
+        if(info.at("source_sha256").string()!=sha) throw std::runtime_error("Capture manifest belongs to another executable");
+        manifest_complete=info.at("complete").text=="true" && info.at("pending").text=="false" &&
+            info.at("truncated").text=="false" && info.at("error").string().empty();
+        if(const auto draws=info.at("draws",true);!draws.text.empty()) manifest_draws=draws.number();
+    }
     records(capture/"draws.jsonl",[&](Json record) {
         const auto type=record.at("type").string();
+        if(ended) throw std::runtime_error("Frame trace contains records after its footer");
         if(type=="header") {
-            if(record.at("format").string()!="smbd-gpu-frame-v1" || record.at("source_sha256").string()!=sha)
+            if(verified || record.at("format").string()!="smbd-gpu-frame-v1" || record.at("source_sha256").string()!=sha)
                 throw std::runtime_error("Frame capture does not match the verified executable");
             const auto aa=record.at("antialiasing",true),af=record.at("anisotropy",true);
             const auto distance=record.at("unlimited_render_distance",true),movies=record.at("upscaled_movies",true),hud=record.at("upscaled_hud",true);
-            renderer.enhancements(antialiasing==UINT32_MAX?(aa.text.empty()?0:aa.number()):antialiasing,
-                anisotropy==UINT32_MAX?(af.text.empty()?0:af.number()):anisotropy,
-                unlimited_render_distance==UINT32_MAX?distance.text=="true":unlimited_render_distance!=0,
-                upscaled_movies==UINT32_MAX?movies.text=="true":upscaled_movies!=0,
-                upscaled_hud==UINT32_MAX?hud.text=="true":upscaled_hud!=0);
+            const auto setting=[&](unsigned requested,unsigned recorded) {
+                if(requested==UINT32_MAX) return recorded;
+                if(requested!=recorded) original_settings=false;
+                return requested;
+            };
+            renderer.enhancements(setting(antialiasing,aa.text.empty()?0:aa.number()),setting(anisotropy,af.text.empty()?0:af.number()),
+                setting(unlimited_render_distance,distance.text=="true")!=0,setting(upscaled_movies,movies.text=="true")!=0,
+                setting(upscaled_hud,hud.text=="true")!=0);
             verified=true;
+        } else if(type=="draw") ++trace_draws;
+        else if(type=="end") {
+            ended=true;
+            complete=record.at("truncated").text=="false" && record.at("draws").number()==trace_draws;
+            const auto id=record.at("presented_target",true);
+            if(!id.text.empty()) presented=id.number();
         } else if(type=="release") retired.insert(record.at("resource").number());
         else if(type=="surface") {
             if(surfaces.size()==64) throw std::runtime_error("Capture exceeds the surface bound");
@@ -228,12 +253,14 @@ std::string replay_frame(const std::filesystem::path& capture,const std::filesys
                 static_cast<std::uint8_t>(value),bounds);
         } else if(type=="surface_write" && only==UINT32_MAX) {
             const auto bytes=read_payload(record.at("guest_data"),record.at("size").number());
-            renderer.write_region(resources.at(record.at("resource").number()),record.at("x").number(),record.at("y").number(),
+            last_target=surfaces.at(record.at("resource").number()).native;
+            renderer.write_region(last_target,record.at("x").number(),record.at("y").number(),
                 record.at("width").number(),record.at("height").number(),bytes,record.at("pitch").number());
         } else if(type=="blit" && only==UINT32_MAX) {
             const auto from=record.at("source_xy").array(2),to=record.at("destination_xy").array(2),size=record.at("size").array(2);
             if(from.size()!=2 || to.size()!=2 || size.size()!=2) throw std::runtime_error("Invalid captured copy rectangle");
-            renderer.copy_region(resources.at(record.at("destination").number()),resources.at(record.at("source").number()),
+            last_target=surfaces.at(record.at("destination").number()).native;
+            renderer.copy_region(last_target,resources.at(record.at("source").number()),
                 from[0].number(),from[1].number(),to[0].number(),to[1].number(),size[0].number(),size[1].number());
         } else if(type=="draw") {
             const auto draw=record.at("draw").number();
@@ -249,8 +276,9 @@ std::string replay_frame(const std::filesystem::path& capture,const std::filesys
             const auto textures=record.at("textures").array(4);if(textures.size()!=4) throw std::runtime_error("Invalid captured textures");
             for(unsigned i=0;i<4;++i) if(const auto id=textures[i].number()) state.textures[i]=resources.at(id);
             // Frontend quads' original sampled ranges; 0 replays without the clamp.
-            if(const auto bounded=record.at("bounded_samples",true);!bounded.text.empty() && sample_bounds!=0) {
-                state.bounded_samples=bounded.number();restore(state.sample_bounds,record.at("sample_bounds"));
+            if(const auto bounded=record.at("bounded_samples",true);!bounded.text.empty()) {
+                if(sample_bounds==0) {if(bounded.number()) original_settings=false;}
+                else {state.bounded_samples=bounded.number();restore(state.sample_bounds,record.at("sample_bounds"));}
             }
             const auto attributes=record.at("attributes").array(16);if(attributes.size()!=16) throw std::runtime_error("Invalid captured vertex layout");
             auto& layout=next.layout;
@@ -290,23 +318,25 @@ std::string replay_frame(const std::filesystem::path& capture,const std::filesys
         return true;
     });
     emit();
-    if(!draws) throw std::runtime_error("No captured draws selected");
+    if(!draws && only!=UINT32_MAX) throw std::runtime_error("No captured draw with the requested index");
+    if(full && presented) last_target=surfaces.at(*presented).native;
+    else if(!last_target && surfaces.size()==1) last_target=surfaces.begin()->second.native;
     renderer.set_target(last_target);renderer.copy_to_main();const auto actual=renderer.readback();
-    Image difference{actual.width,actual.height,std::vector<std::byte>(actual.rgba.size())};std::uint32_t changed=0;
-    for(std::size_t i=0;i<actual.rgba.size();i+=4) {
-        bool differs=false;
-        for(unsigned c=0;c<3;++c) {const auto delta=std::abs(int(actual.rgba[i+c])-int(original.rgba[i+c]));difference.rgba[i+c]=std::byte(delta);differs|=delta!=0;}
-        difference.rgba[i+3]=std::byte{255};changed+=differs;
-    }
+    const auto comparison=compare_images(actual,original,tolerance);
     if(!output.parent_path().empty()) std::filesystem::create_directories(output.parent_path());
     if(!std::filesystem::create_directory(output)) throw std::runtime_error("Replay output directory already exists");
-    save_png(actual,output/"frame.png");save_png(difference,output/"difference.png");
+    save_png(actual,output/"frame.png");save_png(comparison.difference,output/"difference.png");
     const auto errors=renderer.errors();std::string messages;
     for(const auto& message:errors) {if(!messages.empty()) messages+=',';messages+=json(message);}
-    const auto result=std::format("{{\"format\":\"smbd-frame-replay-v1\",\"source_sha256\":{},\"adapter\":{},\"passed\":{},\"draws\":{},\"captured_draws_selected\":{},\"join_arrays\":{},\"antialiasing\":{},\"anisotropy\":{},\"unlimited_render_distance\":{},\"upscaled_movies\":{},\"movie_textures\":{},\"movie_upscales\":{},\"upscaled_hud\":{},\"hud_textures\":{},\"hud_upscales\":{},\"hud_filtered\":{},\"bounded_samples\":{},\"pixels_changed_from_capture\":{},\"replay_ms\":{},\"errors\":[{}]}}",
-        json(sha),json(renderer.adapter()),errors.empty(),draws,selected,join_arrays,renderer.stats().antialiasing,renderer.stats().anisotropy,renderer.stats().unlimited_render_distance,
+    complete&=manifest_complete && (!manifest_draws || *manifest_draws==trace_draws);
+    const bool verify_image=full && original_settings;
+    const bool image_matches=complete && comparison.over_tolerance==0;
+    const bool passed=errors.empty() && (!full || complete) && (!verify_image || image_matches);
+    const auto result=std::format("{{\"format\":\"smbd-frame-replay-v1\",\"source_sha256\":{},\"adapter\":{},\"passed\":{},\"capture_complete\":{},\"presented_target\":{},\"image_verified\":{},\"tolerance\":{},\"pixels_over_tolerance\":{},\"draws\":{},\"captured_draws_selected\":{},\"join_arrays\":{},\"antialiasing\":{},\"anisotropy\":{},\"unlimited_render_distance\":{},\"upscaled_movies\":{},\"movie_textures\":{},\"movie_upscales\":{},\"upscaled_hud\":{},\"hud_textures\":{},\"hud_upscales\":{},\"hud_filtered\":{},\"bounded_samples\":{},\"pixels_changed_from_capture\":{},\"replay_ms\":{},\"errors\":[{}]}}",
+        json(sha),json(renderer.adapter()),passed,complete,presented?std::to_string(*presented):"null",verify_image?(image_matches?"true":"false"):"null",
+        tolerance,comparison.over_tolerance,draws,selected,join_arrays,renderer.stats().antialiasing,renderer.stats().anisotropy,renderer.stats().unlimited_render_distance,
         renderer.stats().upscaled_movies,movies,renderer.stats().movie_upscales,renderer.stats().upscaled_hud,interface_textures,
-        renderer.stats().hud_upscales,renderer.stats().hud_filtered,renderer.stats().bounded_samples,changed,std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count(),messages);
+        renderer.stats().hud_upscales,renderer.stats().hud_filtered,renderer.stats().bounded_samples,comparison.changed,std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count(),messages);
     write_text(output/"report.json",result+'\n',false);return result;
 }
 }

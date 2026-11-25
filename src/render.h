@@ -17,6 +17,12 @@ struct Image {
 };
 void save_png(const Image&, const std::filesystem::path&, bool replace = false);
 Image load_image(const std::filesystem::path&);
+struct ImageComparison {
+    Image difference;
+    std::uint64_t changed=0,over_tolerance=0,total_error=0;
+    unsigned maximum=0;
+};
+ImageComparison compare_images(const Image& actual,const Image& reference,unsigned tolerance);
 std::string compare_images(const std::filesystem::path& actual,
                            const std::filesystem::path& reference,
                            const std::filesystem::path& difference, unsigned tolerance);
@@ -48,6 +54,7 @@ struct Vertex {
     float fog = 1;
 };
 // Numeric primitive, comparison, blending and combiner fields retain NV097 values.
+using ScissorRect=std::array<std::int32_t,4>;
 struct RenderState {
     std::uint32_t primitive = 5;
     bool blend = false, depth_test = false, depth_write = false;
@@ -59,7 +66,10 @@ struct RenderState {
     std::uint32_t stencil_function = 0x0207, stencil_reference = 0, stencil_read_mask = 255, stencil_write_mask = 255;
     std::uint32_t stencil_fail = 0x1E00, stencil_depth_fail = 0x1E00, stencil_pass = 0x1E00;
     float polygon_offset_scale = 0, polygon_offset_bias = 0;
-    std::array<std::int32_t,4> scissor{};
+    ScissorRect scissor{};
+    std::array<ScissorRect,8> clip_windows{};
+    unsigned window_count=0;
+    bool exclude_windows=false;
     std::array<std::uint32_t, 4> textures{}, texture_modes{}; // NV097 texture shader modes.
     std::array<std::uint32_t, 4> texture_sources{}, texture_clip{};
     std::array<Float4,4> bump_matrices{}; // M00, M01, M10, M11; normalized texture units.

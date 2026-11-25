@@ -25,7 +25,7 @@ struct XboxHost {
     std::filesystem::path capture;
     std::filesystem::path storage;
     Performance* performance=nullptr;
-    std::uint32_t main_address = 0, vblank_callback_slot = 0;
+    std::uint32_t vblank_callback_slot = 0;
     bool trace_io = false, mute_audio = true;
     bool trace_storage=false;
     bool widescreen=false,ultrawide=false;

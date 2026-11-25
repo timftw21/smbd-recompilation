@@ -8,7 +8,6 @@
 #include <atomic>
 #include <cerrno>
 #include <csignal>
-#include <cstdio>
 #include <cstdlib>
 #include <ctime>
 #include <format>
@@ -39,8 +38,14 @@ int log_file=-1;std::filesystem::path log_path;
 thread_local const Cpu* guest=nullptr;
 std::atomic_flag handling=ATOMIC_FLAG_INIT;
 alignas(16) thread_local std::array<std::byte,64*1024> signal_stack;
+#ifdef __APPLE__
+thread_local std::uint64_t diagnostic_thread=0;
+#endif
 void install_signal_stack() noexcept {
     thread_local bool attempted=false;if(attempted) return;attempted=true;
+#ifdef __APPLE__
+    pthread_threadid_np(nullptr,&diagnostic_thread);
+#endif
     stack_t stack{};stack.ss_sp=signal_stack.data();stack.ss_size=signal_stack.size();sigaltstack(&stack,nullptr);
 }
 void append(std::string_view text) noexcept {
@@ -59,7 +64,7 @@ void fatal(int signal,siginfo_t* info,void* context) {
     constexpr std::uint32_t eip=0,flags=0;
 #endif
 #ifdef __APPLE__
-    std::uint64_t thread=0;pthread_threadid_np(nullptr,&thread);
+    const auto thread=diagnostic_thread;
 #if defined(__aarch64__)
     const auto address=static_cast<ucontext_t*>(context)->uc_mcontext->__ss.__pc;
 #else
@@ -70,11 +75,24 @@ void fatal(int signal,siginfo_t* info,void* context) {
     const auto& registers=static_cast<ucontext_t*>(context)->uc_mcontext.gregs;
     const auto address=registers[REG_RIP];
 #endif
-    char buffer[1024];const auto size=std::snprintf(buffer,sizeof(buffer),
-        "{\"type\":\"native_crash\",\"signal\":%d,\"thread\":%llu,\"fault_address\":\"0x%016llX\",\"native_address\":\"0x%016llX\",\"guest_available\":%s,\"guest_eip\":\"0x%08X\",\"flags\":\"0x%08X\"}\n",
-        signal,static_cast<unsigned long long>(thread),static_cast<unsigned long long>(reinterpret_cast<std::uintptr_t>(info->si_addr)),
-        static_cast<unsigned long long>(address),cpu_available?"true":"false",eip,flags);
-    if(size>0 && std::size_t(size)<sizeof(buffer)) append({buffer,std::size_t(size)});
+    // All fields have fixed bounds: at most two 20-digit decimals and 48 hex digits.
+    char buffer[320];char* next=buffer;
+    const auto literal=[&](std::string_view chars) {for(char c:chars) *next++=c;};
+    const auto decimal=[&](std::uint64_t number) {
+        char digits[20];auto end=digits+sizeof(digits),first=end;
+        do {*--first=char('0'+number%10);number/=10;} while(number);
+        while(first!=end) *next++=*first++;
+    };
+    const auto hex=[&](std::uint64_t number,unsigned digits) {
+        while(digits) *next++="0123456789ABCDEF"[(number>>(--digits*4))&15];
+    };
+    literal("{\"type\":\"native_crash\",\"signal\":");decimal(signal);
+    literal(",\"thread\":");decimal(thread);
+    literal(",\"fault_address\":\"0x");hex(reinterpret_cast<std::uintptr_t>(info->si_addr),16);
+    literal("\",\"native_address\":\"0x");hex(address,16);
+    literal("\",\"guest_available\":");literal(cpu_available?"true":"false");
+    literal(",\"guest_eip\":\"0x");hex(eip,8);literal("\",\"flags\":\"0x");hex(flags,8);literal("\"}\n");
+    append({buffer,static_cast<std::size_t>(next-buffer)});
     // The handler is reset before delivery, preserving the native core dump.
     raise(signal);
 }

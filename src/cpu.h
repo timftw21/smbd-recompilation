@@ -12,6 +12,7 @@
 #include <iterator>
 #include <map>
 #include <memory>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string_view>
@@ -53,9 +54,7 @@ struct GuestClock {
 struct ExecutionDiagnostic {
     std::uint64_t remaining = 1000000, visits = 0;
     std::array<std::uint32_t,64> history{};
-    std::uint32_t watch_address=0;
     std::uint32_t break_address=0,break_hit=1;
-    bool reached_watch=false;
 };
 enum Register : unsigned { eax, ecx, edx, ebx, esp, ebp, esi, edi };
 struct Cpu {
@@ -68,6 +67,7 @@ struct Cpu {
     KernelServices* kernel = nullptr;
     GuestClock* clock = nullptr;
     ExecutionDiagnostic* diagnostic = nullptr;
+    bool* dispatcher_entered = nullptr;
     void (*preempt)(Cpu&) = nullptr;
     std::uint32_t quantum_remaining = 1024;
     std::uint32_t gdt_base = 0;
@@ -94,7 +94,6 @@ inline void checkpoint(Cpu& cpu, std::uint32_t address) {
             throw NativeBoundary(address,"execution diagnostic breakpoint reached");
         if (!diagnostic.remaining) throw NativeBoundary(address, "execution diagnostic budget exhausted");
         --diagnostic.remaining;
-        diagnostic.reached_watch|=address==diagnostic.watch_address;
         diagnostic.history[diagnostic.visits++ % diagnostic.history.size()] = address;
     }
     if (cpu.preempt && !cpu.quantum_remaining) {
@@ -427,9 +426,9 @@ template<unsigned Bits, bool Signed> constexpr Product multiply(std::uint32_t fl
 }
 
 struct Quotient { std::uint32_t value, remainder; };
-template<unsigned Bits, bool Signed> Quotient divide(std::uint64_t dividend, std::uint32_t divisor) {
+template<unsigned Bits, bool Signed> std::optional<Quotient> divide(std::uint64_t dividend, std::uint32_t divisor) {
     divisor &= mask<Bits>;
-    if (!divisor) throw std::runtime_error("Guest integer division by zero");
+    if (!divisor) return std::nullopt;
     if constexpr (Signed) {
         std::int64_t numerator;
         if constexpr (Bits == 32) numerator = std::bit_cast<std::int64_t>(dividend);
@@ -438,15 +437,15 @@ template<unsigned Bits, bool Signed> Quotient divide(std::uint64_t dividend, std
             numerator = static_cast<std::int64_t>((dividend & ((high << 1) - 1)) ^ high) - static_cast<std::int64_t>(high);
         }
         const auto denominator = std::bit_cast<std::int32_t>(sign_extend<Bits>(divisor));
-        if (numerator == INT64_MIN && denominator == -1) throw std::runtime_error("Guest integer division overflow");
+        if (numerator == INT64_MIN && denominator == -1) return std::nullopt;
         const auto quotient = numerator / denominator;
         if (quotient < -(1LL << (Bits - 1)) || quotient > (1LL << (Bits - 1)) - 1)
-            throw std::runtime_error("Guest integer division overflow");
-        return {static_cast<std::uint32_t>(quotient) & mask<Bits>, static_cast<std::uint32_t>(numerator % denominator) & mask<Bits>};
+            return std::nullopt;
+        return Quotient{static_cast<std::uint32_t>(quotient) & mask<Bits>, static_cast<std::uint32_t>(numerator % denominator) & mask<Bits>};
     } else {
         const auto quotient = dividend / divisor;
-        if (quotient > mask<Bits>) throw std::runtime_error("Guest integer division overflow");
-        return {static_cast<std::uint32_t>(quotient), static_cast<std::uint32_t>(dividend % divisor)};
+        if (quotient > mask<Bits>) return std::nullopt;
+        return Quotient{static_cast<std::uint32_t>(quotient), static_cast<std::uint32_t>(dividend % divisor)};
     }
 }
 

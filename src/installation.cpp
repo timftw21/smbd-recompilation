@@ -35,6 +35,20 @@ struct Temporary {
     ~Temporary() {std::error_code error;std::filesystem::remove(path,error);}
 };
 }
+void finish_install_manifest(const std::filesystem::path& root,const std::filesystem::path& staging,
+                             const std::set<std::filesystem::path>& previous,const std::set<std::filesystem::path>& installed) {
+    for(const auto& file:previous) if(!installed.contains(file)) {
+        std::filesystem::remove(root/file);
+        for(auto parent=file.parent_path();!parent.empty();parent=parent.parent_path()) {
+            std::error_code error;
+            if(!std::filesystem::remove(root/parent,error)) {
+                if(error && error!=std::errc::directory_not_empty) throw std::filesystem::filesystem_error("Cannot remove installation directory",root/parent,error);
+                break;
+            }
+        }
+    }
+    replace_file(staging/"install-manifest.txt",root/"install-manifest.txt");
+}
 std::filesystem::path install_relative_path(std::string_view value,bool data) {
     const auto path=utf8_path(value);
     if(path.empty() || path.is_absolute() || path.has_root_name() || path.has_root_directory() || value.find_first_of("\r\n\t:")!=std::string_view::npos)

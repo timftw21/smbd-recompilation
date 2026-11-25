@@ -3,6 +3,7 @@
 #include <ws2tcpip.h>
 #include <iphlpapi.h>
 #include <bcrypt.h>
+#include <winternl.h>
 #endif
 #include "host.h"
 #include "xbox.h"
@@ -106,6 +107,14 @@ std::uint32_t file_error(DWORD error) {
     }
 }
 #ifdef _WIN32
+bool file_write_through(HANDLE file) {
+    using Query=NTSTATUS(NTAPI*)(HANDLE,PIO_STATUS_BLOCK,PVOID,ULONG,FILE_INFORMATION_CLASS);
+    const auto query=reinterpret_cast<Query>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtQueryInformationFile"));
+    IO_STATUS_BLOCK status{};ULONG mode=0;
+    if(!query || query(file,&status,&mode,sizeof(mode),static_cast<FILE_INFORMATION_CLASS>(16))<0)
+        throw std::runtime_error("Cannot query native file mode");
+    return (mode&2)!=0;
+}
 std::uint32_t dos_error(std::uint32_t status) {
     using Convert=ULONG(WINAPI*)(LONG);
     static const auto convert=reinterpret_cast<Convert>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"RtlNtStatusToDosError"));
@@ -129,9 +138,6 @@ struct Xbox::State {
         unsigned suspend_count=0;
         std::uint32_t wait_object=0;
         WaitKind wait_kind=WaitKind::none;
-        std::array<std::uint32_t,64> wait_objects{};
-        std::uint32_t wait_count=0;
-        bool wait_all=false;
         bool alertable=false;
         std::deque<IoApc> apcs;
         std::chrono::steady_clock::time_point due=std::chrono::steady_clock::time_point::max();
@@ -140,6 +146,12 @@ struct Xbox::State {
         Thread& thread;bool prior;
         AlertableWait(Thread& value,bool enabled):thread(value),prior(value.alertable){thread.alertable=enabled;}
         ~AlertableWait(){thread.alertable=prior;}
+    };
+    struct ObjectWait {
+        Thread& thread;
+        std::span<const std::uint32_t> objects;
+        bool all;
+        std::optional<std::uint32_t> result;
     };
     enum class AllocationKind { pool,virtual_memory,stack,cache };
     struct Allocation {
@@ -261,10 +273,11 @@ struct Xbox::State {
     std::map<std::uint32_t,Object> objects;
     std::map<std::uint32_t,std::uint32_t> object_pages;
     std::vector<std::unique_ptr<Thread>> threads;
+    std::vector<ObjectWait*> object_waiters; // In registration order, including suspended waiters.
     Thread* current=nullptr;
     Thread* frame_thread=nullptr;
     void* scheduler=nullptr;
-    bool converted=false,stopping=false,entry_returned=false;
+    bool converted=false,stopping=false,entry_returned=false,dispatcher_entered=false;
     std::string boundary;
     std::uint32_t next_handle=0x100,next_thread=4,heap_begin=0,gdt=0,kernel_cursor=0x1000,tick_address=0,shutdown_head=0;
     std::uint32_t thread_type=0,event_type=0,semaphore_type=0,file_type=0;
@@ -739,6 +752,7 @@ struct Xbox::State {
         memory.store<std::uint32_t>(thread->tib+NativeThreadAbi::tls_current,thread->object);
         auto& cpu=thread->cpu;
         cpu.kernel=&services; cpu.clock=&clock; cpu.diagnostic=live?nullptr:&diagnostic;
+        cpu.dispatcher_entered=&dispatcher_entered;
         cpu.ultrawide=host.ultrawide;
         cpu.unlimited_render_distance=host.unlimited_render_distance;
         cpu.preempt=[](Cpu& cpu) {
@@ -790,7 +804,7 @@ struct Xbox::State {
         }
         catch(const std::exception& error) { if(!host.stopping) host.boundary=error.what(); }
         thread.state=ThreadState::ended;
-        host.memory.store<std::uint32_t>(thread.object+4,1);
+        host.signal(thread.object);
         SwitchToFiber(host.scheduler);
         std::terminate();
     }
@@ -937,17 +951,28 @@ struct Xbox::State {
         }
         return true;
     }
-    bool waiting_ready(const Thread& thread) {
-        if(apc_ready(thread)) return true;
-        if(thread.wait_kind==WaitKind::critical) return !memory.load<std::uint32_t>(thread.wait_object+24);
-        if(thread.wait_kind!=WaitKind::objects) return false;
-        bool all=true;
-        for(unsigned i=0;i<thread.wait_count;++i) {
-            const bool state=signalled(thread.wait_objects[i]);
-            if(state && !thread.wait_all) return true;
-            all &=state;
+    std::optional<std::uint32_t> take_wait(std::span<const std::uint32_t> objects,bool all) {
+        for(std::uint32_t i=0;i<objects.size();++i) {
+            if(signalled(objects[i])) {
+                if(!all) {consume(objects[i]);return i;}
+            } else if(all) return std::nullopt;
         }
-        return all;
+        if(!all) return std::nullopt;
+        for(auto object:objects) consume(object);
+        return 0;
+    }
+    void resolve_waits(std::chrono::steady_clock::time_point now) {
+        for(auto* wait:object_waiters) {
+            if(wait->result) continue;
+            if(apc_ready(wait->thread)) wait->result=0xC0;
+            else if(wait->thread.due<=now) wait->result=timeout;
+            else wait->result=take_wait(wait->objects,wait->all);
+            if(wait->result) wait->thread.state=ThreadState::ready;
+        }
+    }
+    void signal(std::uint32_t address,std::uint32_t value=1) {
+        memory.store<std::uint32_t>(address+4,value);
+        if(value && !object_waiters.empty()) resolve_waits(std::chrono::steady_clock::now());
     }
     std::uint32_t allocate_object() {
         // File, event, semaphore and link objects fit in 128-byte slots. Giving
@@ -998,22 +1023,20 @@ struct Xbox::State {
         for(unsigned i=0;i<addresses.size();++i) if(const auto owner=dispatcher_owner(addresses[i])) {
             ++object_references[owner];references.owners[i]=owner;
         }
-        for(;;) {
-            if(alertable) {dispatch_io();if(deliver_apcs()) return 0xC0;}
-            bool complete=true; std::optional<unsigned> selected;
-            for(unsigned i=0;i<addresses.size();++i) {
-                const bool state=signalled(addresses[i]); complete &=state;
-                if(state && !selected) selected=i;
-            }
-            if((all && complete) || (!all && selected)) {
-                if(all) for(auto address:addresses) consume(address); else consume(addresses[*selected]);
-                return all?0:*selected;
-            }
-            if(std::chrono::steady_clock::now()>=due) return timeout;
-            std::copy(addresses.begin(),addresses.end(),current->wait_objects.begin());
-            current->wait_count=static_cast<std::uint32_t>(addresses.size()); current->wait_all=all;
+        if(alertable) {dispatch_io();if(deliver_apcs()) return 0xC0;}
+        if(const auto result=take_wait(addresses,all)) return *result;
+        if(std::chrono::steady_clock::now()>=due) return timeout;
+        ObjectWait pending{*current,addresses,all,{}};
+        {
+            object_waiters.push_back(&pending);
+            struct Registration {
+                std::vector<ObjectWait*>& queue;ObjectWait* wait;
+                ~Registration() {std::erase(queue,wait);}
+            } registration{object_waiters,&pending};
             current->wait_kind=WaitKind::objects; yield(ThreadState::waiting,0,due);
         }
+        if(pending.result==0xC0) deliver_apcs();
+        return pending.result.value();
     }
     bool queue_dpc(std::uint32_t address,std::uint32_t arg1,std::uint32_t arg2) {
         memory.access(address,28);
@@ -1027,7 +1050,7 @@ struct Xbox::State {
         for(auto item=timers.begin();item!=timers.end();) {
             auto& timer=item->second; const auto address=item->first;
             if(timer.due>now) {++item;continue;}
-            memory.store<std::uint32_t>(address+4,1);
+            signal(address);
             if(timer.dpc) queue_dpc(timer.dpc,0,0);
             if(timer.period) {timer.due=now+std::chrono::milliseconds(timer.period);++item;}
             else {memory.store<std::uint8_t>(address+3,0);item=timers.erase(item);}
@@ -1443,7 +1466,7 @@ struct Xbox::State {
             const auto status=valid?input->rumble(found->port,memory.load<std::uint16_t>(output+66),memory.load<std::uint16_t>(output+68)):1167U;
             memory.store<std::uint8_t>(output+64,0);memory.store<std::uint8_t>(output+65,6);
             memory.store<std::uint32_t>(output,status);
-            if(event_handle) memory.store<std::uint32_t>(handles.at(event_handle).address+4,1);
+            if(event_handle) signal(handles.at(event_handle).address);
             finish(cpu,8,status);return;
         }
         throw NativeBoundary(address,"native input API is unbound");
@@ -1820,7 +1843,7 @@ struct Xbox::State {
         constexpr DWORD creation[]={CREATE_ALWAYS,OPEN_EXISTING,CREATE_NEW,OPEN_ALWAYS,TRUNCATE_EXISTING,CREATE_ALWAYS};
         const auto mode=directory?OPEN_EXISTING:creation[disposition];
         const auto flags=FILE_FLAG_BACKUP_SEMANTICS|((options&0x1000)?FILE_FLAG_DELETE_ON_CLOSE:0U)|
-            ((options&0x30)?0U:FILE_FLAG_OVERLAPPED);
+            ((options&0x30)?0U:FILE_FLAG_OVERLAPPED)|((options&2)?FILE_FLAG_WRITE_THROUGH:0U);
         const auto native=CreateFileW(path->c_str(),access,share,nullptr,mode,flags,nullptr);
         if(native==INVALID_HANDLE_VALUE) return file_error(GetLastError());
         auto file=std::make_shared<OpenFile>();file->native=native;file->host_path=*path;
@@ -1911,7 +1934,7 @@ struct Xbox::State {
     void io_complete(Cpu& cpu,std::uint32_t status,std::uint32_t information=0) {
         const auto event=argument(cpu,1);
         io_status(argument(cpu,4),status,information);
-        if(event) memory.store<std::uint32_t>(handles.at(event).address+4,1);
+        if(event) signal(handles.at(event).address);
         if((status>>30)!=3) queue_apc(*current,argument(cpu,2),argument(cpu,3),argument(cpu,4));
     }
     bool valid_file_transfer(const OpenFile& file,std::uint64_t offset,std::uint32_t length=0) const {
@@ -1924,7 +1947,7 @@ struct Xbox::State {
         auto& file=*object.file;
         const auto output=argument(cpu,5),length=argument(cpu,6),status=argument(cpu,4),event=argument(cpu,1);
         const auto fail=[&](std::uint32_t result) {
-            memory.store<std::uint32_t>(object.address+0x38+4,1);
+            signal(object.address+0x38);
             io_complete(cpu,result);trace_io(cpu,write?236:219,result,0,file.path,file.options,length,offset,output);return result;
         };
         if(!valid_file_transfer(file,offset,length)) return fail(invalid_parameter);
@@ -1941,7 +1964,7 @@ struct Xbox::State {
             read_cache.read(disc_offset,std::span(static_cast<std::byte*>(buffer),count))) {
             correct_read(file,offset,std::span(static_cast<std::byte*>(buffer),count));
             io_complete(cpu,success,count);
-            memory.store<std::uint32_t>(object.address+0x38+4,1);
+            signal(object.address+0x38);
             trace_io(cpu,219,success,count,file.path,file.options,length,offset,output);
             return success;
         }
@@ -1999,8 +2022,8 @@ struct Xbox::State {
                 correct_read(*request.file,request.offset,std::span(static_cast<std::byte*>(memory.access(request.buffer,transferred)),transferred));
             }
             io_status(request.status,result,transferred);
-            memory.store<std::uint32_t>(request.file_object+0x38+4,1);
-            if(request.event) memory.store<std::uint32_t>(request.event+4,1);
+            signal(request.file_object+0x38);
+            if(request.event) signal(request.event);
             queue_apc(*request.issuer,request.apc_routine,request.apc_context,request.status);
             if(!live || host.trace_io) {
                 if(io_trace.size()==64) io_trace.pop_front();
@@ -2068,20 +2091,29 @@ struct Xbox::State {
         }
         if(length<required) return buffer_too_small;
         auto data=static_cast<std::byte*>(memory.access(output,required));std::memset(data,0,required);
-        const auto size=file_size(file);
-        const auto unit=file.native!=INVALID_HANDLE_VALUE?16384ULL:2048ULL,allocated=(size+unit-1)&~(unit-1);
+        std::uint64_t size=0,allocated=0;DWORD links=1;bool deleting=false,directory=file.entry.directory();
+        if(type==5 || type==19 || type==20 || type==34) {
+            if(file.native!=INVALID_HANDLE_VALUE) {
+                FILE_STANDARD_INFO native{};
+                if(!GetFileInformationByHandleEx(file.native,FileStandardInfo,&native,sizeof(native))) return file_error(GetLastError());
+                size=native.EndOfFile.QuadPart;allocated=(std::max(size,std::uint64_t(native.AllocationSize.QuadPart))+16383)&~16383ULL;
+                links=native.NumberOfLinks;deleting=native.DeletePending;directory=native.Directory;
+            } else {size=file_size(file);allocated=(size+2047)&~2047ULL;}
+        }
         auto attributes=static_cast<std::uint32_t>(file.entry.attributes)|(file.native==INVALID_HANDLE_VALUE?1U:0U);
         if(file.native!=INVALID_HANDLE_VALUE && (type==4 || type==34)) {
             BY_HANDLE_FILE_INFORMATION native{};
             if(!GetFileInformationByHandle(file.native,&native)) return file_error(GetLastError());
             attributes=native.dwFileAttributes;
+            // FATX has one update timestamp. Both basic and network information expose it in both slots.
             const FILETIME times[]={native.ftCreationTime,native.ftLastAccessTime,native.ftLastWriteTime,native.ftLastWriteTime};
-            for(unsigned i=0;i<4;++i) memory.store<std::uint64_t>(output+i*8,(static_cast<std::uint64_t>(times[i].dwHighDateTime)<<32)|times[i].dwLowDateTime);
+            for(unsigned i=0;i<4;++i) memory.store<std::uint64_t>(output+i*8,(std::uint64_t(times[i].dwHighDateTime)<<32)|times[i].dwLowDateTime);
         }
         switch(type) {
         case 4:memory.store<std::uint32_t>(output+32,attributes);break;
         case 5:memory.store<std::uint64_t>(output,allocated);memory.store<std::uint64_t>(output+8,size);
-            memory.store<std::uint32_t>(output+16,1);memory.store<std::uint8_t>(output+21,file.entry.directory());break;
+            memory.store<std::uint32_t>(output+16,links);memory.store<std::uint8_t>(output+20,deleting);
+            memory.store<std::uint8_t>(output+21,directory);break;
         case 6:
             if(file.native!=INVALID_HANDLE_VALUE) {
                 BY_HANDLE_FILE_INFORMATION native{};
@@ -2315,9 +2347,11 @@ struct Xbox::State {
                         information.CreationTime.QuadPart=std::bit_cast<std::int64_t>(memory.load<std::uint64_t>(request));
                         information.LastAccessTime.QuadPart=std::bit_cast<std::int64_t>(memory.load<std::uint64_t>(request+8));
                         information.LastWriteTime.QuadPart=std::bit_cast<std::int64_t>(memory.load<std::uint64_t>(request+16));
-                        information.ChangeTime.QuadPart=std::bit_cast<std::int64_t>(memory.load<std::uint64_t>(request+24));
+                        // FATX only accepts its creation, access and last-write fields.
                         information.FileAttributes=memory.load<std::uint32_t>(request+32);
-                        if(!SetFileInformationByHandle(file.native,FileBasicInfo,&information,sizeof(information))) result=file_error(GetLastError());
+                        if((information.CreationTime.QuadPart || information.LastAccessTime.QuadPart ||
+                            information.LastWriteTime.QuadPart || information.FileAttributes) &&
+                           !SetFileInformationByHandle(file.native,FileBasicInfo,&information,sizeof(information))) result=file_error(GetLastError());
                     }
                 }
                 else throw NativeBoundary(cpu.eip,std::format("unsupported set-file information class {}",type));
@@ -2359,14 +2393,10 @@ struct Xbox::State {
             if(name && !relative) {
                 const auto path=writable_path(*name);
                 if(!path) {finish(cpu,8,name_not_found);return;}
-                WIN32_FILE_ATTRIBUTE_DATA data{};
-                if(!GetFileAttributesExW(path->c_str(),GetFileExInfoStandard,&data)) {finish(cpu,8,file_error(GetLastError()));return;}
-                const auto output=argument(cpu,1);
-                const FILETIME times[]={data.ftCreationTime,data.ftLastAccessTime,data.ftLastWriteTime,data.ftLastWriteTime};
-                for(unsigned i=0;i<4;++i) memory.store<std::uint64_t>(output+i*8,(static_cast<std::uint64_t>(times[i].dwHighDateTime)<<32)|times[i].dwLowDateTime);
-                const auto size=(static_cast<std::uint64_t>(data.nFileSizeHigh)<<32)|data.nFileSizeLow;
-                memory.store<std::uint64_t>(output+32,(size+16383)&~16383ULL);memory.store<std::uint64_t>(output+40,size);
-                memory.store<std::uint32_t>(output+48,data.dwFileAttributes);finish(cpu,8,success);return;
+                OpenFile file;file.native=CreateFileW(path->c_str(),FILE_READ_ATTRIBUTES,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,
+                    nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS,nullptr);
+                if(file.native==INVALID_HANDLE_VALUE) {finish(cpu,8,file_error(GetLastError()));return;}
+                std::uint32_t written=0;finish(cpu,8,file_information(file,argument(cpu,1),52,34,written));return;
             }
             const auto entry=disc && relative?disc->lookup(*relative):std::nullopt;
             if(!entry) {finish(cpu,8,disc?name_not_found:no_media);return;}
@@ -2710,7 +2740,7 @@ struct Xbox::State {
             memory.store<std::uint8_t>(address+3,0); finish(cpu,4,cancelled);
         } else if constexpr(Ordinal==145) {
             const auto address=argument(cpu,0),prior=memory.load<std::uint32_t>(address+4);
-            memory.store<std::uint32_t>(address+4,1); finish(cpu,12,prior);
+            signal(address); finish(cpu,12,prior);
         } else if constexpr(Ordinal==189 || Ordinal==193) {
             const auto attributes=argument(cpu,1),initial=argument(cpu,Ordinal==189?3:2);
             if(attributes && memory.load<std::uint32_t>(attributes+4)) throw NativeBoundary(cpu.eip,"named dispatcher objects require namespace support");
@@ -2735,8 +2765,8 @@ struct Xbox::State {
             if constexpr(Ordinal==222) {
                 const auto increment=argument(cpu,1),limit=memory.load<std::uint32_t>(address+16);
                 if(static_cast<std::int32_t>(increment)<=0 || static_cast<std::uint64_t>(prior)+increment>limit) {finish(cpu,12,0xC0000047);return;}
-                memory.store<std::uint32_t>(address+4,prior+increment);
-            } else memory.store<std::uint32_t>(address+4,Ordinal==225?1:0);
+                signal(address,prior+increment);
+            } else signal(address,Ordinal==225?1:0);
             if constexpr(Ordinal!=186) {const auto previous=argument(cpu,Ordinal==222?2:1);if(previous) memory.store<std::uint32_t>(previous,prior);}
             finish(cpu,cleanup,success);
         } else if constexpr(Ordinal==232) {
@@ -2885,7 +2915,6 @@ struct Xbox::State {
         if(!scheduler) throw std::runtime_error("Cannot enter native Xbox scheduler");
         live=budget==0;
         diagnostic.remaining=live?UINT64_MAX:budget;
-        diagnostic.watch_address=host.main_address;
         diagnostic.break_address=break_address;diagnostic.break_hit=break_hit;
         create(image.entry,0,0,image.stack_commit,0,false,true);
         const auto deadline=live?std::chrono::steady_clock::time_point::max():std::chrono::steady_clock::now()+std::chrono::seconds(30);
@@ -2907,13 +2936,15 @@ struct Xbox::State {
                     dispatch_dpcs(*candidate);break;
                 }
             } catch(const std::exception& error) {boundary=error.what();break;}
+            resolve_waits(now); // Also observes dispatcher state written by the guest itself.
             for(std::size_t offset=0;offset<threads.size();++offset) {
                 const auto index=(next_runnable+offset)%threads.size();
                 auto& candidate=threads[index];
                 if(candidate->state==ThreadState::ended || candidate->suspended) continue;
                 pending=true;
                 if(candidate->state==ThreadState::waiting) {
-                    if(candidate->due<=now || waiting_ready(*candidate))
+                    if(candidate->wait_kind!=WaitKind::objects && (candidate->due<=now || apc_ready(*candidate) ||
+                       (candidate->wait_kind==WaitKind::critical && !memory.load<std::uint32_t>(candidate->wait_object+24))))
                         candidate->state=ThreadState::ready;
                     else { earliest=std::min(earliest,candidate->due); continue; }
                 }
@@ -2953,7 +2984,7 @@ struct Xbox::State {
                 gpu->snapshot();save_png(graphics->readback(),host.capture,true);result.capture_written=true;
             } catch(const std::exception& error) {result.capture_error=error.what();}
         }
-        result.entry_returned=entry_returned; result.main_reached=diagnostic.reached_watch;result.apcs_delivered=apcs_delivered;
+        result.entry_returned=entry_returned; result.main_reached=dispatcher_entered;result.apcs_delivered=apcs_delivered;
         result.io.assign(io_trace.begin(),io_trace.end());
         result.last_failed_allocation=last_failed_allocation;
         if(!live || (!boundary.empty() && boundary!="Native window closed")) {
@@ -2981,7 +3012,7 @@ struct Xbox::State {
             result.stack_word_count=static_cast<std::uint32_t>(std::min<std::size_t>(result.stack_words.size(),(ram.size()-stack)/4));
             for(unsigned i=0;i<result.stack_word_count;++i) result.stack_words[i]=memory.load<std::uint32_t>(stack+i*4);
         }
-        result.cpu.kernel=nullptr; result.cpu.diagnostic=nullptr; result.cpu.clock=nullptr; result.cpu.preempt=nullptr;
+        result.cpu.kernel=nullptr; result.cpu.diagnostic=nullptr; result.cpu.clock=nullptr; result.cpu.preempt=nullptr;result.cpu.dispatcher_entered=nullptr;
         // Resume sleeping native stacks with cancellation so their C++ and floating
         // scopes unwind before DeleteFiber releases host stacks.
         stopping=true;
@@ -3014,6 +3045,64 @@ std::string check_services(Xbe& image,const std::filesystem::path& disc,const st
         require(cpu.eip==return_sentinel && cpu.registers[esp]==scratch+0x804+arguments.size()*4,"service return ABI");
         return cpu.registers[eax];
     };
+    {
+        using State=Xbox::State;
+        if(IsThreadAFiber()) s.scheduler=GetCurrentFiber();
+        else {s.scheduler=ConvertThreadToFiberEx(nullptr,FIBER_FLAG_FLOAT_SWITCH);s.converted=s.scheduler!=nullptr;}
+        require(s.scheduler!=nullptr,"create dispatcher diagnostic scheduler");
+        struct Waiter {
+            State& host;std::span<const std::uint32_t> objects;bool all;State::Thread thread{};
+            std::uint32_t result=UINT32_MAX;void* fiber=nullptr;
+            ~Waiter() {if(fiber) DeleteFiber(fiber);}
+            static void WINAPI run(void* arg) {
+                auto& w=*static_cast<Waiter*>(arg);
+                w.result=w.host.wait(w.objects,w.all,0,false);
+                SwitchToFiber(w.host.scheduler);
+            }
+        };
+        const auto exercise=[&](auto&& set,std::span<const std::uint32_t> a,bool all_a,unsigned result_a,
+                                 std::span<const std::uint32_t> b,bool all_b,unsigned result_b) {
+            Waiter first{s,a,all_a},second{s,b,all_b};
+            const auto resume=[&](Waiter& w) {s.current=&w.thread;SwitchToFiber(w.fiber);s.current=&issuer;};
+            for(auto* w:{&first,&second}) {
+                w->thread.tib=scratch;w->fiber=CreateFiberEx(0,256*1024,FIBER_FLAG_FLOAT_SWITCH,Waiter::run,w);
+                require(w->fiber!=nullptr,"allocate waiter fiber");resume(*w);
+            }
+            require(s.object_waiters.size()==2,"both guest waits block before signal");
+            set();
+            require(first.thread.state==State::ThreadState::ready && second.thread.state==State::ThreadState::ready,
+                "signals release both registered waiters before either executes");
+            resume(second);resume(first);
+            require(first.result==result_a && second.result==result_b && s.object_waiters.empty(),"wait results survive reverse resume order");
+        };
+        const auto make_event=[&](unsigned type) {
+            require(call(189,{scratch,0,type,0})==success,"create diagnostic event");
+            return memory.load<std::uint32_t>(scratch);
+        };
+        const auto sync=make_event(1),notify=make_event(0);
+        const auto sync_obj=s.handles.at(sync).address,notify_obj=s.handles.at(notify).address;
+        const std::array single{sync_obj},notification{notify_obj};
+        const std::array both{sync_obj,notify_obj};
+        exercise([&] {
+            require(call(145,{sync_obj,0,0})==0 && call(225,{sync,scratch+4})==success && memory.load<std::uint32_t>(scratch+4)==0,
+                "each synchronization signal consumes one released wait");
+        },single,false,0,single,false,0);
+        exercise([&] {call(225,{notify,0});call(186,{notify});},both,false,1,notification,false,0);
+        exercise([&] {
+            call(225,{sync,0});
+            require(memory.load<std::uint32_t>(sync_obj+4)==1,"incomplete wait-all preserves signalled event");
+            call(225,{notify,0});call(186,{notify});
+            require(memory.load<std::uint32_t>(sync_obj+4)==0,"completed wait-all consumes synchronization event");
+        },both,true,0,notification,false,0);
+        require(call(193,{scratch,0,0,2})==success,"create zero-count semaphore");
+        const auto semaphore=memory.load<std::uint32_t>(scratch);
+        const std::array semaphore_object{s.handles.at(semaphore).address};
+        exercise([&] {call(222,{semaphore,2,0});},semaphore_object,false,0,semaphore_object,false,0);
+        require(memory.load<std::uint32_t>(semaphore_object[0]+4)==0,"each released semaphore wait consumes one count");
+        call(187,{semaphore});
+        call(187,{sync});call(187,{notify});
+    }
+    require(call(301,{0xC000004A})==156,"suspend-count overflow maps to ERROR_SIGNAL_REFUSED");
     constexpr std::string_view name="\\Device\\CdRom0\\default.xbe";
     std::memcpy(memory.access(scratch+0x100,name.size()),name.data(),name.size());
     memory.store<std::uint16_t>(scratch+0x80,static_cast<std::uint16_t>(name.size()));
@@ -3136,9 +3225,41 @@ std::string check_services(Xbe& image,const std::filesystem::path& disc,const st
     std::memcpy(memory.access(scratch+0x100,writable.size()),writable.data(),writable.size());
     memory.store<std::uint16_t>(scratch+0x80,static_cast<std::uint16_t>(writable.size()));
     memory.store<std::uint16_t>(scratch+0x82,static_cast<std::uint16_t>(writable.size()));
-    require(call(190,{scratch,GENERIC_READ|GENERIC_WRITE|SYNCHRONIZE,scratch+0x40,scratch+0x20,0,0,0,2,0x28})==success,
+    require(call(190,{scratch,GENERIC_READ|GENERIC_WRITE|SYNCHRONIZE,scratch+0x40,scratch+0x20,0,0,0,2,0x2A})==success,
         "create unbuffered native storage file");
     const auto writable_handle=memory.load<std::uint32_t>(scratch);
+    require(file_write_through(s.handles.at(writable_handle).file->native),"synchronous save opened with native write-through");
+    const auto metadata=scratch+0x400;
+    memory.store<std::uint64_t>(metadata,65536);
+    require(call(226,{writable_handle,scratch+0x20,metadata,8,19})==success,"reserve 64 KiB on empty file");
+    for(unsigned type:{5U,19U,34U}) {
+        require(call(211,{writable_handle,scratch+0x20,metadata,52,type})==success &&
+            memory.load<std::uint64_t>(metadata+(type==34?32:0))==65536,"allocation query includes reservation");
+        if(type!=19) require(memory.load<std::uint64_t>(metadata+(type==34?40:8))==0,"reservation preserves EOF");
+    }
+    constexpr std::uint64_t write_time=132537600000000000ULL,change_time=write_time+40000000;
+    memory.fill_elements<std::uint32_t>(metadata,0,9,false);
+    memory.store<std::uint64_t>(metadata+16,write_time);memory.store<std::uint64_t>(metadata+24,change_time);
+    require(call(226,{writable_handle,scratch+0x20,metadata,36,4})==success,"set distinct write and change timestamps");
+    for(unsigned type:{4U,34U}) require(call(211,{writable_handle,scratch+0x20,metadata,52,type})==success &&
+        memory.load<std::uint64_t>(metadata+16)==write_time && memory.load<std::uint64_t>(metadata+24)==write_time,
+        "both handle queries expose the FATX update time");
+    memory.fill_elements<std::uint32_t>(metadata,0,9,false);
+    memory.store<std::uint64_t>(metadata+24,change_time);
+    require(call(226,{writable_handle,scratch+0x20,metadata,36,4})==success,"FATX ignores a change-time-only request");
+    require(call(210,{scratch+0x40,metadata})==success && memory.load<std::uint64_t>(metadata+16)==write_time &&
+        memory.load<std::uint64_t>(metadata+24)==write_time && memory.load<std::uint64_t>(metadata+32)==65536 &&
+        memory.load<std::uint64_t>(metadata+40)==0,"path and handle report identical timestamps, allocation and EOF");
+    for(unsigned reservation:{16384U,0U}) {
+        memory.store<std::uint64_t>(metadata,reservation);
+        require(call(226,{writable_handle,scratch+0x20,metadata,8,19})==success &&
+            call(211,{writable_handle,scratch+0x20,metadata,24,5})==success &&
+            memory.load<std::uint64_t>(metadata)==reservation && memory.load<std::uint64_t>(metadata+8)==0,
+            "shrinking and releasing a reservation preserves EOF");
+    }
+    require(call(202,{scratch,FILE_READ_ATTRIBUTES|SYNCHRONIZE,scratch+0x40,scratch+0x20,0,0x20})==success,
+        "exclusive data handle allows metadata-only open");
+    call(187,{memory.load<std::uint32_t>(scratch)});
     require(call(211,{writable_handle,scratch+0x20,scratch+0x400,4,8})==success &&
         memory.load<std::uint32_t>(scratch+0x400)==(FILE_GENERIC_READ|FILE_GENERIC_WRITE),"native files use mapped read/write rights");
     memory.store<std::uint64_t>(scratch+0x30,0);
@@ -3151,6 +3272,20 @@ std::string check_services(Xbe& image,const std::filesystem::path& disc,const st
         s.file_size(*s.handles.at(writable_handle).file)==512,"invalid write offset leaves the file size intact");
     const auto native_path=s.handles.at(writable_handle).file->host_path;
     require(call(187,{writable_handle})==success,"close native storage diagnostic file");
+    require(call(202,{scratch,FILE_READ_ATTRIBUTES|SYNCHRONIZE,scratch+0x40,scratch+0x20,0,0x20})==success,
+        "open metadata-only handle first");
+    const auto metadata_handle=memory.load<std::uint32_t>(scratch);
+    require(call(202,{scratch,FILE_GENERIC_WRITE|DELETE,scratch+0x40,scratch+0x20,0,2})==success,
+        "metadata-only open allows exclusive writable open");
+    const auto delete_handle=memory.load<std::uint32_t>(scratch);
+    require(file_write_through(s.handles.at(delete_handle).file->native),"asynchronous save opened with native write-through");
+    for(unsigned mark:{1U,0U}) {
+        memory.store<std::uint8_t>(metadata,mark);
+        require(call(226,{delete_handle,scratch+0x20,metadata,1,13})==success &&
+            call(211,{delete_handle,scratch+0x20,metadata,24,5})==success && memory.load<std::uint8_t>(metadata+20)==mark,
+            "standard information follows delete disposition");
+    }
+    call(187,{delete_handle});call(187,{metadata_handle});
     const auto reference=CreateFileW(native_path.c_str(),GENERIC_ALL,7,nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS,nullptr);
     const auto full_access_status=reference==INVALID_HANDLE_VALUE?file_error(GetLastError()):success;
     if(reference!=INVALID_HANDLE_VALUE) CloseHandle(reference);

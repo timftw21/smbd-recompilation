@@ -381,28 +381,57 @@ Image load_image(const std::filesystem::path& path) {
     std::free(pixels);return result;
 #endif
 }
-std::string compare_images(const std::filesystem::path& actual, const std::filesystem::path& reference,
-                           const std::filesystem::path& difference, unsigned tolerance) {
+ImageComparison compare_images(const Image& a,const Image& b,unsigned tolerance) {
     if (tolerance > 255) throw std::runtime_error("Image tolerance must be 0..255");
-    const auto a = load_image(actual), b = load_image(reference);
     if (a.width != b.width || a.height != b.height) throw std::runtime_error("Image dimensions differ; align reference viewpoint and size first");
-    Image diff{a.width, a.height, std::vector<std::byte>(a.rgba.size())};
-    std::uint64_t sum = 0, changed = 0;
-    unsigned maximum = 0;
+    ImageComparison result{{a.width,a.height,std::vector<std::byte>(a.rgba.size())}};
     for (std::size_t i = 0; i < a.rgba.size(); i += 4) {
-        bool over = false;
+        unsigned pixel_error=0;
         for (unsigned lane = 0; lane < 3; ++lane) {
             const auto delta = static_cast<unsigned>(std::abs(int(a.rgba[i + lane]) - int(b.rgba[i + lane])));
-            sum += delta; maximum = std::max(maximum, delta); over |= delta > tolerance;
-            diff.rgba[i + lane] = std::byte(delta);
+            result.total_error+=delta;pixel_error=std::max(pixel_error,delta);
+            result.difference.rgba[i+lane]=std::byte(delta);
         }
-        diff.rgba[i + 3] = std::byte{255};
-        changed += over;
+        result.difference.rgba[i+3]=std::byte{255};
+        result.changed+=pixel_error!=0;result.over_tolerance+=pixel_error>tolerance;
+        result.maximum=std::max(result.maximum,pixel_error);
     }
-    save_png(diff, difference);
+    return result;
+}
+std::string compare_images(const std::filesystem::path& actual,const std::filesystem::path& reference,
+                           const std::filesystem::path& difference,unsigned tolerance) {
+    const auto comparison=compare_images(load_image(actual),load_image(reference),tolerance);
+    const auto& diff=comparison.difference;save_png(diff,difference);
     return std::format("{{\"format\":\"smbd-image-compare-v1\",\"passed\":{},\"width\":{},\"height\":{},\"tolerance\":{},\"pixels_over_tolerance\":{},\"maximum_error\":{},\"mean_absolute_error\":{},\"difference\":{}}}",
-                       changed == 0, a.width, a.height, tolerance, changed, maximum,
-                       double(sum) / (double(a.width) * a.height * 3), json(utf8(difference.wstring())));
+                       comparison.over_tolerance==0,diff.width,diff.height,tolerance,comparison.over_tolerance,comparison.maximum,
+                       double(comparison.total_error)/(double(diff.width)*diff.height*3),json(path_text(difference)));
+}
+
+// The union (or complement) is constant between consecutive window Y edges.
+// Emit disjoint spans so depth, stencil and blending execute once per pixel.
+template<class Draw> void draw_clip_windows(const RenderState& state,Draw draw) {
+    std::array<int,18> edges{state.scissor[1],state.scissor[3]};
+    unsigned edge_count=2;
+    for(const auto& rect:std::span(state.clip_windows).first(state.window_count)) {
+        edges[edge_count++]=rect[1];edges[edge_count++]=rect[3];
+    }
+    std::sort(edges.begin(),edges.begin()+edge_count);
+    for(unsigned edge=1;edge<edge_count;++edge) {
+        const auto top=edges[edge-1],bottom=edges[edge];
+        if(top==bottom) continue;
+        std::array<std::pair<int,int>,8> spans;unsigned count=0;
+        for(const auto& rect:std::span(state.clip_windows).first(state.window_count))
+            if(rect[1]<=top && top<rect[3]) spans[count++]={rect[0],rect[2]};
+        std::sort(spans.begin(),spans.begin()+count);
+        auto cursor=state.scissor[0];
+        for(const auto& [left,right]:std::span(spans).first(count)) {
+            if(state.exclude_windows) {
+                if(cursor<left) draw(ScissorRect{cursor,top,left,bottom});
+            } else if(cursor<right) draw(ScissorRect{std::max(cursor,left),top,right,bottom});
+            cursor=std::max(cursor,right);
+        }
+        if(state.exclude_windows && cursor<state.scissor[2]) draw(ScissorRect{cursor,top,state.scissor[2],bottom});
+    }
 }
 
 struct Renderer::Impl {
@@ -2267,12 +2296,6 @@ void Renderer::Impl::draw(const RenderState& state,Bytes vertex_bytes,std::size_
         program?program->vertex.Get():r.vs.Get(),
         simple<r.simple_combiners.size()?r.simple_combiners[simple].Get():r.combiners[state.combiner_control&255].Get(),
         r.blend_states.get(pipeline.blend),r.depth_states.get(pipeline.depth),r.raster_states.get(pipeline.raster),state.stencil_reference,views,samplers,{}};
-    if(state.scissor_test) {
-        const auto scale=LONG(r.resolution_scale);
-        for(unsigned i=0;i<bindings.scissor.size();++i) bindings.scissor[i]=state.scissor[i]*scale;
-        if(bindings.scissor[2]<bindings.scissor[0] || bindings.scissor[3]<bindings.scissor[1])
-            throw std::runtime_error("Invalid scissor rectangle");
-    }
     const auto& bound=r.bound_draw;
     if(!bound || bound->layout!=bindings.layout) r.context->IASetInputLayout(bindings.layout);
     if(!bound || bound->topology!=bindings.topology) r.context->IASetPrimitiveTopology(bindings.topology);
@@ -2289,14 +2312,7 @@ void Renderer::Impl::draw(const RenderState& state,Bytes vertex_bytes,std::size_
     if(!bound || bound->depth!=bindings.depth || bound->stencil_reference!=bindings.stencil_reference)
         r.context->OMSetDepthStencilState(bindings.depth,bindings.stencil_reference);
     if(!bound || bound->raster!=bindings.raster) r.context->RSSetState(bindings.raster);
-    if(state.scissor_test && (!bound || bound->raster!=bindings.raster || bound->scissor!=bindings.scissor)) {
-        const auto& rect=bindings.scissor;
-        const D3D11_RECT native_rect{rect[0],rect[1],rect[2],rect[3]};
-        r.context->RSSetScissorRects(1,&native_rect);
-    }
-    r.bound_draw=bindings;
-    if (indices.empty()) r.context->Draw(static_cast<UINT>(vertex_count), 0);
-    else {
+    if(!indices.empty()) {
         UINT index_offset=0;
         {
             PerfScope scope(r.profile,PerfPhase::buffer_upload);
@@ -2304,8 +2320,28 @@ void Renderer::Impl::draw(const RenderState& state,Bytes vertex_bytes,std::size_
             std::memcpy(destination,indices.data(),indices.size_bytes());r.context->Unmap(r.index_buffer.Get(),0);
         }
         r.context->IASetIndexBuffer(r.index_buffer.Get(), DXGI_FORMAT_R32_UINT, index_offset);
-        r.context->DrawIndexed(static_cast<UINT>(indices.size()), 0, 0);
     }
+    const auto issue=[&] {
+        if(indices.empty()) r.context->Draw(static_cast<UINT>(vertex_count),0);
+        else r.context->DrawIndexed(static_cast<UINT>(indices.size()),0,0);
+    };
+    bool scissor_bound=bound && bound->raster==bindings.raster;
+    if(bound) bindings.scissor=bound->scissor;
+    const auto clipped=[&](const ScissorRect& rect) {
+        if(rect[2]<rect[0] || rect[3]<rect[1]) throw std::runtime_error("Invalid scissor rectangle");
+        if(rect[2]==rect[0] || rect[3]==rect[1]) return;
+        std::array<LONG,4> scaled;
+        for(unsigned i=0;i<4;++i) scaled[i]=rect[i]*LONG(r.resolution_scale);
+        if(!scissor_bound || bindings.scissor!=scaled) {
+            const D3D11_RECT native{scaled[0],scaled[1],scaled[2],scaled[3]};
+            r.context->RSSetScissorRects(1,&native);bindings.scissor=scaled;scissor_bound=true;
+        }
+        issue();
+    };
+    if(!state.scissor_test) issue();
+    else if(!state.window_count) clipped(state.scissor);
+    else draw_clip_windows(state,clipped);
+    r.bound_draw=bindings;
     ++r.stats.draws; r.stats.vertices += count;
 }
 void Renderer::end() {

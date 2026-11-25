@@ -1741,14 +1741,17 @@ public:
             const auto dividend = bits == 8 ? read_reg(ZYDIS_REGISTER_AX) :
                 "(std::uint64_t(" + read_reg(bits == 16 ? ZYDIS_REGISTER_DX : ZYDIS_REGISTER_EDX) + ") << " +
                 std::to_string(bits) + ") | " + read_reg(accumulator);
+            calls=true;
             body << "    const auto quotient = smbd::divide<" << bits << ", "
-                 << (ins.mnemonic == ZYDIS_MNEMONIC_IDIV ? "true" : "false") << ">(" << dividend << ", " << read(operands[0]) << ");\n";
+                 << (ins.mnemonic == ZYDIS_MNEMONIC_IDIV ? "true" : "false") << ">(" << dividend << ", " << read(operands[0]) << ");\n"
+                 << "    if (!quotient) { commit(); cpu.eip=" << constant(instruction.address)
+                 << "; throw smbd::GuestTrap(0,cpu.eip,cpu.eip); }\n";
             ZydisDecodedOperand dest{};
             dest.type = ZYDIS_OPERAND_TYPE_REGISTER;
             dest.reg.value = accumulator;
-            write(dest, "quotient.value");
+            write(dest, "quotient->value");
             dest.reg.value = bits == 8 ? ZYDIS_REGISTER_AH : bits == 16 ? ZYDIS_REGISTER_DX : ZYDIS_REGISTER_EDX;
-            write(dest, "quotient.remainder"); break;
+            write(dest, "quotient->remainder"); break;
         }
         case ZYDIS_MNEMONIC_MOVSB: case ZYDIS_MNEMONIC_MOVSW: case ZYDIS_MNEMONIC_MOVSD:
         case ZYDIS_MNEMONIC_STOSB: case ZYDIS_MNEMONIC_STOSW: case ZYDIS_MNEMONIC_STOSD: {
@@ -2049,6 +2052,7 @@ LoweredFunction lower(const Function& function) {
     if(text_update) out << ", bool frame_text_style, bool frame_text_placement";
     if(camera_shake) out << ", bool frame_shake_step, bool frame_shake_draw, std::uint32_t frame_shake_sample";
     out << ") {\n";
+    if(function.entry==game_dispatcher) out<<"    if(cpu.dispatcher_entered) *cpu.dispatcher_entered=true;\n";
     out << "    if(smbd::checkpoint_due(cpu)) smbd::checkpoint(cpu," << constant(function.entry) << ");\n";
     const auto entry_begin=out.view().size();
     if(function.entry==0xE9180)

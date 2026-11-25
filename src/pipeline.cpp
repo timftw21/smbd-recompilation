@@ -39,7 +39,9 @@ std::string prepare_disc(const std::filesystem::path& image,
             index << path << '\t' << entry.sector << '\t' << entry.size << '\t' << digest << '\n';
             const bool shader=extraction==DiscExtraction::shaders && path.starts_with("media/") && extension==".xvu";
             if (extraction==DiscExtraction::all || executable || shader) {
-                const auto destination = output / utf8_path(path);
+                // Build scripts and the installer share this canonical host path.
+                const auto destination = output / (directory.empty() && entry.name==target_entry.name
+                    ? std::filesystem::path("default.xbe") : utf8_path(path));
                 if (std::filesystem::exists(destination)) {
                     File previous(destination);
                     if (previous.size() != entry.size || hash(previous, 0, previous.size()) != digest)

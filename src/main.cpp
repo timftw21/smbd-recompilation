@@ -440,7 +440,7 @@ int run(int argc,char** argv,bool restarting=false) {
         return presented;
     };
     bool display_paced_frame=false;
-    host.renderer=&renderer;host.input=&input;host.main_address=0x00014B90;host.capture=capture;
+    host.renderer=&renderer;host.input=&input;host.capture=capture;
     host.trace_io=!report.empty();
     host.trace_storage=trace_storage;
     host.mute_audio=muted;

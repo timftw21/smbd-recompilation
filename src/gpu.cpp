@@ -34,7 +34,7 @@ constexpr unsigned max_elements=32768, max_inline_words=2*1024*1024;
 // These NV097 settings are consumed by later methods and draws. A packet may
 // copy the register image directly only when every word stays in one range.
 bool register_packet(unsigned first,unsigned last) {
-    return (first>=0x200 && last<0x440) || // Surface, combiner inputs and fixed state.
+    return (first>=0x200 && last<0x440 && (last<0x2C0 || first>=0x300)) || // Window methods also write later slots.
         (first>=0x9C0 && last<=0x9C8) || (first>=0xA60 && last<=0xADC) || // Fog and combiners.
         (first>=0x1720 && last<=0x17F8) || (first>=0x181C && last<0x1880) || // Vertex formats and array state.
         (first>=0x1B00 && last<0x1C00) || (first>=0x1E20 && last<=0x1E7C); // Texture units and final combiners.
@@ -46,6 +46,20 @@ RenderState gpu_render_state(std::span<const std::uint32_t,2048> registers,std::
     const auto horizontal=reg(0x200),vertical=reg(0x204);
     s.scissor_test=true;s.scissor={std::int32_t(horizontal&0xFFFF),std::int32_t(vertical&0xFFFF),
         std::int32_t((horizontal&0xFFFF)+(horizontal>>16)),std::int32_t((vertical&0xFFFF)+(vertical>>16))};
+    s.exclude_windows=(reg(0x2B4)&1)!=0;
+    for(unsigned slot=0;slot<8;++slot) {
+        const auto x=reg(0x2C0+4*slot),y=reg(0x2E0+4*slot);
+        const ScissorRect rect{std::max(s.scissor[0],int(x&4095)),std::max(s.scissor[1],int(y&4095)),
+            std::min(s.scissor[2],int((x>>16)&4095)+1),std::min(s.scissor[3],int((y>>16)&4095)+1)};
+        if(rect[0]>=rect[2] || rect[1]>=rect[3]) continue;
+        if(rect==s.scissor) {s.window_count=1;s.clip_windows[0]=rect;break;}
+        const auto end=s.clip_windows.begin()+s.window_count;
+        if(std::find(s.clip_windows.begin(),end,rect)==end) s.clip_windows[s.window_count++]=rect;
+    }
+    if(!s.window_count && !s.exclude_windows) s.scissor={};
+    if(s.window_count==1 && (!s.exclude_windows || s.clip_windows[0]==s.scissor)) {
+        s.scissor=s.exclude_windows?ScissorRect{}:s.clip_windows[0];s.window_count=0;
+    }
     s.primitive=primitive;s.blend=reg(0x304)!=0;s.depth_test=reg(0x30C)!=0;s.depth_write=reg(0x35C)!=0;
     s.alpha_test=reg(0x300)!=0;s.cull=reg(0x308)!=0;s.front_ccw=reg(0x3A0)==0x901;
     s.depth_function=reg(0x354);s.alpha_function=reg(0x33C);s.alpha_reference=reg(0x340);
@@ -371,14 +385,14 @@ struct Gpu::Impl {
         capture_record(std::format("{{\"type\":\"surface\",\"resource\":{},\"color\":{},\"depth\":{},\"format\":{},\"pitch\":{},\"width\":{},\"height\":{},\"image\":{},\"depth_data\":{}}}",
             id,json(hex32(key[0])),json(hex32(key[1])),json(hex32(key[2])),json(hex32(key[3])),width,height,image,depth));
     }
-    void capture_flip() {
+    void capture_flip(std::uint32_t presented_target) {
         capture_try([&] {
             if(capture_active) {
                 const auto main=renderer.read_target(0);
                 save_png(main,capture.directory/"frame.png");capture_image_bytes+=main.rgba.size();
                 for(const auto& [key,surface]:targets) capture_surface(surface.identifier,surface.width,surface.height,key);
-                capture_record(std::format("{{\"type\":\"end\",\"frame\":{},\"draws\":{},\"binary_bytes\":{},\"truncated\":{}}}",
-                    statistics.flips,capture_draws,capture_bytes,capture.truncated),true);
+                capture_record(std::format("{{\"type\":\"end\",\"frame\":{},\"presented_target\":{},\"draws\":{},\"binary_bytes\":{},\"truncated\":{}}}",
+                    statistics.flips,presented_target,capture_draws,capture_bytes,capture.truncated),true);
                 capture_trace.close();capture_active=false;capture.pending=false;capture.complete=true;capture_manifest();
                 diagnostic_record("{\"type\":\"frame_capture_saved\",\"directory\":"+json(path_text(capture.directory))+",\"truncated\":"+(capture.truncated?"true":"false")+'}');
             } else {
@@ -724,6 +738,10 @@ struct Gpu::Impl {
             objects[subchannel]=data;classes[subchannel]=found->second;return;
         }
         registers[subchannel][method/4]=data;
+        if(classes[subchannel]==0x97 && method>=0x2C0 && method<0x300) {
+            auto& bank=registers[subchannel];
+            std::fill(bank.begin()+method/4+1,bank.begin()+((method&~31U)+32)/4,data);
+        }
         if(classes[subchannel]!=0x97) {
             auto& state=object_state.at(objects[subchannel]);state[method/4]=data;
             if(method==0x104) throw std::runtime_error("Native 2D object notification is not bound");
@@ -867,8 +885,9 @@ struct Gpu::Impl {
             flush();
         }
         else if(method==0x12C) {
-            flush();select_target();renderer.copy_to_main();target=0;++statistics.flips;
-            if(capture.pending) capture_flip();
+            flush();select_target();renderer.copy_to_main();++statistics.flips;
+            if(capture.pending) capture_flip(target);
+            target=0;
             if(owner.flip) owner.flip();
         }
     }
@@ -1124,6 +1143,7 @@ std::string Gpu::check_bump_mapping() {
     std::array<std::uint32_t,2048> registers{};
     const auto reg=[&](unsigned method)->std::uint32_t& {return registers[method/4];};
     reg(0x200)=reg(0x204)=8U<<16;reg(0x350)=0x8006;reg(0x354)=0x201;reg(0x358)=0x01010101;
+    reg(0x2C0)=reg(0x2E0)=7U<<16;
     reg(0x364)=0x207;reg(0x370)=reg(0x374)=reg(0x378)=0x1E00;
     for(unsigned i=0;i<4;++i) {reg(0x1B08+i*0x40)=0x030303;reg(0x1B14+i*0x40)=0x01010000;}
     std::array<Vertex,4> vertices{};
@@ -1196,6 +1216,39 @@ std::string Gpu::check_texture_cache() {
     reg(0x1B10)=32U<<16;reg(0x1B1C)=(8U<<16)|8U;
     std::vector<std::pair<std::string,bool>> cases;
     const auto expect=[&](std::string name,bool passed) {cases.emplace_back(std::move(name),passed);};
+    {
+        const auto saved=g.registers[0];g.method(0,0,0xD);
+        reg(0x200)=reg(0x204)=8U<<16;reg(0x288)=4;reg(0x28C)=0x1400;
+        reg(0x304)=reg(0x344)=reg(0x348)=1;reg(0x350)=0x8006;reg(0x358)=0x01010101;
+        reg(0x354)=0x201;reg(0x364)=0x207;reg(0x370)=reg(0x374)=reg(0x378)=0x1E00;
+        for(unsigned i=0;i<4;++i) {reg(0x1B08+i*0x40)=0x030303;reg(0x1B14+i*0x40)=0x01010000;}
+        std::array<Vertex,4> quad{};
+        quad[0].position={-1,1,0,1};quad[1].position={1,1,0,1};quad[2].position={1,-1,0,1};quad[3].position={-1,-1,0,1};
+        for(auto& v:quad) v.color={0.25f,0,0,1};
+        // Issue real incrementing and single-word packets; the last written slot repeats.
+        const auto windows=[&](unsigned method,unsigned first,unsigned second) {
+            memory.store<std::uint32_t>(0x1000,(2U<<18)|method);
+            memory.store<std::uint32_t>(0x1004,first);memory.store<std::uint32_t>(0x1008,second);
+            gpu.submit(0x1000,0x100C);
+        };
+        for(bool overlap:{false,true}) for(bool exclude:{false,true}) {
+            const unsigned left=overlap?2:6;
+            windows(0x2C0,(4U<<16)|1,(7U<<16)|left);
+            windows(0x2E0,(3U<<16)|1,(6U<<16)|2);
+            reg(0x2B4)=exclude;
+            const auto state=gpu_render_state(g.registers[0],8);
+            renderer.prepare(state);renderer.begin();renderer.draw(state,quad);renderer.end();
+            const auto image=renderer.readback();bool matches=true;
+            for(unsigned y=0;y<8;++y) for(unsigned x=0;x<8;++x) {
+                const bool inside=(x>=1 && x<=4 && y>=1 && y<=3) || (x>=left && y>=2 && y<=6);
+                matches&=std::to_integer<unsigned>(image.rgba[(y*8+x)*4])==(inside!=exclude?64:0);
+            }
+            expect(std::format("{} {} clip windows count each covered pixel once",exclude?"exclusive":"inclusive",overlap?"overlapping":"disjoint"),matches);
+        }
+        g.method(0,0x2C0,0);
+        expect("earlier window write replaces later slots",reg(0x2C4)==0 && reg(0x2DC)==0 && reg(0x2FC)==((6U<<16)|2));
+        g.registers[0]=saved;
+    }
     const auto sample=[&](std::uint32_t id,bool border=false) {
         RenderState state;state.primitive=8;state.texture_modes[0]=1;state.textures[0]=id;state.final_inputs={8,0x1800};
         if(border) {state.texture_address[0]=0x040404;state.texture_border=gpu_render_state(g.registers[0],8).texture_border;}

@@ -3,6 +3,7 @@
 #include <cstdint>
 
 namespace smbd {
+inline constexpr std::uint32_t game_dispatcher=0x00014B90;
 // Original routines entered directly by the native bridge, outside guest calls.
 // Keep the bridge's accepted entries and whole-game reachability in agreement.
 inline constexpr std::array native_graphics_helpers{

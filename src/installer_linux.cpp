@@ -307,8 +307,10 @@ void write_entry(const fs::path& path,std::string_view text,mode_t mode) {
     const int handle=open(temporary.c_str(),O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC|O_NOFOLLOW,mode);
     if(handle<0) system_error("Cannot create the game's menu entry");
     try {write_all(handle,std::as_bytes(std::span(text)));} catch(...) {close(handle);unlink(temporary.c_str());throw;}
-    if(fchmod(handle,mode)!=0 || close(handle)!=0) {unlink(temporary.c_str());system_error("Cannot save the game's menu entry");}
-    if(rename(temporary.c_str(),path.c_str())!=0) {unlink(temporary.c_str());system_error("Cannot save the game's menu entry");}
+    int error=fchmod(handle,mode)==0?0:errno;
+    if(close(handle)!=0 && !error) error=errno;
+    if(!error && rename(temporary.c_str(),path.c_str())!=0) error=errno;
+    if(error) {unlink(temporary.c_str());errno=error;system_error("Cannot save the game's menu entry");}
 }
 void remove_entry(const fs::path& path,const fs::path& root) {
     if(entry_location(path)==root) {std::error_code error;fs::remove(path,error);}
@@ -400,7 +402,7 @@ void install(const fs::path& source,const fs::path& chosen,bool copy_disc,std::o
     auto pending=recorded;pending.insert(previous_files.begin(),previous_files.end());
     write_manifest(staging/"install-manifest.pending",pending);
     std::vector<fs::path> files(recorded.begin(),recorded.end());
-    files.push_back("data/local/settings.cfg");files.push_back("install-manifest.txt");cancellation();
+    files.push_back("data/local/settings.cfg");cancellation();
     if(game_running(root)) throw std::runtime_error("Close the game and its diagnostics, then try installing again.");
     report(4,0,"Finishing installation");
     const auto move=[](const fs::path& from,const fs::path& to) {
@@ -415,11 +417,7 @@ void install(const fs::path& source,const fs::path& chosen,bool copy_disc,std::o
         move(staging/file,root/file);
         report(4,unsigned(++committed*100/files.size()),"Finishing installation");
     }
-    // Remove application files that this version no longer ships.
-    for(const auto& file:previous_files) if(!recorded.contains(file)) {
-        std::error_code error;fs::remove(root/file,error);
-        for(auto parent=file.parent_path();!parent.empty();parent=parent.parent_path()) fs::remove(root/parent,error);
-    }
+    smbd::finish_install_manifest(root,staging,previous_files,recorded);
     if(registration) register_install(root,desktop);
     {std::lock_guard guard(state.mutex);state.installed=root;}
     report(4,100,"Ready to play. Your installation is complete.");

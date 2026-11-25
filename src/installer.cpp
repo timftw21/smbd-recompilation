@@ -320,7 +320,7 @@ void install(const std::filesystem::path& iso,const std::filesystem::path& chose
     auto pending=recorded;pending.insert(previous_files.begin(),previous_files.end());
     write_manifest(staging/"install-manifest.pending",pending);
     std::vector<std::filesystem::path> files(recorded.begin(),recorded.end());
-    files.push_back("data/local/settings.cfg");files.push_back("install-manifest.txt");cancellation();
+    files.push_back("data/local/settings.cfg");cancellation();
     // Detect a running game before replacing or removing any of its application files.
     for(const auto& file:pending) if(file!="data/local/game.iso" && std::filesystem::exists(root/file)) {
         const auto handle=CreateFileW((root/file).c_str(),GENERIC_WRITE|DELETE,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
@@ -340,11 +340,7 @@ void install(const std::filesystem::path& iso,const std::filesystem::path& chose
         move(staging/file,root/file);
         report(4,unsigned(++committed*100/files.size()),"Finishing installation");
     }
-    // Remove application files that this version no longer ships.
-    for(const auto& file:previous_files) if(!recorded.contains(file)) {
-        std::error_code error;std::filesystem::remove(root/file,error);
-        for(auto parent=file.parent_path();!parent.empty();parent=parent.parent_path()) RemoveDirectoryW((root/parent).c_str());
-    }
+    smbd::finish_install_manifest(root,staging,previous_files,recorded);
     if(registration) register_install(root,desktop);
     report(4,100,"Ready to play. Your installation is complete.");
 }
