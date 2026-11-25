@@ -10,7 +10,7 @@
 
 An unofficial native version of the original Xbox game for Windows, Linux x86-64, and Steam Deck, built around accurate gameplay, original presentation, and enhancements. This fan project is independent of SEGA. You must provide your own US Xbox game disc image. Original game files are not distributed here.
 
-**0.8.0 is the latest public development release.** Bugs, slowdowns, and stops in untested game modes are still possible. Linux and Steam Deck support needs more testing. macOS remains a planned target.
+**0.8.5 is the latest public development release.** Bugs, slowdowns, and stops in untested game modes are still possible. Linux and Steam Deck support needs more testing. macOS remains a planned target.
 
 ## AI disclosure
 
@@ -26,16 +26,11 @@ OpenAI Codex and Anthropic Claude have assisted with development and research. C
 
 ## Current status
 
-### Changes in 0.8.0
+### Changes in 0.8.5
 
-- Fixed fresh Linux builds on case-sensitive filesystems. The build now finds the executable it extracts from the disc.
-- Fixed a threading bug that could leave one game thread waiting when the same event was signaled twice before either waiting thread could run.
-- Save files now honor write-through requests and report reserved space, timestamps, and pending deletions consistently. On Linux, the game can also read metadata from an open save file.
-- Fixed rendering when the game uses several clipping rectangles or excludes part of the screen.
-- Frame replay now selects the surface the game displayed and supports frames that only clear the screen. Full replays report failure for incomplete captures or pixel differences beyond the chosen tolerance.
-- If an update cannot remove an obsolete file, the installer reports the error and retries cleanup the next time you run it.
-
-All 16 fixes and their verification results are documented in the [correctness audit](knowledge/correctness_audit.txt).
+- Fixed more timing issues.
+- Addressed an issue with World 6's steam rendering improperly at higher internal resolutions.
+- Render distance override now handles foliage more gracefully. Landscapes and trees should look far less pixelated now.
 
 ### Known issues
 
@@ -67,7 +62,7 @@ All 16 fixes and their verification results are documented in the [correctness a
 
 You need a Direct3D 11-capable graphics card and an XISO image of the **US Xbox release of Super Monkey Ball Deluxe**. A full raw-disc dump must first be converted to XISO. The executable is checked against [the supported-target registry](knowledge/supported_target.json).
 
-**[Download the 0.8.0 Windows installer](https://github.com/timftw21/smbd-recompilation/releases/download/v0.8.0/smbd-0.8.0-windows-x64-setup.exe)** · [Release notes and SHA-256 checksum](https://github.com/timftw21/smbd-recompilation/releases/tag/v0.8.0)
+**[Download the 0.8.5 Windows installer](https://github.com/timftw21/smbd-recompilation/releases/download/v0.8.5/smbd-0.8.5-windows-x64-setup.exe)** · [Release notes and SHA-256 checksum](https://github.com/timftw21/smbd-recompilation/releases/tag/v0.8.5)
 
 1. Run the installer and select your US Xbox XISO image.
 2. Choose an installation folder. You can keep a copy of the image with the game and create a desktop shortcut.
@@ -102,9 +97,9 @@ In **Game Files**, select your disc image and the prepared `data/local/default.x
 
 You need a Vulkan 1.4 driver and a distribution with glibc 2.38 and GCC 13.2's libstdc++ or newer, such as Ubuntu 24.04, Fedora 39, Debian 13, or a current Arch-based system.
 
-**[Download the 0.8.0 Linux installer](https://github.com/timftw21/smbd-recompilation/releases/download/v0.8.0/smbd-0.8.0-linux-x64-setup)** · [Release notes and SHA-256 checksum](https://github.com/timftw21/smbd-recompilation/releases/tag/v0.8.0)
+**[Download the 0.8.5 Linux installer](https://github.com/timftw21/smbd-recompilation/releases/download/v0.8.5/smbd-0.8.5-linux-x64-setup)** · [Release notes and SHA-256 checksum](https://github.com/timftw21/smbd-recompilation/releases/tag/v0.8.5)
 
-Allow the download to run as a program, either in your file manager's file properties or with `chmod +x smbd-0.8.0-linux-x64-setup`.
+Allow the download to run as a program, either in your file manager's file properties or with `chmod +x smbd-0.8.5-linux-x64-setup`.
 
 1. Open the installer and select your US Xbox XISO image. You can also drag the image onto the window.
 2. Choose an installation folder. You can keep a copy of the image with the game and create a desktop shortcut.
