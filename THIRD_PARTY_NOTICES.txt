@@ -184,4 +184,7 @@ and zlib) are bundled from Ubuntu 24.04; their license texts are in licenses/.
 This software is based in part on the work of the Independent JPEG Group.
 The Linux installer statically links XZ Utils' liblzma (public domain/0BSD):
 https://tukaani.org/xz/
+The Linux AppImage includes the AppImage type-2 runtime (MIT license above).
+Copyright (c) 2004-23 probonopd.
+https://github.com/AppImage/type2-runtime/tree/20251108
 The verified dependency archives contain their respective license texts.

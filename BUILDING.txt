@@ -222,6 +222,23 @@ watches are Windows-only. For automated runs use --mute with the game.
 The settings file picker uses SDL's native dialog. Install your desktop's XDG
 portal on Wayland if the file picker is unavailable.
 
+Linux AppImage (build on Ubuntu 24.04 x86-64)
+
+Install squashfs-tools in addition to the Linux build prerequisites. Run one
+of these commands to build from your disc or package an existing Release build.
+
+  bash tools/Package.sh --appimage DISC
+  bash tools/Package.sh --appimage --skip-build
+
+The result and SHA-256 checksum are in build/release. The packager uses the
+same Runtime component and library selection as the installer and verifies the
+pinned AppImage runtime before assembling the image. To check a download, run
+sha256sum -c smbd-VERSION-linux-x86_64.AppImage.sha256 beside the AppImage.
+
+Run the AppImage with --import-disc DISC once, then open it to play. Pass
+--tool COMMAND to use the bundled diagnostics. On a system without FUSE,
+place --appimage-extract-and-run before the game or tool arguments.
+
 Linux release installer (build on Ubuntu 24.04 x86-64):
 
   bash tools/Package.sh DISC

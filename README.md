@@ -10,7 +10,7 @@
 
 An unofficial native version of the original Xbox game for Windows, Linux x86-64, and Steam Deck, built around accurate gameplay, original presentation, and enhancements. This fan project is independent of SEGA. You must provide your own US Xbox game disc image. Original game files are not distributed here.
 
-**0.8.5 is the latest public development release.** Bugs, slowdowns, and stops in untested game modes are still possible. Linux and Steam Deck support needs more testing. macOS remains a planned target.
+**1.0.0 is the latest public release.** Bugs, slowdowns, and stops in untested game modes are still possible. Linux and Steam Deck support needs more testing. macOS remains a planned target.
 
 ## AI disclosure
 
@@ -26,11 +26,10 @@ OpenAI Codex and Anthropic Claude have assisted with development and research. C
 
 ## Current status
 
-### Changes in 0.8.5
+### Changes in 1.0.0
 
-- Fixed more timing issues.
-- Addressed an issue with World 6's steam rendering improperly at higher internal resolutions.
-- Render distance override now handles foliage more gracefully. Landscapes and trees should look far less pixelated now.
+- Settings follows the current monitor’s display scale, including when you move the window between monitors. In narrow windows, the page list becomes a dropdown and buttons wrap.
+- Linux x86-64 now has a portable AppImage. Import your disc image once, then move or replace the AppImage while keeping your settings and saves.
 
 ### Known issues
 
@@ -62,7 +61,7 @@ OpenAI Codex and Anthropic Claude have assisted with development and research. C
 
 You need a Direct3D 11-capable graphics card and an XISO image of the **US Xbox release of Super Monkey Ball Deluxe**. A full raw-disc dump must first be converted to XISO. The executable is checked against [the supported-target registry](knowledge/supported_target.json).
 
-**[Download the 0.8.5 Windows installer](https://github.com/timftw21/smbd-recompilation/releases/download/v0.8.5/smbd-0.8.5-windows-x64-setup.exe)** · [Release notes and SHA-256 checksum](https://github.com/timftw21/smbd-recompilation/releases/tag/v0.8.5)
+**[Download the 1.0.0 Windows installer](https://github.com/timftw21/smbd-recompilation/releases/download/v1.0.0/smbd-1.0.0-windows-x64-setup.exe)** · [Release notes and SHA-256 checksum](https://github.com/timftw21/smbd-recompilation/releases/tag/v1.0.0)
 
 1. Run the installer and select your US Xbox XISO image.
 2. Choose an installation folder. You can keep a copy of the image with the game and create a desktop shortcut.
@@ -97,9 +96,9 @@ In **Game Files**, select your disc image and the prepared `data/local/default.x
 
 You need a Vulkan 1.4 driver and a distribution with glibc 2.38 and GCC 13.2's libstdc++ or newer, such as Ubuntu 24.04, Fedora 39, Debian 13, or a current Arch-based system.
 
-**[Download the 0.8.5 Linux installer](https://github.com/timftw21/smbd-recompilation/releases/download/v0.8.5/smbd-0.8.5-linux-x64-setup)** · [Release notes and SHA-256 checksum](https://github.com/timftw21/smbd-recompilation/releases/tag/v0.8.5)
+**[Download the 1.0.0 Linux installer](https://github.com/timftw21/smbd-recompilation/releases/download/v1.0.0/smbd-1.0.0-linux-x64-setup)** · [Release notes and SHA-256 checksum](https://github.com/timftw21/smbd-recompilation/releases/tag/v1.0.0)
 
-Allow the download to run as a program, either in your file manager's file properties or with `chmod +x smbd-0.8.5-linux-x64-setup`.
+Allow the download to run as a program, either in your file manager's file properties or with `chmod +x smbd-1.0.0-linux-x64-setup`.
 
 1. Open the installer and select your US Xbox XISO image. You can also drag the image onto the window.
 2. Choose an installation folder. You can keep a copy of the image with the game and create a desktop shortcut.
@@ -107,6 +106,20 @@ Allow the download to run as a program, either in your file manager's file prope
 4. Choose **Play game**, or launch it later from your application menu.
 
 The default installation is in `~/.local/share/Super Monkey Ball Deluxe`. The installer bundles the game's SDL3, DXVK Native, libpng and libjpeg libraries. It does not need Wine or Flatpak. The Steam Deck release path is still untested, so the source setup below remains the supported route there.
+
+#### Portable AppImage
+
+**[Download the 1.0.0 Linux AppImage](https://github.com/timftw21/smbd-recompilation/releases/download/v1.0.0/smbd-1.0.0-linux-x86_64.AppImage)** · [SHA-256 checksum](https://github.com/timftw21/smbd-recompilation/releases/download/v1.0.0/smbd-1.0.0-linux-x86_64.AppImage.sha256)
+
+Make the AppImage executable and import your US Xbox XISO once. Keep the disc image at the selected path. On subsequent launches, open the AppImage and choose **Play game**.
+
+```sh
+chmod +x smbd-1.0.0-linux-x86_64.AppImage
+./smbd-1.0.0-linux-x86_64.AppImage --import-disc "/path/to/game.xiso.iso"
+./smbd-1.0.0-linux-x86_64.AppImage
+```
+
+Settings, saves, and the verified game executable are stored under `~/.local/share/smbd-recompilation`, or under `$XDG_DATA_HOME/smbd-recompilation` if configured. You can move or replace the AppImage and keep this data. Build instructions are in [BUILDING.txt](BUILDING.txt).
 
 ### Building on Linux and Steam Deck
 

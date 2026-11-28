@@ -13,6 +13,7 @@
 #include <cmath>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <format>
 #include <iostream>
@@ -78,7 +79,11 @@ int run(int argc,char** argv,bool restarting=false) {
     const auto startup_started=std::chrono::steady_clock::now();
     std::uint64_t frame_limit=0,seconds=0,capture_at=1,performance_at=1,performance_frames=3600,motion_at=2600,motion_frames=120,benchmark_ticks=0,restart_at=0;
     std::filesystem::path capture,timeline,report,call_trace,frame_capture,storage,performance_output,motion_report;
-    const auto root=application_root();
+    const auto assets=application_root();
+    auto root=assets;
+#ifdef __linux__
+    if(const char* data=std::getenv("SMBD_DATA_DIR");data && *data) root=data;
+#endif
     std::filesystem::path settings_path=root/"data/local/settings.cfg",settings_capture,executable_override,disc_override;
     bool hidden=false,stop_after_input=false,muted=false,capture_at_set=false,performance_limits_set=false,trace_storage=false;
     std::vector<std::uint32_t> watches;
@@ -161,7 +166,7 @@ int run(int argc,char** argv,bool restarting=false) {
         throw std::runtime_error("Cannot enable background controller input for automation");
     Sdl sdl;
     startup_phase("SDL ready");
-    auto flags=SDL_WINDOW_RESIZABLE|(hidden?SDL_WINDOW_HIDDEN:0);
+    auto flags=SDL_WINDOW_RESIZABLE|SDL_WINDOW_HIGH_PIXEL_DENSITY|(hidden?SDL_WINDOW_HIDDEN:0);
 #ifndef _WIN32
     flags|=SDL_WINDOW_VULKAN;
 #endif
@@ -184,7 +189,7 @@ int run(int argc,char** argv,bool restarting=false) {
     renderer.attach_window(window.get());
     const bool automated=hidden || frame_limit || seconds || restart_at || !timeline.empty() || !frame_capture.empty() || !performance_output.empty();
     smbd::DiscordPresence presence(SMBD_DISCORD_APPLICATION_ID);
-    smbd::SettingsUi ui(window.get(),renderer,settings,settings_path,automated || !settings_capture.empty()?nullptr:&presence);
+    smbd::SettingsUi ui(window.get(),renderer,settings,settings_path,assets/"resources/smbd.png",automated || !settings_capture.empty()?nullptr:&presence);
     if(!settings_error.empty()) ui.message(settings_error);
     smbd::Xbox* running=nullptr;
     int active_aspect=settings.aspect;

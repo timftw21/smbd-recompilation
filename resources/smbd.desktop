@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Super Monkey Ball Deluxe
+Exec=smbd
+Icon=smbd
+Terminal=false
+Categories=Game;ArcadeGame;

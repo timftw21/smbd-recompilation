@@ -98,7 +98,11 @@ void fatal(int signal,siginfo_t* info,void* context) {
 }
 }
 void initialize_diagnostics() noexcept {
-    try {initialize_diagnostics(executable_path().parent_path()/"logs");} catch(...) {}
+    try {
+        const char* data=std::getenv("SMBD_DATA_DIR");
+        const auto root=data && *data?std::filesystem::path(data):executable_path().parent_path();
+        initialize_diagnostics(root/"logs");
+    } catch(...) {}
 }
 void initialize_diagnostics(const std::filesystem::path& directory) noexcept {
     if(log_file>=0) return;

@@ -2,6 +2,7 @@
 #include "discord.h"
 #include "file.h"
 #include "input.h"
+#include <imgui.h>
 #include <array>
 #include <deque>
 #include <functional>
@@ -12,7 +13,6 @@
 struct SDL_Window;
 union SDL_Event;
 struct ID3D11ShaderResourceView;
-struct ImFont;
 namespace smbd {
 class DiscordPresence;
 class Renderer;
@@ -37,7 +37,7 @@ struct Settings {
 };
 class SettingsUi {
 public:
-    SettingsUi(SDL_Window*,Renderer&,Settings&,std::filesystem::path,DiscordPresence* presence=nullptr);
+    SettingsUi(SDL_Window*,Renderer&,Settings&,std::filesystem::path,const std::filesystem::path& icon_path,DiscordPresence* presence=nullptr);
     ~SettingsUi();
     bool event(const SDL_Event&);
     void draw(bool playing,bool recording,double fps,const std::function<void()>& capture,const std::function<void()>& performance);
@@ -65,6 +65,7 @@ private:
     std::string files_message_;
     std::vector<int> refresh_rates_;
     float display_refresh_=0;
+    ImGuiStyle base_style_;
     float animation_=0;
     bool playing_=false,binding_controller_=false;
     ImFont* italic_font_=nullptr;
@@ -79,6 +80,7 @@ private:
 #endif
     void rebind(unsigned action,bool controller);
     void refresh_options();
+    void refresh_scale();
     void show_cursor();
     bool browse(std::array<char,2048>&,bool);
 };

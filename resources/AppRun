@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+appdir=$(dirname -- "$(readlink -f -- "$0")")
+case ${XDG_DATA_HOME:-} in
+    /*) data=$XDG_DATA_HOME ;;
+    *) data=${HOME:?}/.local/share ;;
+esac
+export SMBD_DATA_DIR="$data/smbd-recompilation"
+export LD_LIBRARY_PATH="$appdir/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export DXVK_LOG_PATH="${DXVK_LOG_PATH:-$SMBD_DATA_DIR/logs}"
+mkdir -p -- "$SMBD_DATA_DIR/logs"
+
+case ${1:-} in
+    --import-disc)
+        [ "$#" -eq 2 ] || { echo 'Usage: --import-disc /path/to/game.xiso.iso' >&2; exit 2; }
+        exec "$appdir/smbd-tool" install-files "$2" "$SMBD_DATA_DIR" ;;
+    --tool)
+        shift
+        exec "$appdir/smbd-tool" "$@" ;;
+esac
+exec "$appdir/smbd" "$@"

@@ -236,7 +236,7 @@ std::string check_presentation(const std::filesystem::path& directory,const std:
 }
 namespace {
 void help(const char* text) {
-    if(ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {ImGui::BeginTooltip();ImGui::PushTextWrapPos(370);ImGui::TextUnformatted(text);ImGui::PopTextWrapPos();ImGui::EndTooltip();}
+    if(ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {ImGui::BeginTooltip();ImGui::PushTextWrapPos(370*ImGui::GetStyle().FontScaleDpi);ImGui::TextUnformatted(text);ImGui::PopTextWrapPos();ImGui::EndTooltip();}
 }
 void label(const char* text) {ImGui::Spacing();ImGui::TextUnformatted(text);ImGui::SetNextItemWidth(-1);}
 Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> ui_texture(Renderer& renderer,const Image& image) {
@@ -260,17 +260,18 @@ Image wood_grain() {
 }
 void wooden_panel(ID3D11ShaderResourceView* wood,bool inset) {
     const auto pos=ImGui::GetWindowPos(),size=ImGui::GetWindowSize();const ImVec2 end{pos.x+size.x,pos.y+size.y};
-    auto* draw=ImGui::GetWindowDrawList();const float radius=inset?8.0f:12.0f;
-    draw->PushClipRect({pos.x-5,pos.y-5},{end.x+8,end.y+8},false);
-    draw->AddRectFilled({pos.x+3,pos.y+4},{end.x+3,end.y+4},IM_COL32(12,7,2,150),radius);
+    const float scale=ImGui::GetStyle().FontScaleDpi;
+    auto* draw=ImGui::GetWindowDrawList();const float radius=(inset?8.0f:12.0f)*scale;
+    draw->PushClipRect({pos.x-5*scale,pos.y-5*scale},{end.x+8*scale,end.y+8*scale},false);
+    draw->AddRectFilled({pos.x+3*scale,pos.y+4*scale},{end.x+3*scale,end.y+4*scale},IM_COL32(12,7,2,150),radius);
     draw->AddImageRounded(reinterpret_cast<ImTextureID>(wood),pos,end,{0,0},{1,1},inset?IM_COL32(153,139,118,255):IM_COL32_WHITE,radius);
-    draw->AddRect(pos,end,IM_COL32(183,129,51,255),radius,2.0f);
-    draw->AddRect({pos.x+3,pos.y+3},{end.x-3,end.y-3},IM_COL32(61,36,13,255),radius-2,2.0f);
-    draw->AddLine({pos.x+8,pos.y+2},{end.x-8,pos.y+2},IM_COL32(236,188,100,255));
+    draw->AddRect(pos,end,IM_COL32(183,129,51,255),radius,2*scale);
+    draw->AddRect({pos.x+3*scale,pos.y+3*scale},{end.x-3*scale,end.y-3*scale},IM_COL32(61,36,13,255),radius-2*scale,2*scale);
+    draw->AddLine({pos.x+8*scale,pos.y+2*scale},{end.x-8*scale,pos.y+2*scale},IM_COL32(236,188,100,255),scale);
     draw->PopClipRect();
 }
 }
-SettingsUi::SettingsUi(SDL_Window* window,Renderer& renderer,Settings& settings,std::filesystem::path path,DiscordPresence* presence):
+SettingsUi::SettingsUi(SDL_Window* window,Renderer& renderer,Settings& settings,std::filesystem::path path,const std::filesystem::path& icon_path,DiscordPresence* presence):
     window_(window),renderer_(renderer),settings_(settings),presence_(presence),path_(std::move(path)) {
     refresh_options();
     IMGUI_CHECKVERSION();ImGui::CreateContext();auto& io=ImGui::GetIO();
@@ -302,6 +303,8 @@ SettingsUi::SettingsUi(SDL_Window* window,Renderer& renderer,Settings& settings,
     c[ImGuiCol_ScrollbarBg]={.12f,.065f,.02f,1};c[ImGuiCol_ScrollbarGrab]={.48f,.31f,.12f,1};
     c[ImGuiCol_ScrollbarGrabHovered]={.66f,.45f,.18f,1};c[ImGuiCol_ScrollbarGrabActive]={.79f,.57f,.23f,1};
     c[ImGuiCol_TableHeaderBg]={.25f,.15f,.06f,1};c[ImGuiCol_TableBorderStrong]={.50f,.33f,.13f,1};c[ImGuiCol_TableBorderLight]={.38f,.25f,.10f,1};
+    base_style_=style;
+    refresh_scale();
 #ifdef _WIN32
     const bool platform_ready=ImGui_ImplSDL3_InitForD3D(window);
 #else
@@ -311,7 +314,7 @@ SettingsUi::SettingsUi(SDL_Window* window,Renderer& renderer,Settings& settings,
         throw std::runtime_error("Cannot initialize the settings menu");
     wood_=ui_texture(renderer,wood_grain());
     try {
-        const auto icon=load_image(settings_.root/"resources/smbd.png");
+        const auto icon=load_image(icon_path);
         icon_=ui_texture(renderer,icon);
         icon_aspect_=float(icon.width)/icon.height;
         auto* surface=SDL_CreateSurfaceFrom(static_cast<int>(icon.width),static_cast<int>(icon.height),SDL_PIXELFORMAT_RGBA32,
@@ -320,6 +323,17 @@ SettingsUi::SettingsUi(SDL_Window* window,Renderer& renderer,Settings& settings,
     } catch(const std::exception& error) {message(error.what());}
 }
 SettingsUi::~SettingsUi() {show_cursor();ImGui_ImplDX11_Shutdown();ImGui_ImplSDL3_Shutdown();ImGui::DestroyContext();}
+void SettingsUi::refresh_scale() {
+    const float display=SDL_GetWindowDisplayScale(window_),density=SDL_GetWindowPixelDensity(window_);
+    if(!(display>0 && density>0)) return;
+    // ImGui's SDL backend already converts window coordinates to framebuffer pixels.
+    const float scale=display/density;
+    auto& style=ImGui::GetStyle();
+    if(!std::isfinite(scale) || scale==style.FontScaleDpi) return;
+    style=base_style_;
+    style.ScaleAllSizes(scale);
+    style.FontScaleDpi=scale;
+}
 void SettingsUi::show_cursor() {
     mouse_activity_=SDL_GetTicks();
     if(cursor_hidden_) {
@@ -350,6 +364,9 @@ void SettingsUi::rebind(unsigned action,bool controller) {
 }
 bool SettingsUi::event(const SDL_Event& event) {
     switch(event.type) {
+    case SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED:case SDL_EVENT_WINDOW_DISPLAY_CHANGED:case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+        if(event.window.windowID==SDL_GetWindowID(window_)) refresh_scale();
+        break;
     case SDL_EVENT_MOUSE_MOTION:case SDL_EVENT_MOUSE_BUTTON_DOWN:case SDL_EVENT_MOUSE_BUTTON_UP:case SDL_EVENT_MOUSE_WHEEL:
     case SDL_EVENT_WINDOW_MOUSE_ENTER:case SDL_EVENT_WINDOW_MOUSE_LEAVE:case SDL_EVENT_WINDOW_FOCUS_GAINED:case SDL_EVENT_WINDOW_FOCUS_LOST:
     case SDL_EVENT_WINDOW_HIDDEN:case SDL_EVENT_WINDOW_MINIMIZED:show_cursor();break;
@@ -476,34 +493,51 @@ void SettingsUi::draw(bool playing,bool recording,double fps,const std::function
     }
 #endif
     const bool was_fullscreen=settings_.fullscreen;
+    const float scale=ImGui::GetStyle().FontScaleDpi;
     if(animation_>0) {
-        const auto* viewport=ImGui::GetMainViewport();const auto width=std::min(1000.0f,viewport->WorkSize.x-24),height=std::min(690.0f,viewport->WorkSize.y-24);
+        const auto* viewport=ImGui::GetMainViewport();
+        const float width=std::max(1.0f,std::min(1000*scale,viewport->WorkSize.x-24*scale));
+        const float height=std::max(1.0f,std::min(690*scale,viewport->WorkSize.y-24*scale));
         center={viewport->WorkPos.x+viewport->WorkSize.x/2,viewport->WorkPos.y+viewport->WorkSize.y/2};
         ImGui::SetNextWindowPos({viewport->WorkPos.x+(viewport->WorkSize.x-width)/2,viewport->WorkPos.y+(viewport->WorkSize.y-height)/2});
         ImGui::SetNextWindowSize({width,height});
-        ImGui::Begin("Super Monkey Ball Deluxe settings",nullptr,ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoSavedSettings);
+        ImGui::Begin("Super Monkey Ball Deluxe settings",nullptr,ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoResize|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoSavedSettings);
         wooden_panel(wood_.Get(),false);ImGui::PushStyleVar(ImGuiStyleVar_DisabledAlpha,1.0f);
         ImGui::BeginDisabled(!show || animation_<1);ImGui::PopStyleVar();
-        constexpr float icon_height=48;
+        const float icon_height=48*scale;
         const float header_bottom=ImGui::GetCursorPosY()+(icon_?icon_height:ImGui::GetTextLineHeight());
         if(icon_) {
             ImGui::Image(reinterpret_cast<ImTextureID>(icon_.Get()),{icon_height*icon_aspect_,icon_height});ImGui::SameLine();
         }
         constexpr const char* save_hint="Changes save automatically";
         ImGui::PushFont(italic_font_,0);
-        ImGui::SetCursorPosY(header_bottom-ImGui::GetTextLineHeight());
+        if(icon_ && ImGui::GetContentRegionAvail().x<ImGui::CalcTextSize(save_hint).x) ImGui::NewLine();
+        else ImGui::SetCursorPosY(header_bottom-ImGui::GetTextLineHeight());
         ImGui::SetCursorPosX(ImGui::GetCursorPosX()+std::max(0.0f,ImGui::GetContentRegionAvail().x-ImGui::CalcTextSize(save_hint).x));
         ImGui::TextDisabled("%s",save_hint);
         ImGui::PopFont();
         ImGui::Separator();
         constexpr const char* pages[]={"Game Files","General","Audio","Graphics","Enhancements","Controls","Diagnostics"};
-        const auto content=ImGui::GetContentRegionAvail();
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,ImVec2{12,16});
-        ImGui::BeginChild("Navigation",{170,content.y-56},ImGuiChildFlags_Borders);ImGui::PopStyleVar();
-        wooden_panel(wood_.Get(),true);
-        for(int i=0;i<7;++i) if(ImGui::Selectable(pages[i],category==i,0,{0,40})) {category=i;binding_action_=-1;}
-        ImGui::EndChild();ImGui::SameLine();
-        ImGui::BeginChild("Page",{0,content.y-56},ImGuiChildFlags_Borders);
+        const float content_width=std::max(1.0f,ImGui::GetContentRegionAvail().x);
+        const bool sidebar=content_width>=660*scale;
+        if(!sidebar) {
+            ImGui::SetNextItemWidth(-1);
+            if(ImGui::Combo("##Settings page",&category,pages,7)) binding_action_=-1;
+        }
+        const float button_width=std::min(170*scale,content_width);
+        const float spacing=ImGui::GetStyle().ItemSpacing.x;
+        const int actions=playing?4:3;
+        const int actions_per_row=std::clamp(int((content_width+spacing)/(button_width+spacing)),1,actions);
+        const int rows=(actions+actions_per_row-1)/actions_per_row;
+        const float page_height=std::max(120*scale,ImGui::GetContentRegionAvail().y-56*scale-(rows-1)*ImGui::GetFrameHeightWithSpacing());
+        if(sidebar) {
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,ImVec2{12*scale,16*scale});
+            ImGui::BeginChild("Navigation",{170*scale,page_height},ImGuiChildFlags_Borders);ImGui::PopStyleVar();
+            wooden_panel(wood_.Get(),true);
+            for(int i=0;i<7;++i) if(ImGui::Selectable(pages[i],category==i,0,{0,40*scale})) {category=i;binding_action_=-1;}
+            ImGui::EndChild();ImGui::SameLine();
+        }
+        ImGui::BeginChild("Page",{0,page_height},ImGuiChildFlags_Borders);
         wooden_panel(wood_.Get(),true);
         ImGui::PushFont(nullptr,26);ImGui::TextColored({1,.83f,.32f,1},"%s",pages[category]);ImGui::PopFont();
         ImGui::Separator();ImGui::Spacing();
@@ -511,14 +545,14 @@ void SettingsUi::draw(bool playing,bool recording,double fps,const std::function
             switch(category) {
             case 0:
                 ImGui::BeginDisabled(playing);
-                label("Game executable");ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x-106);
+                label("Game executable");ImGui::SetNextItemWidth(std::max(1.0f,ImGui::GetContentRegionAvail().x-94*scale-spacing));
                 changed|=ImGui::InputText("##Executable",settings_.executable.data(),settings_.executable.size());
                 help("The supported US Xbox game executable (default.xbe).");
-                ImGui::SameLine();if(ImGui::Button("Browse##executable",{94,0})) changed|=browse(settings_.executable,false);
-                label("Game disc image");ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x-106);
+                ImGui::SameLine();if(ImGui::Button("Browse##executable",{94*scale,0})) changed|=browse(settings_.executable,false);
+                label("Game disc image");ImGui::SetNextItemWidth(std::max(1.0f,ImGui::GetContentRegionAvail().x-94*scale-spacing));
                 changed|=ImGui::InputText("##Disc",settings_.disc.data(),settings_.disc.size());
                 help("Your US Xbox XISO disc image. Game files are read directly from it.");
-                ImGui::SameLine();if(ImGui::Button("Browse##disc",{94,0})) changed|=browse(settings_.disc,true);
+                ImGui::SameLine();if(ImGui::Button("Browse##disc",{94*scale,0})) changed|=browse(settings_.disc,true);
                 if(changed) files_message_.clear();
                 ImGui::EndDisabled();ImGui::Spacing();
                 ImGui::TextWrapped("Use the US Xbox release of Super Monkey Ball Deluxe. Select default.xbe and its XISO disc image.");
@@ -596,10 +630,15 @@ void SettingsUi::draw(bool playing,bool recording,double fps,const std::function
                 ImGui::Spacing();changed|=ImGui::Checkbox("Upscaled FMVs",&settings_.upscaled_movies);
                 help("Enlarges the game's 640 x 480 movies to the internal resolution in real time with edge-aware filtering and light sharpening, instead of plain stretching. Requires an internal resolution of 2x or higher. Applies from the next movie frame.");
                 const float gap=ImGui::GetFontSize()*2;
-                ImGui::SameLine(0,gap);
+                const auto beside_checkbox=[gap](const char* text) {
+                    ImGui::SameLine(0,gap);
+                    const float width=ImGui::GetFrameHeight()+ImGui::GetStyle().ItemInnerSpacing.x+ImGui::CalcTextSize(text).x;
+                    if(ImGui::GetContentRegionAvail().x<width) ImGui::NewLine();
+                };
+                beside_checkbox("Upscaled HUD");
                 changed|=ImGui::Checkbox("Upscaled HUD",&settings_.upscaled_hud);
                 help("Enlarges HUD, menu and text artwork once per image with the Real-ESRGAN AI upscaler, or with smooth filtering for glows and very small images, in the background on your GPU. Requires an internal resolution of 2x or higher. Applies immediately; artwork sharpens within moments of first appearing.");
-                ImGui::SameLine(0,gap);
+                beside_checkbox("Corrected subtitles");
                 changed|=ImGui::Checkbox("Corrected subtitles",&settings_.corrected_subtitles);
                 help("Fixes typos, punctuation and leftover Japanese characters in the English story and ending subtitles. Character voices, timing and layout stay as in the original. Applies from the next cutscene.");
                 if((settings_.upscaled_movies || settings_.upscaled_hud) && settings_.resolution<2) {
@@ -627,10 +666,10 @@ void SettingsUi::draw(bool playing,bool recording,double fps,const std::function
                 const auto& style=ImGui::GetStyle();
                 ImGui::PushStyleVar(ImGuiStyleVar_CellPadding,ImVec2{style.FramePadding.x,style.CellPadding.y});
                 constexpr auto table_flags=ImGuiTableFlags_RowBg|ImGuiTableFlags_BordersInnerH|ImGuiTableFlags_PadOuterX;
-                const auto columns=[] {
+                const auto columns=[scale] {
                     ImGui::TableSetupColumn("Action",ImGuiTableColumnFlags_WidthStretch,.9f);
                     ImGui::TableSetupColumn("Binding",ImGuiTableColumnFlags_WidthStretch,1.1f);
-                    ImGui::TableSetupColumn("",ImGuiTableColumnFlags_WidthFixed,64);
+                    ImGui::TableSetupColumn("",ImGuiTableColumnFlags_WidthFixed,64*scale);
                 };
                 // Only the rows scroll; reserve the same scrollbar width in the fixed header.
                 ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,ImVec2{style.ItemSpacing.x,0});
@@ -638,7 +677,8 @@ void SettingsUi::draw(bool playing,bool recording,double fps,const std::function
                     columns();ImGui::TableHeadersRow();ImGui::EndTable();
                 }
                 ImGui::PopStyleVar();
-                if(ImGui::BeginChild("Binding rows",{0,0},ImGuiChildFlags_None,ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
+                const float binding_height=std::max(ImGui::GetContentRegionAvail().y,3*ImGui::GetFrameHeightWithSpacing());
+                if(ImGui::BeginChild("Binding rows",{0,binding_height},ImGuiChildFlags_None,ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
                     if(ImGui::BeginTable("Bindings",3,table_flags)) {
                         columns();
                         for(unsigned i=0;i<control_actions.size();++i) {
@@ -669,15 +709,20 @@ void SettingsUi::draw(bool playing,bool recording,double fps,const std::function
         ImGui::EndChild();ImGui::Separator();
         ImGui::PushStyleColor(ImGuiCol_Text,ImVec4{.12f,.12f,.035f,1});ImGui::PushStyleColor(ImGuiCol_Button,ImVec4{1,.8f,.12f,1});
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered,ImVec4{1,.88f,.25f,1});ImGui::PushStyleColor(ImGuiCol_ButtonActive,ImVec4{.95f,.7f,.05f,1});
-        if(ImGui::Button(playing?"Close settings":"Play game",{170,0})) {if(playing) {visible=false;binding_action_=-1;} else launch=true;}
-        ImGui::PopStyleColor(4);ImGui::SameLine();
-        if(playing) {if(ImGui::Button("Restart game",{170,0})) restart=true;ImGui::SameLine();}
-        if(ImGui::Button("Restore defaults",{170,0})) {settings_=Settings(settings_.root);files_message_.clear();binding_action_=-1;changed=true;message("Default settings restored.");}
-        ImGui::SameLine();if(ImGui::Button("Exit game",{170,0})) quit=true;
+        int action=0;
+        const auto action_button=[&](const char* text) {
+            if(action++%actions_per_row) ImGui::SameLine();
+            return ImGui::Button(text,{button_width,0});
+        };
+        if(action_button(playing?"Close settings":"Play game")) {if(playing) {visible=false;binding_action_=-1;} else launch=true;}
+        ImGui::PopStyleColor(4);
+        if(playing && action_button("Restart game")) restart=true;
+        if(action_button("Restore defaults")) {settings_=Settings(settings_.root);files_message_.clear();binding_action_=-1;changed=true;message("Default settings restored.");}
+        if(action_button("Exit game")) quit=true;
         ImGui::EndDisabled();ImGui::End();
     }
     if(settings_.show_fps || recording) {
-        const auto* viewport=ImGui::GetMainViewport();ImGui::SetNextWindowPos({viewport->WorkPos.x+viewport->WorkSize.x-12,viewport->WorkPos.y+12},ImGuiCond_Always,{1,0});
+        const auto* viewport=ImGui::GetMainViewport();ImGui::SetNextWindowPos({viewport->WorkPos.x+viewport->WorkSize.x-12*scale,viewport->WorkPos.y+12*scale},ImGuiCond_Always,{1,0});
         ImGui::SetNextWindowBgAlpha(.8f);ImGui::Begin("Status",nullptr,ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_AlwaysAutoResize|ImGuiWindowFlags_NoNav|ImGuiWindowFlags_NoInputs);
         status_draw=ImGui::GetWindowDrawList();
         if(settings_.show_fps) ImGui::Text("%.1f FPS",playing?fps:ImGui::GetIO().Framerate);

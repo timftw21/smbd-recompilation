@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
-# Builds the Linux x86-64 release installer, the counterpart of tools/Package.ps1.
+# Builds the Linux x86-64 release installer or portable AppImage.
 set -euo pipefail
 export LC_ALL=C
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 usage() {
-    echo 'Usage: bash tools/Package.sh [--output DIR] /path/to/game.xiso.iso | --skip-build [--output DIR]' >&2
+    echo 'Usage: bash tools/Package.sh [--appimage] [--output DIR] (DISC | --skip-build)' >&2
     exit 1
 }
 [[ $(uname -s):$(uname -m) == Linux:x86_64 ]] || { echo 'Linux packaging requires Linux x86-64.' >&2; exit 1; }
-skip_build=0 output="$root/build/release" input=
+skip_build=0 appimage=0 output="$root/build/release" input=
 while (( $# )); do
     case $1 in
         --skip-build) skip_build=1 ;;
+        --appimage) appimage=1 ;;
         --output) (( $# > 1 )) || usage; output=$2; shift ;;
         -*) usage ;;
         *) [[ -z $input ]] || usage; input=$1 ;;
@@ -29,7 +30,6 @@ smbd_sha256() { sha256sum -- "$1" | cut -d' ' -f1; }
 workers=${SMBD_BUILD_WORKERS:-1}
 [[ $workers =~ ^[123]$ ]] || { echo 'SMBD_BUILD_WORKERS must be 1, 2 or 3.' >&2; exit 1; }
 source cmake/cmake-linux.sh
-source cmake/posix-dependencies.sh
 build_directory=${SMBD_BUILD_DIRECTORY:-"$root/build/linux"}
 [[ -x $build_directory/Release/smbd && -x $build_directory/Release/smbd-tool ]] || {
     echo 'Build the game first with Build.sh, or omit --skip-build.' >&2; exit 1;
@@ -89,6 +89,36 @@ mapfile -d '' -t elves < <(find "$stage" -path "$stage/licenses" -prune -o -type
 floor() { for elf in "${elves[@]}"; do objdump -T -- "$elf"; done | { grep -o "$1" || true; } | sort -uV | tail -n1; }
 glibc=$(floor 'GLIBC_2\.[0-9.]*[0-9]') libstdcxx=$(floor 'GLIBCXX_3\.4\.[0-9]*')
 
+version=$(sed -n 's/^project(smbd VERSION \([0-9.]*\) .*/\1/p' CMakeLists.txt)
+[[ $version =~ ^[0-9]+(\.[0-9]+)+$ ]] || { echo 'Cannot determine the release version.' >&2; exit 1; }
+if (( appimage )); then
+    command -v mksquashfs >/dev/null || { echo 'Install squashfs-tools to build the AppImage.' >&2; exit 1; }
+    runtime="$root/build/deps/appimage-runtime-20251108-x86_64"
+    digest=2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
+    image="$output/smbd-$version-linux-x86_64.AppImage"
+    temporary=$(mktemp -- "$image.XXXXXXXX")
+    trap 'rm -rf -- "$stage"; rm -f -- "$temporary"' EXIT
+    if [[ ! -f $runtime || $(smbd_sha256 "$runtime") != "$digest" ]]; then
+        mkdir -p -- "$(dirname -- "$runtime")"
+        curl -fL --retry 2 https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64 -o "$temporary"
+        [[ $(smbd_sha256 "$temporary") == "$digest" ]] || { echo 'AppImage runtime checksum mismatch.' >&2; exit 1; }
+        install -m 0644 -- "$temporary" "$runtime"
+    fi
+    install -m 0755 resources/AppRun "$stage/AppRun"
+    install -m 0644 resources/smbd.desktop "$stage/smbd.desktop"
+    ln -s resources/smbd.png "$stage/smbd.png"
+    ln -s smbd.png "$stage/.DirIcon"
+    # The type-2 runtime finds SquashFS immediately after its own ELF image.
+    mksquashfs "$stage" "$temporary" -noappend -all-root -comp zstd -processors "$workers" \
+        -offset "$(stat -c %s -- "$runtime")" -no-progress
+    dd if="$runtime" of="$temporary" conv=notrunc status=none
+    chmod 0755 "$temporary"
+    mv -f -- "$temporary" "$image"
+    (cd -- "$output" && sha256sum -- "${image##*/}") > "$image.sha256"
+    echo "AppImage ready: $image (game needs ${glibc:-glibc} and ${libstdcxx:-libstdc++})"
+    exit 0
+fi
+
 mapfile -d '' -t files < <(cd -- "$stage" && find . -type f -printf '%P\0' | LC_ALL=C sort -z)
 (( ${#files[@]} > 0 && ${#files[@]} <= 128 )) || { echo 'The release must contain 1..128 files.' >&2; exit 1; }
 manifest=$'SMBD-PAYLOAD-V1\n' payload_bytes=0
@@ -115,12 +145,11 @@ else
 fi
 
 # Setup links a static SDL, so it builds in its own tree beside the game's.
+source cmake/posix-dependencies.sh
 setup_directory="$build_directory/setup"
 cmake --preset linux -B "$setup_directory" -DSMBD_BATCH= -DSMBD_SHADER_BANK= \
     "-DSMBD_INSTALLER_PAYLOAD=$payload" "-DSMBD_INSTALLER_MANIFEST=$manifest_path" "-DSMBD_BUILD_WORKERS=$workers" > "$package/configure.log" || { tail -n 40 -- "$package/configure.log" >&2; exit 1; }
 cmake --build "$setup_directory" --config Release --parallel "$workers" --target smbd-setup
-version=$(sed -n 's/^project(smbd VERSION \([0-9.]*\) .*/\1/p' CMakeLists.txt)
-[[ $version =~ ^[0-9]+(\.[0-9]+)+$ ]] || { echo 'Cannot determine the release version.' >&2; exit 1; }
 name="smbd-$version-linux-x64-setup"
 installer="$output/$name"
 cp -f -- "$setup_directory/Release/smbd-setup" "$installer.tmp"
